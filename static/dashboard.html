@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - FloodGuard AI</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2 style="margin-bottom: 48px;">FloodGuard AI</h2>
+        <nav style="display: flex; flex-direction: column; gap: 16px;">
+            <a href="/static/dashboard.html" style="font-weight: bold; color: var(--primary); text-decoration: none;">Dashboard</a>
+            <a href="/static/map.html" style="color: var(--on-surface-variant); text-decoration: none;">Mapa de Risco</a>
+            <a href="#" onclick="logout()" style="color: var(--error); text-decoration: none; margin-top: auto;">Sair</a>
+        </nav>
+    </div>
+    <div class="main-content">
+        <div class="flex-between" style="margin-bottom: 32px;">
+            <h2>Visão Geral do Sistema</h2>
+        </div>
+        <div class="grid grid-4" style="margin-bottom: 32px;">
+            <div class="card"><h3>Sensores</h3><p id="stat-sensors" class="display-lg">0</p></div>
+            <div class="card"><h3>Alertas</h3><p id="stat-alerts" class="display-lg" style="color: var(--error)">0</p></div>
+            <div class="card"><h3>Zonas Críticas</h3><p id="stat-critical" class="display-lg" style="color: var(--warning)">0</p></div>
+            <div class="card"><h3>Zonas em Alerta</h3><p id="stat-warning" class="display-lg" style="color: var(--info)">0</p></div>
+        </div>
+        <div class="card">
+            <h3>Resumo de Risco</h3>
+            <div id="risk-list" style="margin-top: 16px;"></div>
+        </div>
+    </div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

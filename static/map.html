@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Mapa de Risco - FloodGuard AI</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        .map-overlay { position: absolute; z-index: 1000; background: var(--card-bg); border-radius: var(--radius-md); box-shadow: var(--shadow-soft); padding: 16px; }
+        .top-bar { top: 24px; left: 24px; display: flex; gap: 16px; align-items: center; }
+        .legend { bottom: 24px; right: 24px; }
+        .color-box { width: 16px; height: 16px; display: inline-block; margin-right: 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="map-overlay top-bar">
+        <h3 style="margin: 0; padding-right: 16px; border-right: 1px solid var(--border-color);">FloodGuard AI</h3>
+        <a href="/static/dashboard.html" class="btn" style="padding: 8px 16px;">Voltar ao Dashboard</a>
+    </div>
+    
+    <div class="map-overlay legend">
+        <h4 style="margin-bottom: 8px;">Níveis de Risco</h4>
+        <div style="margin-bottom: 4px;"><span class="color-box chip-baixo"></span> Baixo</div>
+        <div style="margin-bottom: 4px;"><span class="color-box chip-moderado"></span> Moderado</div>
+        <div style="margin-bottom: 4px;"><span class="color-box chip-alto"></span> Alto</div>
+        <div><span class="color-box chip-critico"></span> Crítico</div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/map.js"></script>
+</body>
+</html>

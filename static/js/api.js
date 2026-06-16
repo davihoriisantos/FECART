@@ -1,0 +1,32 @@
+const API = {
+  baseUrl: '',
+  
+  getToken() { return localStorage.getItem('floodguard_token'); },
+  
+  async request(endpoint, options = {}) {
+    const token = this.getToken();
+    const headers = { 'Content-Type': 'application/json', ...options.headers };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    const response = await fetch(`${this.baseUrl}${endpoint}`, { ...options, headers });
+    
+    if (response.status === 401) {
+      localStorage.removeItem('floodguard_token');
+      if (window.location.pathname !== '/static/login.html' && window.location.pathname !== '/static/index.html' && window.location.pathname !== '/') {
+          window.location.href = '/static/login.html';
+      }
+      return;
+    }
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Erro desconhecido' }));
+      throw new Error(error.detail || 'Erro na requisição');
+    }
+    
+    return response.json();
+  },
+  
+  get(endpoint) { return this.request(endpoint); },
+  post(endpoint, data) { return this.request(endpoint, { method: 'POST', body: JSON.stringify(data) }); },
+  patch(endpoint, data) { return this.request(endpoint, { method: 'PATCH', body: JSON.stringify(data) }); },
+};
