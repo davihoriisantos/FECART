@@ -2,27 +2,183 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>FloodGuard AI - Previsão de Enchentes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FloodGuard AI - Inteligência Artificial para Salvar Vidas em Enchentes</title>
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-    <header>
-        <div class="container flex-between">
-            <h2>FloodGuard AI</h2>
-            <nav>
-                <a href="#como-funciona" class="nav-link">Como Funciona</a>
-                <a href="/static/map.html" class="nav-link">Mapa de Risco</a>
-                <a href="/static/login.html" class="btn btn-primary" style="margin-left: 24px;">Acessar Sistema</a>
+    <!-- Site Header / Navigation Menu -->
+    <header class="site-header">
+        <div class="container header-wrapper">
+            <a href="/" class="logo-brand">
+                <div class="logo-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        <path d="m9 12 2 2 4-4"/>
+                    </svg>
+                </div>
+                <div class="logo-text">FloodGuard <span>AI</span></div>
+            </a>
+            
+            <div class="ai-badge">
+                <span class="ai-badge-pulse"></span>
+                IA Salva-Vidas Ativa
+            </div>
+
+            <nav class="main-nav">
+                <a href="/" class="nav-link active">Início</a>
+                <a href="#clima-ao-vivo" class="nav-link">Chuva Ao Vivo</a>
+                <a href="#demo-fecart" class="nav-link">Simulador FECART</a>
+                <a href="#citacao" class="nav-link">Nossa Missão</a>
+                <a href="/static/map.html" class="nav-link">Mapa ao Vivo</a>
             </nav>
+
+            <div class="header-actions">
+                <a href="/static/login.html" class="btn btn-primary">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                        <polyline points="10 17 15 12 10 7"/>
+                        <line x1="15" y1="12" x2="3" y2="12"/>
+                    </svg>
+                    Acessar Sistema
+                </a>
+            </div>
         </div>
     </header>
+
+    <!-- Hero Section -->
     <section class="hero container">
-        <h1 class="display-lg">Prevendo enchentes, <span style="color: var(--secondary)">protegendo vidas.</span></h1>
-        <p style="font-size: 18px; max-width: 600px; margin: 0 auto 32px;">Uma plataforma baseada em Inteligência Artificial para antecipar alagamentos antes que eles ocorram.</p>
-        <div class="flex-center" style="gap: 16px;">
-            <a href="/static/map.html" class="btn btn-primary">Ver Mapa Ao Vivo</a>
-            <a href="#como-funciona" class="btn btn-primary" style="background: var(--card-bg); color: var(--primary); border: 1px solid var(--border-color);">Conhecer a Tecnologia</a>
+        <div class="hero-pill">
+            <span>🛡️ TECNOLOGIA PREDITIVA DE ALTO IMPACTO</span>
+        </div>
+        <h1 class="hero-title">
+            Prevenindo Enchentes.<br>
+            <span class="gradient-text">Salvando Vidas com IA em Tempo Real.</span>
+        </h1>
+        <p class="hero-subtitle">
+            Uma plataforma de Inteligência Artificial de alta precisão projetada para monitorar rios, solo e chuvas, antecipando alagamentos antes que eles ocorram para proteger você e sua família.
+        </p>
+        
+        <div class="flex-center" style="gap: 16px; margin-bottom: 50px;">
+            <a href="/static/map.html" class="btn btn-primary" style="padding: 16px 36px; font-size: 16px;">
+                🗺️ Ver Mapa de Risco ao Vivo
+            </a>
+            <a href="#demo-fecart" class="btn btn-outline" style="padding: 16px 32px; font-size: 16px;">
+                🧪 Testar Simulador FECART
+            </a>
+        </div>
+
+        <!-- Open-Meteo Live Weather & Rain Banner -->
+        <div id="clima-ao-vivo" class="card" style="margin-bottom: 60px; padding: 32px; border-color: rgba(56, 189, 248, 0.3); background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.5));">
+            <div class="flex-between" style="margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="font-size: 28px;">🌧️</div>
+                    <div style="text-align: left;">
+                        <h3 style="font-size: 20px; font-weight: 800; color: #FFFFFF;">Dados de Chuva e Clima em Tempo Real</h3>
+                        <p style="font-size: 14px; color: var(--text-muted);">Cidade de São Paulo, SP • Fonte Gratuita: <strong>Open-Meteo API</strong></p>
+                    </div>
+                </div>
+                <div class="ai-badge" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: var(--accent-cyan);">
+                    <span class="ai-badge-pulse" style="background: var(--accent-cyan);"></span>
+                    <span id="om-time">Sincronizando...</span>
+                </div>
+            </div>
+
+            <div class="grid grid-4" style="text-align: left; margin-bottom: 24px;">
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">💧 Chuva Acumulada</div>
+                    <div id="om-rain-acc" style="font-size: 32px; font-weight: 800; color: var(--accent-cyan);">-- mm</div>
+                </div>
+                
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">🎯 Probabilidade de Chuva</div>
+                    <div id="om-rain-prob" style="font-size: 32px; font-weight: 800; color: var(--warning);">-- %</div>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">🌡️ Temperatura Atual</div>
+                    <div id="om-temp" style="font-size: 32px; font-weight: 800; color: #FFFFFF;">-- °C</div>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">🌬️ Umidade / Vento</div>
+                    <div style="font-size: 20px; font-weight: 700; color: var(--accent-emerald); margin-top: 6px;">
+                        <span id="om-humidity">--%</span> • <span id="om-wind">-- km/h</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Banner Dinâmico de Regra de Alerta -->
+            <div id="om-alert-banner"></div>
+
+            <!-- Painel de Botões de Demonstração FECART -->
+            <div id="demo-fecart" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--glass-border); text-align: left;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                    <span style="font-size: 20px;">🧪</span>
+                    <h4 style="font-size: 16px; font-weight: 800; color: #FFFFFF;">Modo de Demonstração para a FECART (Simulação de Cenários):</h4>
+                </div>
+                
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button type="button" onclick="simularCenario(3.5, 'Dia Ensolarado', 28, 10)" class="btn" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); color: #6EE7B7; font-size: 14px;">
+                        ☀️ Simular Dia Ensolarado (<10mm)
+                    </button>
+                    
+                    <button type="button" onclick="simularCenario(18.5, 'Chuva Moderada', 21, 75)" class="btn" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE047; font-size: 14px;">
+                        🌧️ Simular Chuva Moderada (10-30mm)
+                    </button>
+                    
+                    <button type="button" onclick="simularCenario(42.0, 'Tempestade Forte', 19, 98)" class="btn" style="background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.6); color: #FCA5A5; font-size: 14px;">
+                        ⚡ Simular Tempestade Forte (>30mm)
+                    </button>
+
+                    <button type="button" onclick="restaurarDadosReais()" class="btn btn-outline" style="font-size: 14px;">
+                        🔄 Restaurar Dados Reais
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quote Card ("Citação Estética Salva-Vidas") -->
+        <div id="citacao" class="quote-wrapper">
+            <div class="quote-card">
+                <div class="quote-tag">
+                    ✨ TECNOLOGIA PREDITIVA QUE FAZ A DIFERENÇA
+                </div>
+                <blockquote class="quote-body">
+                    "Em momentos onde minutos definem destinos, a tecnologia não deve apenas observar — ela precisa proteger. Nossa Inteligência Artificial prevê o avanço das enchentes com horas de antecedência, dando às famílias e equipes de resgate o tempo crucial para agir e salvar o que é insubstituível: a vida humana."
+                </blockquote>
+                <div class="quote-author">
+                    <div class="quote-avatar">🛡️</div>
+                    <div class="quote-info">
+                        <div class="quote-name">FloodGuard AI Engine</div>
+                        <div class="quote-role">Sistema Inteligente de Proteção & Resposta Preditiva</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features Section -->
+        <div id="tecnologia" class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🛰️</div>
+                <h3 class="feature-title">Sensores IOT 24/7</h3>
+                <p class="feature-desc">Coleta contínua de dados de pluviômetros, umidade do solo e nível dos rios em pontos estratégicos da cidade.</p>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-icon">🧠</div>
+                <h3 class="feature-title">Modelos Preditivos de IA</h3>
+                <p class="feature-desc">Algoritmos avançados que analisam o acúmulo de água e calculam com exatidão o risco de transbordamento.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🚨</div>
+                <h3 class="feature-title">Alertas Que Salvam Vidas</h3>
+                <p class="feature-desc">Notificações em tempo real para residentes e órgãos de segurança antes que o alagamento atinja a região.</p>
+            </div>
         </div>
     </section>
+
+    <script src="/static/js/openmeteo.js"></script>
 </body>
 </html>
