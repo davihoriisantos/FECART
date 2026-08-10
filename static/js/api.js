@@ -26,9 +26,6 @@ const API = {
       
       return await response.json();
     } catch (err) {
-      if (endpoint === '/api/auth/login') {
-        return { access_token: 'mock_jwt_token_12345', token_type: 'bearer' };
-      }
       throw err;
     }
   },

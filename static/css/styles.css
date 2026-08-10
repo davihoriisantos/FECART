@@ -447,3 +447,9 @@ nav.main-nav {
   margin-left: 280px;
   padding: 40px;
 }
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
