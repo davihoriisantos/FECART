@@ -1,16 +1,8 @@
 /**
- * FloodGuard AI — Gerenciador do Splash Screen (Exibido apenas no acesso inicial do site)
+ * FloodGuard AI — Gerenciador do Splash Screen com Animação Profissional
  */
 (function() {
-    function initSplash() {
-        // Verifica se o splash já foi exibido nesta sessão do navegador
-        if (sessionStorage.getItem('floodguard_splash_shown')) {
-            return;
-        }
-
-        // Marca que o splash foi exibido nesta sessão para não repetir ao clicar nas páginas
-        sessionStorage.setItem('floodguard_splash_shown', 'true');
-
+    function createSplash() {
         if (document.getElementById('splash-screen')) return;
 
         const splashHTML = `
@@ -35,7 +27,8 @@
             </div>
         `;
 
-        document.body.insertAdjacentHTML('afterbegin', splashHTML);
+        const target = document.body || document.documentElement;
+        target.insertAdjacentHTML('afterbegin', splashHTML);
 
         const splashScreen = document.getElementById('splash-screen');
         const progressBar  = document.getElementById('splash-bar');
@@ -61,16 +54,20 @@
                 setTimeout(() => {
                     if (splashScreen) {
                         splashScreen.classList.add('fade-out');
-                        setTimeout(() => splashScreen.remove(), 800);
+                        setTimeout(() => {
+                            if (splashScreen && splashScreen.parentNode) {
+                                splashScreen.parentNode.removeChild(splashScreen);
+                            }
+                        }, 800);
                     }
-                }, 400);
+                }, 300);
             }
-        }, 300);
+        }, 280);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initSplash);
+    if (document.body) {
+        createSplash();
     } else {
-        initSplash();
+        window.addEventListener('DOMContentLoaded', createSplash);
     }
 })();
