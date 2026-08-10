@@ -27,7 +27,7 @@ async function fetchOpenMeteoData(lat = -23.5505, lon = -46.6333) {
             tempMax: data.daily.temperature_2m_max[0],
             tempMin: data.daily.temperature_2m_min[0],
             horarioAtualizacao: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            alertaInfo: evaluateRainAlertRule(chuvaHoje)
+            alertaInfo: evaluateRainAlertRule(chuvaHoje, data.daily.precipitation_probability_max[0] || 0)
         };
 
         return realWeatherDataCache;
@@ -38,25 +38,25 @@ async function fetchOpenMeteoData(lat = -23.5505, lon = -46.6333) {
 }
 
 /**
- * Regra de Alerta Baseada na Chuva Acumulada:
- * - < 10mm: Status VERDE (Normal)
- * - 10mm a 30mm: Status AMARELO (Atenção)
- * - > 30mm: Status VERMELHO (Alerta de Enchente) + "Risco alto de alagamento! Busque um local seguro."
+ * Regra de Alerta Baseada na Chuva Acumulada e Probabilidade (Priorizando Recall / Sensibilidade):
+ * - Probabilidade >= 40% ou Chuva >= 10mm: Status AMARELO (Atenção Preditiva - Sensibilidade Alta)
+ * - Probabilidade >= 75% ou Chuva > 30mm: Status VERMELHO (Alerta de Enchente)
+ * - Demais casos: Status VERDE (Normal)
  */
-function evaluateRainAlertRule(rainAcc) {
-    if (rainAcc > 30) {
+function evaluateRainAlertRule(rainAcc, prob = 0) {
+    if (rainAcc > 30 || prob >= 75) {
         return {
             level: 'red',
             status: 'VERMELHO (Alerta de Enchente)',
-            message: 'Risco alto de alagamento! Busque um local seguro.',
+            message: 'Risco elevado de enchente iminente! Busque um local seguro.',
             badgeClass: 'chip-critico',
             bgStyle: 'background: rgba(239, 68, 68, 0.25); border: 2px solid rgba(239, 68, 68, 0.7); color: #FCA5A5;'
         };
-    } else if (rainAcc >= 10) {
+    } else if (rainAcc >= 10 || prob >= 40) {
         return {
             level: 'yellow',
-            status: 'AMARELO (Atenção)',
-            message: 'Atenção: Chuva moderada acumulada nas últimas horas. Acompanhe as atualizações.',
+            status: 'AMARELO / LARANJA (Atenção Preditiva - Alta Sensibilidade)',
+            message: `Alerta Preditivo IA (Sensibilidade/Recall - Probabilidade: ${prob}% ≥ 40%): Emitido preventivamente antes do acúmulo de água nas vias.`,
             badgeClass: 'chip-alto',
             bgStyle: 'background: rgba(245, 158, 11, 0.25); border: 2px solid rgba(245, 158, 11, 0.7); color: #FDE047;'
         };
@@ -64,7 +64,7 @@ function evaluateRainAlertRule(rainAcc) {
         return {
             level: 'green',
             status: 'VERDE (Normal)',
-            message: 'Condição Normal: Sem risco iminente de enchente no momento.',
+            message: `Condição Normal: Sem risco iminente de enchente no momento (Probabilidade: ${prob}% < 40%).`,
             badgeClass: 'chip-baixo',
             bgStyle: 'background: rgba(16, 185, 129, 0.25); border: 2px solid rgba(16, 185, 129, 0.7); color: #6EE7B7;'
         };

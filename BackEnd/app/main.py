@@ -31,6 +31,9 @@ app.include_router(zones.router)
 app.include_router(alerts.router)
 app.include_router(dashboard.router)
 
+from .routers import confirmations
+app.include_router(confirmations.router)
+
 import os
 static_dir = os.path.join(os.path.dirname(__file__), "../../static")
 if os.path.exists(static_dir):

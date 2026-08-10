@@ -3,8 +3,8 @@ let zoneLayers = [];
 let historicoLayers = [];
 let heatLayer;
 
-// ─── Configurações de Limiar de Chuva ─────────────────────────────────────────
-const RAIN_THRESHOLDS = [10, 30, 50]; // mm
+// ─── Configurações de Limiar de Chuva / Sensibilidade (Prioridade: Recall ≥ 40%) ───
+const RAIN_THRESHOLDS = [6, 20, 40]; // mm - Reduzido para alta sensibilidade (alertas preventivos antecipados)
 const RAIN_COLORS     = ['#22c55e', '#eab308', '#f97316', '#ef4444'];
 
 // ─── Cache de dados de chuva para não repetir chamadas ────────────────────────
@@ -124,7 +124,7 @@ function criarIconeHistorico(cor, alerta) {
 }
 
 // ─── Popup HTML para ponto de histórico ──────────────────────────────────────
-function popupHistorico(ponto, rainData, risco) {
+function popupHistorico(ponto, rainData, risco, confirmCount) {
     const alertaBanner = risco.alerta
         ? `<div style="background:#dc2626;color:#fff;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-weight:700;font-size:13px;">
                ⚠️ ÁREA COM HISTÓRICO RECORRENTE DE ENCHENTE<br>
@@ -162,13 +162,36 @@ function popupHistorico(ponto, rainData, risco) {
                 <div style="font-size:12px;color:#475569;margin-bottom:6px;"><b>Acumulados:</b> 24h: ${rainData.acc24h.toFixed(1)} mm | 72h: ${rainData.acc72h.toFixed(1)} mm</div>
                 <div style="font-size:12px;color:#475569;margin-bottom:6px;"><b>Histórico (Defesa Civil):</b></div>
                 <div style="font-size:12px;color:#64748b;margin-bottom:6px;">${ponto.descricao}</div>
-                <div style="font-size:11px;color:#94a3b8;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;">
                     🔁 Ocorrências/ano: <b style="color:#0f172a;">${ponto.ocorrencias_anuais}</b> &nbsp;|&nbsp;
                     Severidade histórica: <b style="color:${tagCor};">${ponto.historico_severidade}</b>
+                </div>
+                <div style="background:#f1f5f9;border-radius:6px;padding:8px;text-align:center;">
+                    <div style="font-size:11px;color:#475569;margin-bottom:6px;font-weight:600;">
+                        👥 <span id="count-${ponto.id}">${confirmCount}</span> confirmações nas últimas 6h
+                    </div>
+                    <button onclick="confirmarAlagamento('${ponto.id}')" style="background:#0f172a;color:#fff;border-radius:4px;width:100%;padding:8px;font-size:12px;border:none;cursor:pointer;font-weight:700;">
+                        🚨 Confirmar Alagamento Aqui
+                    </button>
                 </div>
             </div>
         </div>`;
 }
+
+window.confirmarAlagamento = async function(pointId) {
+    try {
+        await API.post(`/api/confirmations/${pointId}`, {});
+        const countSpan = document.getElementById(`count-${pointId}`);
+        if (countSpan) {
+            let current = parseInt(countSpan.innerText) || 0;
+            countSpan.innerText = current + 1;
+        }
+        alert("Obrigado! Sua confirmação ajuda a alertar outras pessoas em tempo real.");
+    } catch (e) {
+        console.error(e);
+        alert("Você precisa estar logado no sistema para confirmar.");
+    }
+};
 
 // ─── Monta camada de Histórico Defesa Civil no mapa ──────────────────────────
 async function renderizarHistoricoDefesaCivil() {
@@ -189,11 +212,21 @@ async function renderizarHistoricoDefesaCivil() {
     const rainPromises = HISTORICO_DEFESA_CIVIL.map(p => fetchRain(p.lat, p.lon));
     const rains = await Promise.all(rainPromises);
 
+    // Busca contagem de confirmações
+    let counts = {};
+    try {
+        const res = await API.get('/api/confirmations/counts');
+        counts = res.counts || {};
+    } catch (e) {
+        console.warn('Erro ao buscar contagens de confirmação', e);
+    }
+
     HISTORICO_DEFESA_CIVIL.forEach((ponto, i) => {
         const rainData = rains[i];
         const risco  = calcularRiscoReal(ponto, rainData);
         const icone  = criarIconeHistorico(risco.cor, risco.alerta);
-        const popup  = popupHistorico(ponto, rainData, risco);
+        const count  = counts[ponto.id] || 0;
+        const popup  = popupHistorico(ponto, rainData, risco, count);
 
         const marker = L.marker([ponto.lat, ponto.lon], { icon: icone })
             .addTo(map)
