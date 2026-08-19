@@ -120,16 +120,20 @@
                 </div>
                 
                 <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button type="button" onclick="simularCenario(3.5, 'Dia Ensolarado', 28, 10)" class="btn" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); color: #6EE7B7; font-size: 14px;">
-                        ☀️ Simular Dia Ensolarado (<10mm)
+                    <button type="button" onclick="simularCenario(1.2, 'Chuva Fraca / Garoa', 24, 20)" class="btn" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); color: #6EE7B7; font-size: 14px;">
+                        🟢 Chuva Fraca (&lt;2.5mm)
                     </button>
                     
-                    <button type="button" onclick="simularCenario(18.5, 'Chuva Moderada', 21, 75)" class="btn" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE047; font-size: 14px;">
-                        🌧️ Simular Chuva Moderada (10-30mm)
+                    <button type="button" onclick="simularCenario(6.0, 'Chuva Moderada', 21, 55)" class="btn" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE047; font-size: 14px;">
+                        🟡 Chuva Moderada (2.5–10mm)
+                    </button>
+
+                    <button type="button" onclick="simularCenario(18.5, 'Chuva Forte', 20, 80)" class="btn" style="background: rgba(249, 115, 22, 0.2); border: 1px solid rgba(249, 115, 22, 0.5); color: #FDBA74; font-size: 14px;">
+                        🟠 Chuva Forte (10–30mm)
                     </button>
                     
-                    <button type="button" onclick="simularCenario(42.0, 'Tempestade Forte', 19, 98)" class="btn" style="background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.6); color: #FCA5A5; font-size: 14px;">
-                        ⚡ Simular Tempestade Forte (>30mm)
+                    <button type="button" onclick="simularCenario(42.0, 'Tempestade / Torrencial', 18, 98)" class="btn" style="background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.6); color: #FCA5A5; font-size: 14px;">
+                        🔴 Tempestade (&gt;30mm)
                     </button>
 
                     <button type="button" onclick="restaurarDadosReais()" class="btn btn-outline" style="font-size: 14px;">

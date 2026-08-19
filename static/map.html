@@ -29,9 +29,203 @@
         }
         .legend { bottom: 24px; right: 24px; min-width: 200px; }
         .color-box { width: 14px; height: 14px; display: inline-block; margin-right: 8px; border-radius: 4px; }
+
+        /* ─── Botão Flutuante para Abrir Painel Lateral (Superior Direito) ─── */
+        .sidebar-toggle-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.85));
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 15px rgba(56, 189, 248, 0.25);
+            padding: 12px 18px;
+            color: #FFFFFF;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+        }
+        .sidebar-toggle-btn:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.6), 0 0 25px rgba(56, 189, 248, 0.45);
+        }
+        .sidebar-toggle-btn .pulse-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            box-shadow: 0 0 8px var(--accent-cyan);
+            animation: pulse-dot-anim 1.5s infinite;
+        }
+        @keyframes pulse-dot-anim {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.4); opacity: 0.6; }
+        }
+
+        /* ─── Painel Lateral Retrátil (Sidebar) ─── */
+        .risk-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 440px;
+            max-width: 95vw;
+            background: linear-gradient(180deg, rgba(11, 15, 23, 0.98) 0%, rgba(15, 23, 42, 0.96) 100%);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-right: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 15px 0 50px rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(-100%);
+            transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+            color: #FFFFFF;
+        }
+        .risk-sidebar.open {
+            transform: translateX(0);
+        }
+        .sidebar-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .sidebar-close-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #FFFFFF;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .sidebar-close-btn:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.5);
+            color: #FCA5A5;
+        }
+        .sidebar-content {
+            padding: 20px 24px;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .sidebar-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .sidebar-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+        .sidebar-select {
+            width: 100%;
+            padding: 10px 14px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 8px;
+            color: #FFFFFF;
+            font-size: 13px;
+            font-weight: 600;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s ease;
+        }
+        .sidebar-select:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+        }
+        .kpi-mini-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .kpi-mini-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+        .kpi-mini-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .kpi-mini-value {
+            font-size: 20px;
+            font-weight: 800;
+            color: #FFFFFF;
+        }
+        .chart-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .chart-legend-custom {
+            display: flex;
+            gap: 14px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .chart-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-line-solid {
+            width: 18px;
+            height: 3px;
+            background: #38BDF8;
+            border-radius: 2px;
+        }
+        .legend-line-dotted {
+            width: 18px;
+            height: 3px;
+            border-top: 3px dashed #F59E0B;
+        }
+        .sidebar-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(2px);
+            z-index: 1999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .sidebar-backdrop.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
     </style>
 </head>
 <body>
+    <!-- Barra Superior -->
     <div class="map-overlay top-bar">
         <a href="/" class="logo-brand" style="text-decoration: none;">
             <div class="logo-icon" style="width: 34px; height: 34px;">
@@ -51,21 +245,148 @@
             📊 Voltar ao Painel
         </a>
     </div>
+
+    <!-- Botão Flutuante para Abrir o Painel Lateral Retrátil -->
+    <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" onclick="toggleSidebar()">
+        <span class="pulse-dot"></span>
+        <span>📈 Tendência de Risco (24h) & Previsão IA</span>
+    </button>
+
+    <!-- Fundo Escurecido quando Sidebar está Aberta (Clique para Fechar) -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
+
+    <!-- ─── PAINEL LATERAL RETRÁTIL (SIDEBAR) ─── -->
+    <aside id="risk-sidebar" class="risk-sidebar">
+        <div class="sidebar-header">
+            <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">📈</span>
+                    <h3 style="font-size: 17px; font-weight: 800; color: #FFFFFF; margin: 0;">Tendência de Risco (24h)</h3>
+                </div>
+                <div style="font-size: 12px; color: var(--accent-cyan); margin-top: 2px; font-weight: 600;">
+                    🔮 Projeção Preditiva IA • Próximas 3 Horas
+                </div>
+            </div>
+            <button class="sidebar-close-btn" onclick="closeSidebar()" title="Fechar painel (Esc)">✕</button>
+        </div>
+
+        <div class="sidebar-content">
+            <!-- Seletor de Ponto de Monitoramento -->
+            <div>
+                <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">
+                    📍 Ponto de Monitoramento Selecionado:
+                </label>
+                <select id="sidebar-point-select" class="sidebar-select" onchange="onSidebarPointChange(this.value)">
+                    <option value="sp_media">🌆 Média Geral — Região Metropolitana de SP</option>
+                </select>
+            </div>
+
+            <!-- KPIs Rápidos -->
+            <div class="kpi-mini-grid">
+                <div class="kpi-mini-card">
+                    <div class="kpi-mini-label">Risco Atual (Agora)</div>
+                    <div id="sidebar-kpi-current" class="kpi-mini-value" style="color: #10B981;">-- %</div>
+                    <div id="sidebar-kpi-current-label" style="font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px;">Calculando...</div>
+                </div>
+                <div class="kpi-mini-card">
+                    <div class="kpi-mini-label">Previsão IA (+3h)</div>
+                    <div id="sidebar-kpi-forecast" class="kpi-mini-value" style="color: #38BDF8;">-- %</div>
+                    <div id="sidebar-kpi-forecast-trend" style="font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px;">Calculando...</div>
+                </div>
+                <div class="kpi-mini-card">
+                    <div class="kpi-mini-label">Chuva Acum. 24h</div>
+                    <div id="sidebar-kpi-acc24h" class="kpi-mini-value" style="color: #38BDF8;">-- mm</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Solo monitorado</div>
+                </div>
+                <div class="kpi-mini-card">
+                    <div class="kpi-mini-label">Chuva Prevista (+3h)</div>
+                    <div id="sidebar-kpi-rain-forecast" class="kpi-mini-value" style="color: #F59E0B;">-- mm</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Open-Meteo AI</div>
+                </div>
+            </div>
+
+            <!-- Card do Gráfico Chart.js -->
+            <div class="chart-box">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="font-size: 13px; font-weight: 700; color: #FFFFFF;">Curva de Probabilidade de Risco</div>
+                    <span class="chip chip-baixo" id="sidebar-chart-badge" style="font-size: 10px; padding: 2px 8px;">Atualizado</span>
+                </div>
+
+                <div class="chart-legend-custom">
+                    <div class="chart-legend-item">
+                        <div class="legend-line-solid"></div>
+                        <span style="color: #94A3B8;">Histórico Real (Últimas 24h)</span>
+                    </div>
+                    <div class="chart-legend-item">
+                        <div class="legend-line-dotted"></div>
+                        <span style="color: #FDE047;">Previsão IA (+3h)</span>
+                    </div>
+                </div>
+
+                <!-- Canvas do Gráfico -->
+                <div style="position: relative; height: 230px; width: 100%;">
+                    <canvas id="riskTrendChart"></canvas>
+                </div>
+
+                <!-- Escala de Thresholds -->
+                <div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 10px; color: var(--text-muted);">
+                    <span style="color: #10B981;">● &lt;30% Baixo</span>
+                    <span style="color: #F59E0B;">● 30-50% Moderado</span>
+                    <span style="color: #F97316;">● 50-75% Alto</span>
+                    <span style="color: #EF4444;">● &gt;75% Crítico</span>
+                </div>
+            </div>
+
+            <!-- Diagnóstico Preditivo da IA -->
+            <div id="sidebar-ai-insight" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                    <span style="font-size: 16px;">🧠</span>
+                    <strong style="font-size: 12px; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.5px;">Diagnóstico Preditivo da IA:</strong>
+                </div>
+                <p id="sidebar-ai-insight-text" style="font-size: 12px; color: #E2E8F0; margin: 0; line-height: 1.5;">
+                    Analisando série histórica de 24h e modelos de previsão atmosférica...
+                </p>
+            </div>
+
+            <!-- Simulação Rápida para Apresentação na FECART -->
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 14px;">
+                <div style="font-size: 12px; font-weight: 700; color: #FFFFFF; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                    <span>🧪</span> Demonstração Preditiva na FECART:
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <button onclick="simularPrevisaoSidebar('tempestade')" class="btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #FCA5A5; font-size: 12px; padding: 8px 12px; text-align: left;">
+                        ⚡ Simular IA Prevendo Tempestade (+45mm nas próximas 3h)
+                    </button>
+                    <button onclick="simularPrevisaoSidebar('moderada')" class="btn" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE047; font-size: 12px; padding: 8px 12px; text-align: left;">
+                        🌧️ Simular IA Prevendo Chuva Moderada (+8mm)
+                    </button>
+                    <button onclick="simularPrevisaoSidebar('normal')" class="btn btn-outline" style="font-size: 12px; padding: 8px 12px; text-align: left;">
+                        🔄 Restaurar Previsão Real da Open-Meteo
+                    </button>
+                </div>
+            </div>
+        </div>
+    </aside>
     
+    <!-- Legenda no Canto Inferior Direito -->
     <div class="map-overlay legend">
         <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 700;">Níveis Preditivos de Risco</h4>
-        <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-baixo"></span> Baixo (Risco < 30%)</div>
+        <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-baixo"></span> Baixo (Risco &lt; 30%)</div>
         <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-moderado"></span> Moderado (30% - 50%)</div>
         <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-alto"></span> Alto (50% - 75%)</div>
-        <div style="font-size: 13px;"><span class="color-box chip-critico"></span> Crítico (> 75%)</div>
+        <div style="font-size: 13px;"><span class="color-box chip-critico"></span> Crítico (&gt; 75%)</div>
     </div>
 
+    <!-- Mapa Leaflet -->
     <div id="map"></div>
-    <div class="control-panel" style="position:fixed; bottom:20px; right:20px; z-index:1000; background:rgba(15,23,42,0.8); padding:10px; border-radius:8px; display:flex; gap:8px;">
-       <button id="btn-enchente" class="btn" style="background:red;color:#fff;">Simular Enchente</button>
-       <button id="btn-limpo" class="btn" style="background:green;color:#fff;">Simular Tempo Limpo</button>
+
+    <!-- Controles Rápidos -->
+    <div class="control-panel" style="position:fixed; bottom:20px; right:20px; z-index:1000; background:rgba(15,23,42,0.85); backdrop-filter:blur(10px); padding:10px; border-radius:8px; border:1px solid var(--glass-border); display:flex; gap:8px;">
+        <button id="btn-enchente" class="btn" style="background:rgba(239, 68, 68, 0.8);color:#fff; font-size:12px; padding:8px 12px;">Simular Enchente</button>
+        <button id="btn-limpo" class="btn" style="background:rgba(16, 185, 129, 0.8);color:#fff; font-size:12px; padding:8px 12px;">Simular Tempo Limpo</button>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="/static/js/api.js"></script>

@@ -40,40 +40,60 @@ async function fetchOpenMeteoData(lat = -23.5505, lon = -46.6333) {
 }
 
 /**
- * Regra de Alerta Baseada na Chuva Acumulada e Probabilidade (Priorizando Recall / Sensibilidade):
- * - Probabilidade >= 40% ou Chuva >= 10mm: Status AMARELO (Atenção Preditiva - Sensibilidade Alta)
- * - Probabilidade >= 75% ou Chuva > 30mm: Status VERMELHO (Alerta de Enchente)
- * - Demais casos: Status VERDE (Normal)
+ * Regra de Alerta Baseada na Chuva (mm/h) — Escala Meteorológica Oficial:
+ * - < 2.5 mm/h:  VERDE  — Chuva Fraca / Garoa (sem aviso de tempestade)
+ * - 2.5–10 mm/h: AMARELO — Chuva Moderada (atenção)
+ * - 10–30 mm/h:  LARANJA — Chuva Forte (alerta de alagamentos)
+ * - > 30 mm/h:   VERMELHO — Tempestade / Chuva Torrencial (alerta máximo)
+ * Regra extra: acúmulo > 40mm também dispara VERMELHO
  */
 function evaluateRainAlertRule(rainAcc, prob = 0) {
     const rain = Number(rainAcc) || 0;
     const probability = Number(prob) || 0;
 
-    if (rain > 30 || probability >= 75) {
+    // VERMELHO — Tempestade / Chuva Torrencial (>30 mm/h ou acúmulo >40mm)
+    if (rain > 30) {
         return {
             level: 'red',
-            status: 'VERMELHO (Alerta de Enchente)',
-            message: 'Risco elevado de enchente iminente! Busque um local seguro.',
+            status: 'VERMELHO (Tempestade / Chuva Torrencial)',
+            message: 'Alerta máximo de enchente! Risco elevado de inundação. Busque um local seguro imediatamente.',
             badgeClass: 'chip-critico',
             bgStyle: 'background: rgba(239, 68, 68, 0.25); border: 2px solid rgba(239, 68, 68, 0.7); color: #FCA5A5;'
         };
-    } else if (rain >= 10 || probability >= 40) {
+    }
+
+    // LARANJA — Chuva Forte (10–30 mm/h)
+    if (rain >= 10) {
         return {
-            level: 'yellow',
-            status: 'AMARELO / LARANJA (Atenção Preditiva - Alta Sensibilidade)',
-            message: `Alerta Preditivo IA (Sensibilidade/Recall - Probabilidade: ${probability}% ≥ 40%): Emitido preventivamente antes do acúmulo de água nas vias.`,
+            level: 'orange',
+            status: 'LARANJA (Chuva Forte — Risco Alto)',
+            message: 'Alerta: Possibilidade de alagamentos em pontos baixos.',
             badgeClass: 'chip-alto',
-            bgStyle: 'background: rgba(245, 158, 11, 0.25); border: 2px solid rgba(245, 158, 11, 0.7); color: #FDE047;'
-        };
-    } else {
-        return {
-            level: 'green',
-            status: 'VERDE (Normal)',
-            message: `Condição Normal: Sem risco iminente de enchente no momento (Probabilidade: ${probability}% < 40%).`,
-            badgeClass: 'chip-baixo',
-            bgStyle: 'background: rgba(16, 185, 129, 0.25); border: 2px solid rgba(16, 185, 129, 0.7); color: #6EE7B7;'
+            bgStyle: 'background: rgba(249, 115, 22, 0.25); border: 2px solid rgba(249, 115, 22, 0.7); color: #FDBA74;'
         };
     }
+
+    // AMARELO — Chuva Moderada (2.5–10 mm/h)
+    if (rain >= 2.5) {
+        return {
+            level: 'yellow',
+            status: 'AMARELO (Chuva Moderada — Risco Moderado)',
+            message: 'Atenção: Acompanhe a evolução da chuva.',
+            badgeClass: 'chip-moderado',
+            bgStyle: 'background: rgba(245, 158, 11, 0.25); border: 2px solid rgba(245, 158, 11, 0.7); color: #FDE047;'
+        };
+    }
+
+    // VERDE — Chuva Fraca / Garoa ou Sem Chuva (<2.5 mm/h)
+    return {
+        level: 'green',
+        status: 'VERDE (Normal — Risco Baixo)',
+        message: rain > 0
+            ? `Chuva Fraca / Garoa: ${rain.toFixed(1)} mm. Sem risco de enchente no momento.`
+            : `Condição Normal: Sem chuva significativa (Probabilidade: ${probability}%).`,
+        badgeClass: 'chip-baixo',
+        bgStyle: 'background: rgba(16, 185, 129, 0.25); border: 2px solid rgba(16, 185, 129, 0.7); color: #6EE7B7;'
+    };
 }
 
 /**
@@ -123,7 +143,7 @@ function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
         alertBanner.setAttribute('style', `padding: 24px; border-radius: 14px; margin-top: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; transition: all 0.4s ease; ${info.bgStyle}`);
         alertBanner.innerHTML = `
             <div style="display: flex; align-items: center; gap: 16px;">
-                <div style="font-size: 32px;">${info.level === 'red' ? '🚨' : info.level === 'yellow' ? '⚠️' : '✅'}</div>
+                <div style="font-size: 32px;">${info.level === 'red' ? '🚨' : info.level === 'orange' ? '🌧️' : info.level === 'yellow' ? '⚠️' : '✅'}</div>
                 <div>
                     <div style="font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
                         Status: <span class="chip ${info.badgeClass}">${info.status}</span> ${simBadge}
@@ -150,9 +170,9 @@ function simularCenario(chuvaMm, nomeCenario, temp = 22, prob = 90) {
         cidade: "São Paulo, SP (Simulação)",
         temperatura: Math.round(temp),
         sensacao: Math.round(temp - 1),
-        umidade: chuvaMm > 30 ? 95 : (chuvaMm >= 10 ? 80 : 50),
+        umidade: chuvaMm > 30 ? 95 : (chuvaMm >= 10 ? 85 : (chuvaMm >= 2.5 ? 70 : 45)),
         chuvaAtual: (chuvaMm / 10).toFixed(1),
-        vento: chuvaMm > 30 ? 45 : (chuvaMm >= 10 ? 25 : 10),
+        vento: chuvaMm > 30 ? 45 : (chuvaMm >= 10 ? 30 : (chuvaMm >= 2.5 ? 18 : 8)),
         chuvaAcumuladaHoje: Number(chuvaMm).toFixed(1),
         probabilidadeChuvaHoje: Math.round(prob),
         tempMax: Math.round(temp + 4),
@@ -186,13 +206,14 @@ function setupTempClickToggle() {
         elTemp.onclick = () => {
             activeTempMode = (activeTempMode + 1) % 3;
             if (currentSimulatedScenario) {
-                // Re-render simulated data with new temp mode
-                simularCenario(
-                    currentSimulatedScenario === 'Dia Ensolarado' ? 3.5 : (currentSimulatedScenario === 'Chuva Moderada' ? 18.5 : 42.0),
-                    currentSimulatedScenario,
-                    currentSimulatedScenario === 'Dia Ensolarado' ? 28 : (currentSimulatedScenario === 'Chuva Moderada' ? 21 : 19),
-                    currentSimulatedScenario === 'Dia Ensolarado' ? 10 : (currentSimulatedScenario === 'Chuva Moderada' ? 75 : 98)
-                );
+                const scenarioMap = {
+                    'Chuva Fraca / Garoa': { mm: 1.2, temp: 24, prob: 20 },
+                    'Chuva Moderada': { mm: 6.0, temp: 21, prob: 55 },
+                    'Chuva Forte': { mm: 18.5, temp: 20, prob: 80 },
+                    'Tempestade / Torrencial': { mm: 42.0, temp: 18, prob: 98 }
+                };
+                const sc = scenarioMap[currentSimulatedScenario] || { mm: 1.2, temp: 22, prob: 50 };
+                simularCenario(sc.mm, currentSimulatedScenario, sc.temp, sc.prob);
             } else if (realWeatherDataCache) {
                 renderWeatherData(realWeatherDataCache, false);
             }
