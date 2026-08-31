@@ -278,7 +278,8 @@ async function renderizarHistoricoDefesaCivil() {
 
 // ─── Inicializa o mapa ────────────────────────────────────────────────────────
 async function initMap() {
-    map = L.map('map').setView([-23.5580, -46.5970], 13);
+    // Focado no entorno da FECAP (Liberdade e Centro Histórico)
+    map = L.map('map').setView([-23.5545, -46.6330], 15);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'

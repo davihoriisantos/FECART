@@ -164,7 +164,7 @@
         }
         .kpi-mini-label {
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 600;kk
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -370,20 +370,29 @@
     
     <!-- Legenda no Canto Inferior Direito -->
     <div class="map-overlay legend">
-        <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 700;">Níveis Preditivos de Risco</h4>
-        <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-baixo"></span> Baixo (Risco &lt; 30%)</div>
-        <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-moderado"></span> Moderado (30% - 50%)</div>
-        <div style="margin-bottom: 6px; font-size: 13px;"><span class="color-box chip-alto"></span> Alto (50% - 75%)</div>
-        <div style="font-size: 13px;"><span class="color-box chip-critico"></span> Crítico (&gt; 75%)</div>
+        <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 700; color: #FFFFFF;">Níveis Preventivos de Risco</h4>
+        <div style="margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span class="color-box" style="background: #10B981; border: 1px solid rgba(16, 185, 129, 0.8);"></span>
+            <span>Baixo (Verde)</span>
+        </div>
+        <div style="margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span class="color-box" style="background: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.8);"></span>
+            <span>Moderado (Amarelo)</span>
+        </div>
+        <div style="font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span class="color-box" style="background: #EF4444; border: 1px solid rgba(239, 68, 68, 0.8);"></span>
+            <span>Alto (Vermelho)</span>
+        </div>
     </div>
 
     <!-- Mapa Leaflet -->
     <div id="map"></div>
 
-    <!-- Controles Rápidos -->
-    <div class="control-panel" style="position:fixed; bottom:20px; right:20px; z-index:1000; background:rgba(15,23,42,0.85); backdrop-filter:blur(10px); padding:10px; border-radius:8px; border:1px solid var(--glass-border); display:flex; gap:8px;">
-        <button id="btn-enchente" class="btn" style="background:rgba(239, 68, 68, 0.8);color:#fff; font-size:12px; padding:8px 12px;">Simular Enchente</button>
-        <button id="btn-limpo" class="btn" style="background:rgba(16, 185, 129, 0.8);color:#fff; font-size:12px; padding:8px 12px;">Simular Tempo Limpo</button>
+    <!-- Simulador de Tempos no Canto Inferior Esquerdo -->
+    <div class="control-panel" style="position:fixed; bottom:24px; left:24px; z-index:1000; background:rgba(15,23,42,0.9); backdrop-filter:blur(16px); padding:10px 14px; border-radius:var(--radius-md); border:1px solid var(--glass-border); box-shadow:var(--shadow-card); display:flex; align-items:center; gap:8px;">
+        <span style="font-size:12px; font-weight:700; color:var(--text-muted); margin-right:4px;">Simular:</span>
+        <button id="btn-enchente" class="btn" style="background:rgba(239, 68, 68, 0.85); color:#fff; font-size:12px; padding:8px 12px; border:1px solid rgba(239, 68, 68, 0.5);">🌧️ Simular Enchente</button>
+        <button id="btn-limpo" class="btn" style="background:rgba(16, 185, 129, 0.85); color:#fff; font-size:12px; padding:8px 12px; border:1px solid rgba(16, 185, 129, 0.5);">☀️ Simular Tempo Limpo</button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

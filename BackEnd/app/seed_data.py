@@ -9,42 +9,94 @@ from .services.auth_service import hash_password
 from datetime import datetime, timedelta, timezone
 
 def seed_database(db: Session):
-    if db.query(User).first() is not None:
-        return
-
     # Admin User
-    admin = User(
-        email="admin@floodguard.ai",
-        nome="Administrador",
-        hashed_password=hash_password("admin123"),
-        role="admin"
-    )
-    db.add(admin)
+    if db.query(User).first() is None:
+        admin = User(
+            email="admin@floodguard.ai",
+            nome="Administrador",
+            hashed_password=hash_password("admin123"),
+            role="admin"
+        )
+        db.add(admin)
+        db.commit()
 
-    # Zones
+    # Zonas de Risco no entorno direto da FECAP (Liberdade e Centro)
     zones_data = [
-        {"nome": "Mooca Baixa", "lat": -23.5590, "lon": -46.5950, "risco": "critico", "prob": 75, "pop": 12000},
-        {"nome": "Entorno Córrego", "lat": -23.5575, "lon": -46.5960, "risco": "alto", "prob": 60, "pop": 8500},
-        {"nome": "Av Paes de Barros", "lat": -23.5585, "lon": -46.5950, "risco": "alto", "prob": 55, "pop": 15000},
-        {"nome": "Parque da Mooca", "lat": -23.5565, "lon": -46.5935, "risco": "moderado", "prob": 35, "pop": 5000},
-        {"nome": "Alto da Mooca", "lat": -23.5540, "lon": -46.6010, "risco": "baixo", "prob": 15, "pop": 20000},
-        {"nome": "Rua da Mooca", "lat": -23.5590, "lon": -46.5980, "risco": "moderado", "prob": 40, "pop": 18000},
+        {
+            "nome": "Baixada do Glicério",
+            "lat": -23.5592,
+            "lon": -46.6288,
+            "risco": "critico",
+            "prob": 85.0,
+            "pop": 14500,
+            "desc": "Área de várzea com alagamentos severos frequentes e transbordamento próximo ao Rio Tamanduateí."
+        },
+        {
+            "nome": "Viaduto do Chá / Anhangabaú",
+            "lat": -23.5475,
+            "lon": -46.6378,
+            "risco": "critico",
+            "prob": 78.0,
+            "pop": 25000,
+            "desc": "Ponto histórico de convergência pluvial no Vale do Anhangabaú com risco crítico de inundação."
+        },
+        {
+            "nome": "Av. do Estado (Trecho Radial)",
+            "lat": -23.5528,
+            "lon": -46.6268,
+            "risco": "alto",
+            "prob": 68.0,
+            "pop": 18000,
+            "desc": "Conexão da Radial Leste com Av. do Estado sujeita a retenção de água e alagamentos rápidos."
+        },
+        {
+            "nome": "Rua Conselheiro Furtado",
+            "lat": -23.5558,
+            "lon": -46.6315,
+            "risco": "alto",
+            "prob": 58.0,
+            "pop": 9200,
+            "desc": "Trecho em declive acentuado da Liberdade em direção ao Glicério com enxurradas volumosas."
+        },
+        {
+            "nome": "Praça da Sé",
+            "lat": -23.5505,
+            "lon": -46.6333,
+            "risco": "moderado",
+            "prob": 42.0,
+            "pop": 30000,
+            "desc": "Centro histórico com pontos de escoamento e monitoramento contínuo em dias de chuva."
+        },
+        {
+            "nome": "Av. Liberdade (Frente FECAP)",
+            "lat": -23.5574,
+            "lon": -46.6367,
+            "risco": "baixo",
+            "prob": 15.0,
+            "pop": 12000,
+            "desc": "Região alta da colina da Liberdade em frente ao campus da FECAP. Topografia favorável e risco reduzido."
+        },
     ]
+
+    # Atualiza ou insere as zonas de risco
+    db.query(Alert).delete()
+    db.query(RiskZone).delete()
+    db.commit()
 
     zones = []
     for zd in zones_data:
         poly = [
-            [zd['lat']+0.001, zd['lon']+0.001],
-            [zd['lat']+0.001, zd['lon']-0.001],
-            [zd['lat']-0.001, zd['lon']-0.001],
-            [zd['lat']-0.001, zd['lon']+0.001]
+            [zd['lat']+0.0012, zd['lon']+0.0012],
+            [zd['lat']+0.0012, zd['lon']-0.0012],
+            [zd['lat']-0.0012, zd['lon']-0.0012],
+            [zd['lat']-0.0012, zd['lon']+0.0012]
         ]
         zone = RiskZone(
             nome=zd['nome'],
-            descricao=f"Região: {zd['nome']}",
+            descricao=zd['desc'],
             latitude_centro=zd['lat'],
             longitude_centro=zd['lon'],
-            raio_metros=150,
+            raio_metros=180,
             nivel_risco=zd['risco'],
             probabilidade_enchente=zd['prob'],
             populacao_afetada=zd['pop'],
@@ -54,11 +106,16 @@ def seed_database(db: Session):
         zones.append(zone)
     db.commit()
 
-    # Sensors
+    # Sensores no entorno da FECAP
+    db.query(SensorReading).delete()
+    db.query(Sensor).delete()
+    db.commit()
+
     sensors_data = [
-        {"nome": "Pluviômetro Parque da Mooca", "tipo": "pluviometro", "lat": -23.5565, "lon": -46.5935},
-        {"nome": "Nível Rio Tamanduateí", "tipo": "nivel_rio", "lat": -23.5610, "lon": -46.5920},
-        {"nome": "Umidade Solo - Praça Prudente", "tipo": "umidade_solo", "lat": -23.5555, "lon": -46.5945},
+        {"nome": "Pluviômetro FECAP - Campus Liberdade", "tipo": "pluviometro", "lat": -23.5574, "lon": -46.6367},
+        {"nome": "Sensor Hidrológico Baixada do Glicério", "tipo": "nivel_rio", "lat": -23.5592, "lon": -46.6288},
+        {"nome": "Sensor Pluvial Vale do Anhangabaú", "tipo": "pluviometro", "lat": -23.5475, "lon": -46.6378},
+        {"nome": "Umidade do Solo - Praça da Sé", "tipo": "umidade_solo", "lat": -23.5505, "lon": -46.6333},
     ]
 
     sensors = []
@@ -74,12 +131,12 @@ def seed_database(db: Session):
         sensors.append(sensor)
     db.commit()
 
-    # Readings
+    # Readings históricas
     now = datetime.now(timezone.utc)
     for sensor in sensors:
         for i in range(48):
             t = now - timedelta(hours=i)
-            v = random.uniform(0, 50) if sensor.tipo == 'pluviometro' else random.uniform(1, 5)
+            v = random.uniform(0, 40) if sensor.tipo == 'pluviometro' else random.uniform(1, 4)
             u = "mm/h" if sensor.tipo == 'pluviometro' else "m"
             reading = SensorReading(
                 sensor_id=sensor.id,
@@ -90,9 +147,10 @@ def seed_database(db: Session):
             db.add(reading)
     db.commit()
 
-    # Alerts
-    a1 = Alert(zone_id=zones[0].id, tipo="critical", titulo="Alerta Crítico: Mooca Baixa", mensagem="Risco elevado de alagamento.", expires_at=now + timedelta(hours=12))
-    a2 = Alert(zone_id=zones[1].id, tipo="warning", titulo="Atenção: Córrego", mensagem="Nível subindo.", expires_at=now + timedelta(hours=12))
+    # Alertas emitidos
+    a1 = Alert(zone_id=zones[0].id, tipo="critical", titulo="Alerta Crítico: Baixada do Glicério", mensagem="Risco elevado de alagamento por acúmulo hídrico.", expires_at=now + timedelta(hours=12))
+    a2 = Alert(zone_id=zones[1].id, tipo="critical", titulo="Alerta Crítico: Vale do Anhangabaú", mensagem="Transbordamento de galeria pluvial iminente.", expires_at=now + timedelta(hours=12))
     db.add(a1)
     db.add(a2)
     db.commit()
+
