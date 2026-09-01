@@ -3,13 +3,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - FloodGuard AI</title>
+    <title>Acesso ao Sistema - FloodGuard AI</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .auth-container {
+            width: 100%;
+            max-width: 460px;
+            padding: 36px 32px;
+            position: relative;
+        }
+
+        /* ─── Abas de Alternância (Entrar / Criar Conta) ─── */
+        .auth-tabs-nav {
+            display: flex;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 24px;
+            gap: 4px;
+        }
+
+        .auth-tab-btn {
+            flex: 1;
+            padding: 10px 14px;
+            border: none;
+            background: transparent;
+            color: #94A3B8;
+            font-size: 14px;
+            font-weight: 700;
+            border-radius: 9px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .auth-tab-btn:hover {
+            color: #FFFFFF;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .auth-tab-btn.active {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
+            color: #38BDF8;
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
+        }
+
+        /* Formulários */
+        .auth-form-panel {
+            display: none;
+            animation: fadeInTab 0.3s ease-in-out;
+        }
+
+        .auth-form-panel.active {
+            display: block;
+        }
+
+        @keyframes fadeInTab {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+            text-align: left;
+        }
+
+        .form-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #CBD5E1;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 10px;
+            color: #FFFFFF;
+            font-size: 14px;
+            font-weight: 500;
+            outline: none;
+            transition: all 0.2s ease;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .form-input:focus {
+            border-color: #38BDF8;
+            background: rgba(0, 0, 0, 0.5);
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+        }
+
+        .db-storage-badge {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #6EE7B7;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 18px;
+            text-align: left;
+        }
+
+        .msg-box {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 16px;
+            display: none;
+        }
+
+        .msg-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #FCA5A5;
+        }
+
+        .msg-success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #6EE7B7;
+        }
+    </style>
 </head>
 <body class="flex-center" style="min-height: 100vh; padding: 20px;">
-    <div class="card" style="width: 100%; max-width: 440px; padding: 40px 32px;">
-        <div style="text-align: center; margin-bottom: 32px;">
-            <a href="/" class="logo-brand" style="justify-content: center; margin-bottom: 16px;">
+    <div class="card auth-container">
+        <!-- Logo e Título -->
+        <div style="text-align: center; margin-bottom: 24px;">
+            <a href="/" class="logo-brand" style="justify-content: center; margin-bottom: 12px; text-decoration: none;">
                 <div class="logo-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -18,32 +153,92 @@
                 </div>
                 <div class="logo-text">FloodGuard <span>AI</span></div>
             </a>
-            <div class="ai-badge" style="margin-top: 4px;">
+            <div class="ai-badge" style="margin-top: 2px;">
                 <span class="ai-badge-pulse"></span>
-                IA de Proteção Vital
+                Autenticação de Usuários
             </div>
-            <p style="color: var(--text-muted); font-size: 14px; margin-top: 12px;">Acesse a plataforma preditiva de monitoramento</p>
         </div>
 
-        <form id="loginForm">
-            <div style="margin-bottom: 20px;">
-                <label style="font-size: 14px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 8px;">E-mail do Usuário</label>
-                <input type="email" id="email" class="input" value="admin@floodguard.ai" required placeholder="seu@email.com">
-            </div>
-            <div style="margin-bottom: 28px;">
-                <label style="font-size: 14px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 8px;">Senha de Acesso</label>
-                <input type="password" id="senha" class="input" value="admin123" required placeholder="••••••••">
-            </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 16px;">
-                🚀 Entrar no Sistema
+        <!-- ─── ABAS DE ESCOLHA: ENTRAR OU CRIAR CONTA ─── -->
+        <div class="auth-tabs-nav">
+            <button id="tab-btn-login" class="auth-tab-btn active" onclick="switchAuthTab('login')">
+                <span>🔐</span> Entrar
             </button>
-            <p id="errorMsg" style="color: var(--danger); margin-top: 16px; text-align: center; font-weight: 600; font-size: 14px;"></p>
-        </form>
+            <button id="tab-btn-register" class="auth-tab-btn" onclick="switchAuthTab('register')">
+                <span>✨</span> Criar Conta
+            </button>
+        </div>
 
-        <div style="margin-top: 24px; text-align: center; border-top: 1px solid var(--glass-border); padding-top: 20px;">
-            <a href="/" style="color: var(--accent-cyan); text-decoration: none; font-size: 14px; font-weight: 600;">← Voltar para a página inicial</a>
+        <!-- ─── PAINEL 1: FORMULÁRIO DE LOGIN (ENTRAR) ─── -->
+        <div id="panel-login" class="auth-form-panel active">
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label" for="login-email">E-mail Cadastrado</label>
+                    <input type="email" id="login-email" class="form-input" required placeholder="seu@email.com" value="admin@floodguard.ai">
+                </div>
+                <div class="form-group" style="margin-bottom: 22px;">
+                    <label class="form-label" for="login-senha">Senha</label>
+                    <input type="password" id="login-senha" class="form-input" required placeholder="••••••••" value="admin123">
+                </div>
+                <button type="submit" id="btn-submit-login" class="btn btn-primary" style="width: 100%; padding: 13px; font-size: 15px; font-weight: 700;">
+                    🚀 Entrar no Sistema
+                </button>
+                <div id="loginMsg" class="msg-box"></div>
+            </form>
+
+            <div style="margin-top: 18px; text-align: center;">
+                <span style="font-size: 13px; color: var(--text-muted);">Novo por aqui? </span>
+                <a href="javascript:void(0)" onclick="switchAuthTab('register')" style="color: var(--accent-cyan); font-size: 13px; font-weight: 700; text-decoration: none;">
+                    Criar conta grátis →
+                </a>
+            </div>
+        </div>
+
+        <!-- ─── PAINEL 2: FORMULÁRIO DE CADASTRO (CRIAR CONTA) ─── -->
+        <div id="panel-register" class="auth-form-panel">
+            <div class="db-storage-badge">
+                <span>💾</span>
+                <span>Sua conta será gravada de forma persistente no <strong>Banco de Dados</strong> do sistema.</span>
+            </div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label class="form-label" for="reg-nome">Nome Completo</label>
+                    <input type="text" id="reg-nome" class="form-input" required placeholder="Ex: Gabriel Santos">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="reg-email">Seu Melhor E-mail</label>
+                    <input type="email" id="reg-email" class="form-input" required placeholder="seu@email.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="reg-senha">Criar Senha</label>
+                    <input type="password" id="reg-senha" class="form-input" required placeholder="Mínimo 6 caracteres" minlength="6">
+                </div>
+                <div class="form-group" style="margin-bottom: 22px;">
+                    <label class="form-label" for="reg-confirm-senha">Confirmar Senha</label>
+                    <input type="password" id="reg-confirm-senha" class="form-input" required placeholder="Repita a senha criada" minlength="6">
+                </div>
+                <button type="submit" id="btn-submit-reg" class="btn btn-primary" style="width: 100%; padding: 13px; font-size: 15px; font-weight: 700; background: linear-gradient(135deg, #10B981, #059669); border-color: #10B981;">
+                    ✨ Criar Conta e Acessar
+                </button>
+                <div id="registerMsg" class="msg-box"></div>
+            </form>
+
+            <div style="margin-top: 18px; text-align: center;">
+                <span style="font-size: 13px; color: var(--text-muted);">Já possui uma conta? </span>
+                <a href="javascript:void(0)" onclick="switchAuthTab('login')" style="color: var(--accent-cyan); font-size: 13px; font-weight: 700; text-decoration: none;">
+                    Fazer Login →
+                </a>
+            </div>
+        </div>
+
+        <div style="margin-top: 24px; text-align: center; border-top: 1px solid var(--glass-border); padding-top: 18px;">
+            <a href="/" style="color: var(--text-muted); text-decoration: none; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s;">
+                ← Voltar para a página inicial
+            </a>
         </div>
     </div>
+
     <script src="/static/js/api.js"></script>
     <script src="/static/js/auth.js"></script>
 </body>

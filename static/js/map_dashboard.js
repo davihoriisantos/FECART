@@ -12,15 +12,17 @@
 
 // ─── BASE DE BAIRROS E PONTOS DE SÃO PAULO ───────────────────────────────────
 const SP_NEIGHBORHOODS = [
-    // Centro & Região FECAP
+    // Centro, Paulista & Região FECAP
     { nome: "FECAP — Campus Liberdade", bairro: "Liberdade / Centro", lat: -23.5574, lon: -46.6367, alt: 735, icon: "🎓" },
+    { nome: "Tirrenos Restaurante", bairro: "Bela Vista / Cerqueira César", lat: -23.5578, lon: -46.6575, alt: 785, icon: "🍽️" },
     { nome: "Liberdade", bairro: "Centro", lat: -23.5594, lon: -46.6362, alt: 732, icon: "🏮" },
     { nome: "Baixada do Glicério", bairro: "Centro / Glicério", lat: -23.5592, lon: -46.6288, alt: 719, icon: "🚨" },
     { nome: "Viaduto do Chá / Anhangabaú", bairro: "Centro Histórico", lat: -23.5475, lon: -46.6378, alt: 721, icon: "🏛️" },
     { nome: "Praça da Sé", bairro: "Centro", lat: -23.5505, lon: -46.6333, alt: 730, icon: "⛪" },
     { nome: "Bela Vista / Bixiga", bairro: "Centro-Sul", lat: -23.5560, lon: -46.6450, alt: 745, icon: "🍝" },
     { nome: "República", bairro: "Centro", lat: -23.5427, lon: -46.6428, alt: 734, icon: "🏙️" },
-    { nome: "Consolação / Av. Paulista", bairro: "Centro / Jardins", lat: -23.5568, lon: -46.6580, alt: 760, icon: "🏢" },
+    { nome: "Consolação / Av. Paulista", bairro: "Centro / Jardins", lat: -23.5568, lon: -46.6580, alt: 780, icon: "🏢" },
+    { nome: "MASP — Museu de Arte de SP", bairro: "Bela Vista / Paulista", lat: -23.5614, lon: -46.6559, alt: 782, icon: "🎨" },
 
     // Zona Sul & Oeste
     { nome: "Morumbi", bairro: "Zona Oeste / Sul", lat: -23.5989, lon: -46.7020, alt: 740, icon: "📍" },
@@ -300,31 +302,65 @@ function initLeafletMap() {
     map.on('click', async (e) => {
         const { lat, lng } = e.latlng;
         
-        // Exibe loader instantâneo no card
-        document.getElementById('hero-location-name').innerHTML = `<span>⏳</span> Identificando região...`;
+        // Exibe loader instantâneo no card e limpa dados anteriores
+        document.getElementById('hero-location-name').innerHTML = `<span class="location-pin-badge">⏳</span> <span class="location-title-text">Localizando endereço...</span>`;
+        const elBairro = document.getElementById('hero-location-bairro');
+        if (elBairro) elBairro.textContent = `Identificando bairro e região...`;
+        const elAddress = document.getElementById('hero-location-address');
+        if (elAddress) elAddress.textContent = `Consultando base cartográfica...`;
         document.getElementById('hero-location-coord').textContent = `Coordenadas: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 
-        // Busca o nome do local via Reverse Geocoding e altitude via OpenTopoData
+        // Busca o nome completo do local via Reverse Geocoding e altitude via OpenTopoData
         const [locationName, realAlt] = await Promise.all([
             reverseGeocode(lat, lng),
             getElevation(lat, lng)
         ]);
 
-        await analyzePoint(lat, lng, locationName.nome, locationName.bairro, realAlt);
+        await analyzePoint(lat, lng, locationName.nome, locationName.bairro, realAlt, locationName.display_name);
     });
 }
 
 // ─── ANALISAR PONTO DINAMICAMENTE (API CLIMA + IA + GRÁFICO) ─────────────────
-async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = null) {
+async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = null, fullAddress = null, isUserLocation = false) {
     // Se a altitude não foi passada, consulta em tempo real na API de Elevação
     const realAlt = alt !== null && alt !== undefined ? alt : await getElevation(lat, lon);
     const altInfo = getAltitudeClassification(realAlt);
 
-    currentSelectedPoint = { lat, lon, nome, bairro, alt: realAlt };
+    const enderecoCompleto = fullAddress || (bairro ? `${nome} — ${bairro}` : nome);
+    currentSelectedPoint = { lat, lon, nome, bairro, alt: realAlt, address: enderecoCompleto, isUserLocation };
 
-    // 1. Atualizar Header do Local
-    document.getElementById('hero-location-name').innerHTML = `<span>📍</span> ${nome}`;
+    // 1. Atualizar Header do Local Completo (Nome, Bairro, Endereço e Coordenadas)
+    if (isUserLocation) {
+        document.getElementById('hero-location-name').innerHTML = `
+            <span class="location-pin-badge" style="background: rgba(56, 189, 248, 0.25); border-color: #38BDF8; color: #38BDF8;">🎯</span>
+            <span class="location-title-text">${escapeHtml(nome)} <span style="font-size: 10px; background: rgba(56,189,248,0.22); color: #38BDF8; padding: 2px 7px; border-radius: 4px; font-weight: 800; margin-left: 6px; border: 1px solid rgba(56,189,248,0.4); vertical-align: middle;">VOCÊ ESTÁ AQUI</span></span>
+        `;
+    } else {
+        document.getElementById('hero-location-name').innerHTML = `
+            <span class="location-pin-badge">📍</span>
+            <span class="location-title-text">${escapeHtml(nome)}</span>
+        `;
+    }
+    
+    const elBairro = document.getElementById('hero-location-bairro');
+    if (elBairro) {
+        elBairro.innerHTML = `🏙️ <strong>${bairro}</strong>`;
+    }
+
+    const elAddress = document.getElementById('hero-location-address');
+    if (elAddress) {
+        elAddress.innerHTML = `📌 <b>Endereço Completo:</b> ${enderecoCompleto}`;
+    }
+    
     document.getElementById('hero-location-coord').textContent = `Coordenadas: ${lat.toFixed(4)}, ${lon.toFixed(4)} • ${realAlt}m (${altInfo.tipo})`;
+
+    // Atualiza a barra de busca para sincronizar com o ponto clicado sem sobrecarregar
+    const searchInput = document.getElementById('universal-search-input');
+    if (searchInput && document.activeElement !== searchInput) {
+        searchInput.value = isUserLocation ? (nome.includes('Você está') ? enderecoCompleto.split(',')[0] : nome) : nome;
+        const clearBtn = document.getElementById('btn-search-clear');
+        if (clearBtn) clearBtn.style.display = 'block';
+    }
 
     // 2. Buscar Dados Climáticos da Open-Meteo para a coordenada
     const weatherData = await fetchWeatherData(lat, lon);
@@ -336,7 +372,7 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
     updateUIWithAnalysis(analysis, realAlt, lat, lon);
 
     // 5. Atualizar Marcador e Zona Dinâmica no Mapa
-    updateMapMarker(lat, lon, nome, analysis, realAlt, lat, lon);
+    updateMapMarker(lat, lon, nome, analysis, realAlt, lat, lon, isUserLocation);
 
     // 6. Atualizar Gráfico Chart.js
     renderTrendChart(analysis.labels, analysis.historyRisks, analysis.forecastRisks, analysis.maxForecastRisk);
@@ -625,7 +661,7 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
 }
 
 // ─── ATUALIZAR MARCADOR E CÍRCULO DINÂMICO NO MAPA ────────────────────────────
-function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam) {
+function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUserLocation = false) {
     if (!map) return;
 
     // Remove camadas anteriores
@@ -638,34 +674,59 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam) {
     const riverInfo = getMinDistanceToRivers(lat, lon);
     const chronicInfo = checkChronicFloodZone(lat, lon);
 
-    // Ícone dinâmico espaçoso, elegante e com porcentagem 100% visível
-    const iconHtml = `
-        <div style="position: relative; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;">
-            <div style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background: ${color}; opacity: 0.35; animation: pulse-dot-anim 1.8s infinite;"></div>
-            <div style="width: 46px; height: 46px; border-radius: 50%; background: ${color}; border: 3px solid #FFFFFF; box-shadow: 0 4px 18px rgba(0,0,0,0.5), 0 0 16px ${color}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Plus Jakarta Sans', sans-serif; cursor: pointer; user-select: none;">
-                <span style="font-size: 13px; font-weight: 900; line-height: 1; text-shadow: 0 1px 3px rgba(0,0,0,0.7);">${risk}%</span>
-                <span style="font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.95; margin-top: 1px;">RISCO</span>
-            </div>
-        </div>
-    `;
+    // Ícone dinâmico: se for a localização atual do usuário (GPS), usa badge e efeito de radar cibernético
+    let iconHtml = '';
+    let iconSize = [56, 56];
+    let iconAnchor = [28, 28];
 
-    const icon = L.divIcon({ className: '', html: iconHtml, iconSize: [56, 56], iconAnchor: [28, 28] });
+    if (isUserLocation) {
+        iconSize = [64, 64];
+        iconAnchor = [32, 32];
+        iconHtml = `
+            <div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;">
+                <div style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background: #38BDF8; opacity: 0.45; animation: pulse-dot-anim 1.4s infinite;"></div>
+                <div style="position: absolute; width: 78%; height: 78%; border-radius: 50%; background: ${color}; opacity: 0.6; animation: pulse-dot-anim 2s infinite;"></div>
+                <div style="width: 50px; height: 50px; border-radius: 50%; background: linear-gradient(135deg, #0284C7, ${color}); border: 3px solid #FFFFFF; box-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 22px #38BDF8; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Plus Jakarta Sans', sans-serif; cursor: pointer; user-select: none;">
+                    <span style="font-size: 10px; line-height: 1; margin-top: 1px;">🎯</span>
+                    <span style="font-size: 12px; font-weight: 900; line-height: 1; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${risk}%</span>
+                    <span style="font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.95;">VOCÊ</span>
+                </div>
+            </div>
+        `;
+    } else {
+        iconHtml = `
+            <div style="position: relative; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;">
+                <div style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background: ${color}; opacity: 0.35; animation: pulse-dot-anim 1.8s infinite;"></div>
+                <div style="width: 46px; height: 46px; border-radius: 50%; background: ${color}; border: 3px solid #FFFFFF; box-shadow: 0 4px 18px rgba(0,0,0,0.5), 0 0 16px ${color}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #FFFFFF; font-family: 'Plus Jakarta Sans', sans-serif; cursor: pointer; user-select: none;">
+                    <span style="font-size: 13px; font-weight: 900; line-height: 1; text-shadow: 0 1px 3px rgba(0,0,0,0.7);">${risk}%</span>
+                    <span style="font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.95; margin-top: 1px;">RISCO</span>
+                </div>
+            </div>
+        `;
+    }
+
+    const icon = L.divIcon({ className: '', html: iconHtml, iconSize: iconSize, iconAnchor: iconAnchor });
 
     // Círculo de calor / zona de influência proporcional ao risco
     const radius = risk >= 75 ? 450 : (risk >= 50 ? 320 : 200);
     activeRiskCircle = L.circle([lat, lon], {
         radius: radius,
-        color: color,
+        color: isUserLocation ? '#38BDF8' : color,
         fillColor: color,
-        fillOpacity: 0.18,
-        weight: 2,
-        dashArray: '5, 5'
+        fillOpacity: isUserLocation ? 0.22 : 0.18,
+        weight: isUserLocation ? 3 : 2,
+        dashArray: isUserLocation ? '4, 4' : '5, 5'
     }).addTo(map);
 
     // Marcador com Popup rico com os 4 Pilares
+    const badgeUserHtml = isUserLocation 
+        ? `<div style="display: inline-flex; align-items: center; gap: 4px; background: #0284C7; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 4px; margin-bottom: 4px;">🎯 VOCÊ ESTÁ AQUI (GPS)</div>`
+        : '';
+
     const popupContent = `
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; padding: 6px; min-width: 220px;">
-            <div style="font-size: 15px; font-weight: 800; color: #0F172A; margin-bottom: 2px;">${nome}</div>
+            ${badgeUserHtml}
+            <div style="font-size: 15px; font-weight: 800; color: #0F172A; margin-bottom: 2px;">${isUserLocation ? 'Sua Localização Atual' : nome}</div>
             <div style="font-size: 11px; color: #64748B; margin-bottom: 6px;">📍 ${currentSelectedPoint.bairro}</div>
             
             <div style="background: ${color}22; border-left: 4px solid ${color}; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px;">
@@ -684,7 +745,7 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam) {
     activeMarker = L.marker([lat, lon], { icon }).addTo(map).bindPopup(popupContent);
 
     // Movimento suave do mapa para o ponto
-    map.flyTo([lat, lon], 15, { duration: 1.0, easeLinearity: 0.25 });
+    map.flyTo([lat, lon], 16, { duration: 1.5, easeLinearity: 0.25 });
 }
 
 // ─── RENDERIZAR GRÁFICO CHART.JS (TENDÊNCIA 24H + 3H) ─────────────────────────
@@ -767,7 +828,7 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
     });
 }
 
-// ─── CONFIGURAR BUSCA UNIVERSAL COM AUTOCOMPLETE E NOMINATIM ──────────────────
+// ─── CONFIGURAR BUSCA UNIVERSAL (GLOBAL GEOCODING + POI + ENDEREÇOS) ─────────
 function setupSearchListeners() {
     const input = document.getElementById('universal-search-input');
     const dropdown = document.getElementById('universal-search-dropdown');
@@ -781,27 +842,54 @@ function setupSearchListeners() {
 
         if (val.length < 2) {
             dropdown.style.display = 'none';
+            dropdown.innerHTML = '';
             return;
         }
 
+        // Mostra resultados locais imediatamente (rápido)
+        const localResults = filterLocalNeighborhoods(val);
+        if (localResults.length > 0) {
+            renderSearchDropdown({ local: localResults, nominatim: [], loading: true });
+        } else {
+            showSearchLoading(val);
+        }
+
+        // Debounce: aguarda o usuário parar de digitar antes de chamar a API
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(async () => {
-            const localResults = filterLocalNeighborhoods(val);
-            renderSearchDropdown(localResults);
-
-            // Se tiver poucos resultados locais, busca na API do Nominatim/OSM
-            if (localResults.length < 4 && val.length >= 3) {
-                const nominatimResults = await searchNominatim(val);
-                const merged = [...localResults, ...nominatimResults].slice(0, 8);
-                renderSearchDropdown(merged);
-            }
-        }, 220);
+            const nominatimResults = await searchNominatim(val);
+            renderSearchDropdown({
+                local: localResults,
+                nominatim: nominatimResults,
+                loading: false
+            });
+        }, 350);
     });
 
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
+            e.preventDefault();
             const firstItem = dropdown.querySelector('.search-item');
-            if (firstItem) firstItem.click();
+            if (firstItem) {
+                firstItem.click();
+            } else if (input.value.trim().length >= 2) {
+                showSearchLoading(input.value.trim());
+                searchNominatim(input.value.trim()).then(res => {
+                    if (res.length > 0) {
+                        const r = res[0];
+                        selectSearchResult(r.lat, r.lon, r.nome, r.bairro, null, r.display_name, r.icon);
+                    } else {
+                        showSearchEmpty();
+                    }
+                });
+            }
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+            input.blur();
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const items = dropdown.querySelectorAll('.search-item');
+            if (items.length > 0) items[0].focus();
         }
     });
 
@@ -813,6 +901,7 @@ function setupSearchListeners() {
     });
 }
 
+// ─── FILTRO LOCAL (Base de Bairros Offline) ────────────────────────────────────
 function filterLocalNeighborhoods(query) {
     const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     return SP_NEIGHBORHOODS.filter(n => {
@@ -822,67 +911,316 @@ function filterLocalNeighborhoods(query) {
     });
 }
 
+// ─── NOMINATIM GLOBAL: Endereços, POIs, Monumentos, CEP ──────────────────────
 async function searchNominatim(query) {
     try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ' São Paulo')}&limit=5&countrycodes=br&addressdetails=1`;
-        const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        // Primeiro tenta busca sem restringir país (resultado global)
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=7&addressdetails=1&namedetails=1&accept-language=pt-BR`;
+        const res = await fetch(url, {
+            headers: { 'Accept-Language': 'pt-BR, pt;q=0.9, en;q=0.8' },
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) return [];
         const data = await res.json();
-        return data.map(item => ({
-            nome: item.display_name.split(',')[0],
-            bairro: item.display_name.split(',').slice(1, 3).join(',').trim(),
-            lat: parseFloat(item.lat),
-            lon: parseFloat(item.lon),
-            alt: 730,
-            icon: "🔍"
-        }));
-    } catch (_) {
+
+        return data.map(item => {
+            const addr = item.address || {};
+            const nameDetails = item.namedetails || {};
+
+            // Extrai nome mais específico disponível
+            let nome = nameDetails['name:pt'] || nameDetails['name'] ||
+                       addr.amenity || addr.leisure || addr.tourism ||
+                       addr.historic || addr.shop || addr.office ||
+                       addr.stadium || addr.sports_centre ||
+                       (addr.building && addr.building !== 'yes' ? addr.building : null) ||
+                       addr.road || item.display_name.split(',')[0].trim();
+
+            // Extrai bairro/localização de referência
+            let bairro = addr.suburb || addr.neighbourhood || addr.city_district ||
+                         addr.quarter || addr.borough || '';
+            const cidade = addr.city || addr.town || addr.municipality || addr.county || '';
+            const estado = addr.state || '';
+            const pais = addr.country || '';
+
+            // Monta linha de contexto legível
+            const contextParts = [bairro, cidade, estado].filter(Boolean);
+            const contexto = contextParts.length > 0
+                ? contextParts.slice(0, 2).join(', ')
+                : pais;
+
+            // Detecta ícone por tipo de POI
+            const icon = getNominatimIcon(item, addr);
+
+            return {
+                nome: nome,
+                bairro: contexto || pais,
+                display_name: item.display_name,
+                lat: parseFloat(item.lat),
+                lon: parseFloat(item.lon),
+                alt: null,
+                icon: icon,
+                type: item.type,
+                category: item.class
+            };
+        });
+    } catch (err) {
+        if (err.name !== 'AbortError') console.warn('Nominatim error:', err);
         return [];
     }
 }
 
-function renderSearchDropdown(results) {
+// ─── DETECTA ÍCONE PARA O TIPO DE RESULTADO DO NOMINATIM ─────────────────────
+function getNominatimIcon(item, addr) {
+    const cls = item.class || '';
+    const type = item.type || '';
+
+    if (cls === 'amenity') {
+        if (['restaurant', 'fast_food', 'cafe', 'bar', 'food_court'].includes(type)) return '🍽️';
+        if (['hospital', 'clinic', 'pharmacy', 'dentist'].includes(type)) return '🏥';
+        if (['school', 'university', 'college', 'kindergarten'].includes(type)) return '🎓';
+        if (['bank', 'atm'].includes(type)) return '🏦';
+        if (['fuel', 'parking'].includes(type)) return '⛽';
+        if (['place_of_worship', 'church'].includes(type)) return '⛪';
+        if (['cinema', 'theatre'].includes(type)) return '🎭';
+        if (['library'].includes(type)) return '📚';
+        if (['police'].includes(type)) return '🚓';
+        if (['fire_station'].includes(type)) return '🚒';
+        if (['bus_station', 'taxi'].includes(type)) return '🚌';
+        if (['marketplace', 'marketplace'].includes(type)) return '🛒';
+        return '📌';
+    }
+    if (cls === 'tourism') {
+        if (['museum', 'gallery'].includes(type)) return '🏛️';
+        if (['hotel', 'hostel', 'motel'].includes(type)) return '🏨';
+        if (['attraction', 'viewpoint'].includes(type)) return '🗺️';
+        if (['theme_park', 'zoo', 'aquarium'].includes(type)) return '🎡';
+        return '🌟';
+    }
+    if (cls === 'leisure') {
+        if (['stadium', 'sports_centre'].includes(type)) return '🏟️';
+        if (['park', 'garden'].includes(type)) return '🌳';
+        if (['swimming_pool'].includes(type)) return '🏊';
+        return '⚽';
+    }
+    if (cls === 'historic') return '🏰';
+    if (cls === 'shop') return '🛍️';
+    if (cls === 'railway') return '🚇';
+    if (cls === 'aeroway') return '✈️';
+    if (cls === 'highway') {
+        if (['bus_stop'].includes(type)) return '🚌';
+        return '🛣️';
+    }
+    if (cls === 'place') {
+        if (['city', 'town', 'village'].includes(type)) return '🏙️';
+        if (['suburb', 'neighbourhood'].includes(type)) return '📍';
+        return '🗺️';
+    }
+    if (cls === 'boundary') return '🗺️';
+    if (cls === 'waterway') return '🌊';
+    if (addr.postcode) return '📮';
+    return '📍';
+}
+
+// ─── MOSTRAR LOADING E EMPTY STATE NO DROPDOWN ────────────────────────────────
+function showSearchLoading(query) {
     const dropdown = document.getElementById('universal-search-dropdown');
     if (!dropdown) return;
-
-    if (results.length === 0) {
-        dropdown.innerHTML = `<div style="padding: 12px; font-size: 12px; color: #94A3B8; text-align: center;">Nenhum local encontrado em SP. Tente outro termo.</div>`;
-        dropdown.style.display = 'block';
-        return;
-    }
-
-    dropdown.innerHTML = results.map(item => `
-        <div class="search-item" onclick="selectSearchResult(${item.lat}, ${item.lon}, '${escapeHtml(item.nome)}', '${escapeHtml(item.bairro)}', ${item.alt !== undefined ? item.alt : 'null'})">
-            <span style="font-size: 16px;">${item.icon || '📍'}</span>
-            <div style="flex: 1; min-width: 0;">
-                <div style="font-weight: 700; font-size: 13px; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${item.nome}
-                </div>
-                <div style="font-size: 11px; color: #94A3B8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${item.bairro}
-                </div>
-            </div>
-            <span style="font-size: 10px; color: #38BDF8; font-weight: 700;">CALCULAR</span>
+    dropdown.innerHTML = `
+        <div class="search-status-bar loading">
+            <div class="search-loading-dot"></div>
+            Buscando "${escapeHtml(query)}"...
         </div>
-    `).join('');
-
+        <div class="search-empty">⏳ Consultando base cartográfica global...</div>
+    `;
     dropdown.style.display = 'block';
 }
 
-function selectSearchResult(lat, lon, nome, bairro, alt = null) {
-    document.getElementById('universal-search-input').value = nome;
-    document.getElementById('universal-search-dropdown').style.display = 'none';
-    analyzePoint(lat, lon, nome, bairro, alt);
+function showSearchEmpty() {
+    const dropdown = document.getElementById('universal-search-dropdown');
+    if (!dropdown) return;
+    dropdown.innerHTML = `
+        <div class="search-empty">
+            ❌ Nenhum resultado encontrado.<br>
+            <span style="color:#38BDF8;">Tente um endereço mais completo ou nome diferente.</span>
+        </div>
+    `;
+    dropdown.style.display = 'block';
+}
+
+// ─── RENDERIZAR DROPDOWN UNIFICADO COM SEÇÕES ─────────────────────────────────
+function renderSearchDropdown({ local = [], nominatim = [], loading = false }) {
+    const dropdown = document.getElementById('universal-search-dropdown');
+    if (!dropdown) return;
+
+    const hasLocal = local.length > 0;
+    const hasNominatim = nominatim.length > 0;
+
+    if (!hasLocal && !hasNominatim && !loading) {
+        showSearchEmpty();
+        return;
+    }
+
+    let html = '';
+
+    // Status bar
+    if (loading) {
+        html += `<div class="search-status-bar loading"><div class="search-loading-dot"></div>Buscando na base global...</div>`;
+    } else if (hasNominatim || hasLocal) {
+        const total = local.length + nominatim.length;
+        html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
+    }
+
+    // Seção: base local (rápida, offline)
+    if (hasLocal) {
+        if (hasNominatim) {
+            html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
+        }
+        html += local.map(item => buildSearchItemHtml(item)).join('');
+    }
+
+    // Seção: resultados Nominatim (endereços, POIs globais)
+    if (hasNominatim) {
+        if (hasLocal) {
+            html += `<div class="search-section-label">🌍 Resultados da Busca</div>`;
+        }
+        html += nominatim.map(item => buildSearchItemHtml(item)).join('');
+    }
+
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+}
+
+// ─── CONSTRÓI HTML DE UM ITEM DO DROPDOWN ─────────────────────────────────────
+function buildSearchItemHtml(item) {
+    const safeNome = escapeHtml(item.nome);
+    const safeBairro = escapeHtml(item.bairro);
+    const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
+    const altParam = (item.alt !== undefined && item.alt !== null) ? item.alt : 'null';
+    const safeIcon = escapeHtml(item.icon || '📍');
+
+    return `
+    <div class="search-item" onclick="selectSearchResult(${item.lat}, ${item.lon}, '${safeNome}', '${safeBairro}', ${altParam}, '${safeDisplay}', '${safeIcon}')">
+        <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">${item.icon || '📍'}</span>
+        <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 700; font-size: 13px; color: #FFFFFF; line-height: 1.35; word-break: break-word;">
+                ${item.nome}
+            </div>
+            <div style="font-size: 11px; color: #94A3B8; margin-top: 3px; line-height: 1.3; word-break: break-word;">
+                ${item.bairro}
+            </div>
+        </div>
+        <span style="font-size: 10px; color: #38BDF8; font-weight: 700; flex-shrink: 0; background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.25); padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">IR</span>
+    </div>
+    `;
+}
+
+// ─── SELECIONAR RESULTADO E ANALISAR RISCO DO LOCAL ───────────────────────────
+function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = null, icon = '📍') {
+    const input = document.getElementById('universal-search-input');
+    if (input) {
+        input.value = nome;
+        input.blur();
+    }
+    const dropdown = document.getElementById('universal-search-dropdown');
+    if (dropdown) {
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+    }
+    const clearBtn = document.getElementById('btn-search-clear');
+    if (clearBtn) clearBtn.style.display = 'block';
+
+    // Aciona o motor de análise completo: clima + elevação + risco
+    analyzePoint(lat, lon, nome, bairro, alt, fullAddress);
 }
 
 function clearSearchInput() {
-    document.getElementById('universal-search-input').value = '';
-    document.getElementById('btn-search-clear').style.display = 'none';
-    document.getElementById('universal-search-dropdown').style.display = 'none';
+    const input = document.getElementById('universal-search-input');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('btn-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    const dropdown = document.getElementById('universal-search-dropdown');
+    if (dropdown) { dropdown.style.display = 'none'; dropdown.innerHTML = ''; }
 }
 
-// ─── REVERSE GEOCODING (COORDENADA -> NOME DO BAIRRO) ─────────────────────────
+// ─── REVERSE GEOCODING PRECISO (COORDENADA -> ENDEREÇO / BAIRRO COMPLETO) ────
 async function reverseGeocode(lat, lon) {
-    // Procura na base local mais próximo
+    const key = `geo_${lat.toFixed(4)}_${lon.toFixed(4)}`;
+    if (geocodeCache[key]) return geocodeCache[key];
+
+    // Se estiver extremamente próximo (< 40 metros) de um marco de referência conhecido
+    for (const n of SP_NEIGHBORHOODS) {
+        const d = Math.hypot(n.lat - lat, n.lon - lon);
+        if (d < 0.0004) {
+            const res = { nome: n.nome, bairro: n.bairro, alt: n.alt };
+            geocodeCache[key] = res;
+            return res;
+        }
+    }
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`;
+        const res = await fetch(url, { 
+            headers: { 'Accept-Language': 'pt-BR, pt' },
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+
+            // 1. Identifica o nome principal e específico do local
+            let nomePrincipal = "";
+            if (addr.amenity) nomePrincipal = addr.amenity;
+            else if (addr.leisure) nomePrincipal = addr.leisure;
+            else if (addr.tourism) nomePrincipal = addr.tourism;
+            else if (addr.building && addr.building !== "yes") nomePrincipal = addr.building;
+            else if (addr.historic) nomePrincipal = addr.historic;
+            else if (addr.bridge) nomePrincipal = addr.bridge;
+            else if (addr.road) {
+                nomePrincipal = addr.road;
+                if (addr.house_number) nomePrincipal += `, ${addr.house_number}`;
+            } else if (addr.pedestrian || addr.footway || addr.path || addr.square) {
+                nomePrincipal = addr.pedestrian || addr.footway || addr.path || addr.square;
+            } else if (data.display_name) {
+                nomePrincipal = data.display_name.split(',')[0].trim();
+            } else {
+                nomePrincipal = `Local (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+            }
+
+            // 2. Identifica Bairro, Distrito e Cidade
+            let bairroNome = addr.suburb || addr.neighbourhood || addr.city_district || addr.quarter || addr.borough;
+            const cidade = addr.city || addr.town || addr.municipality || "São Paulo";
+
+            if (!bairroNome) {
+                const parts = (data.display_name || '').split(',').map(s => s.trim());
+                if (parts.length > 2) bairroNome = parts[1];
+                else bairroNome = "São Paulo";
+            }
+
+            const bairroFormatado = bairroNome !== cidade ? `${bairroNome} • ${cidade}` : cidade;
+
+            const resultado = {
+                nome: nomePrincipal,
+                bairro: bairroFormatado,
+                display_name: data.display_name || `${nomePrincipal}, ${bairroFormatado}`
+            };
+
+            geocodeCache[key] = resultado;
+            return resultado;
+        }
+    } catch (e) {
+        console.warn("Falha no reverse geocoding do Nominatim, usando fallback:", e);
+    }
+
+    // Fallback: Procura o bairro mais próximo da base local
     let closest = null;
     let minDist = 999999;
     for (const n of SP_NEIGHBORHOODS) {
@@ -890,21 +1228,19 @@ async function reverseGeocode(lat, lon) {
         if (d < minDist) { minDist = d; closest = n; }
     }
 
-    if (closest && minDist < 0.008) {
-        return { nome: closest.nome, bairro: closest.bairro, alt: closest.alt };
+    if (closest && minDist < 0.015) {
+        return { 
+            nome: `Próximo a ${closest.nome}`, 
+            bairro: `${closest.bairro} • São Paulo`, 
+            alt: closest.alt 
+        };
     }
 
-    try {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`;
-        const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
-        const data = await res.json();
-        const address = data.address || {};
-        const road = address.road || address.suburb || address.neighbourhood || "Região de SP";
-        const suburb = address.suburb || address.city_district || "São Paulo - SP";
-        return { nome: road, bairro: suburb, alt: 730 };
-    } catch (_) {
-        return { nome: `Local (${lat.toFixed(4)}, ${lon.toFixed(4)})`, bairro: "São Paulo - SP", alt: 730 };
-    }
+    return { 
+        nome: `Ponto (${lat.toFixed(4)}, ${lon.toFixed(4)})`, 
+        bairro: "São Paulo - SP", 
+        alt: 740 
+    };
 }
 
 // ─── SIMULADOR DE CENÁRIOS FECART ─────────────────────────────────────────────
@@ -1122,6 +1458,163 @@ function flyToSaoPauloCenter() {
 
 function flyToFECAP() {
     selectSearchResult(-23.5574, -46.6367, "FECAP — Campus Liberdade", "Liberdade", 735);
+}
+
+// ─── GEOLOCALIZAÇÃO EM TEMPO REAL (GPS DO USUÁRIO) ───────────────────────────
+let isGeolocating = false;
+let geoToastTimeout = null;
+
+async function triggerUserGeolocation() {
+    if (isGeolocating) return;
+
+    const btnGeo = document.getElementById('btn-geolocate');
+    const btnMapGps = document.getElementById('btn-map-gps');
+
+    // 1. Verificação de suporte a Geolocation API no navegador
+    if (!navigator.geolocation) {
+        showGeoToast(
+            'error',
+            'Não foi possível acessar sua localização. Por favor, digite seu endereço na barra de pesquisa.'
+        );
+        focusSearchInput();
+        return;
+    }
+
+    // 2. Atualizar estado visual para carregando
+    isGeolocating = true;
+    if (btnGeo) {
+        btnGeo.classList.add('is-locating');
+        const label = btnGeo.querySelector('.gps-btn-label');
+        if (label) label.textContent = 'GPS...';
+    }
+    if (btnMapGps) {
+        btnMapGps.classList.add('is-locating');
+        btnMapGps.innerHTML = '🛰️ Localizando...';
+    }
+
+    showGeoToast('info', '🛰️ Solicitando sinal de GPS e obtendo suas coordenadas exatas...');
+
+    const geoOptions = {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+    };
+
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            isGeolocating = false;
+            resetGeoButtons();
+
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const accuracy = Math.round(position.coords.accuracy || 0);
+
+            showGeoToast('success', `📍 Localização GPS obtida! (Precisão: ±${accuracy}m)`);
+
+            // Exibe estado transitório no card
+            document.getElementById('hero-location-name').innerHTML = `
+                <span class="location-pin-badge" style="background: rgba(56, 189, 248, 0.25); border-color: #38BDF8; color: #38BDF8;">🎯</span>
+                <span class="location-title-text">Sua Localização Atual <span style="font-size: 10px; background: rgba(56,189,248,0.22); color: #38BDF8; padding: 2px 7px; border-radius: 4px; font-weight: 800; margin-left: 6px; border: 1px solid rgba(56,189,248,0.4); vertical-align: middle;">GPS</span></span>
+            `;
+            const elBairro = document.getElementById('hero-location-bairro');
+            if (elBairro) elBairro.innerHTML = `🛰️ Identificando bairro e região...`;
+            const elAddress = document.getElementById('hero-location-address');
+            if (elAddress) elAddress.innerHTML = `📌 Coordenadas: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+
+            // Busca nome reverso e altitude em paralelo
+            const [locationInfo, realAlt] = await Promise.all([
+                reverseGeocode(lat, lon),
+                getElevation(lat, lon)
+            ]);
+
+            const displayName = locationInfo.display_name || `${locationInfo.nome} — ${locationInfo.bairro}`;
+            const localNome = locationInfo.nome && locationInfo.nome !== 'São Paulo'
+                ? `Você está em ${locationInfo.nome}`
+                : 'Sua Posição Atual';
+
+            await analyzePoint(lat, lon, localNome, locationInfo.bairro, realAlt, displayName, true);
+        },
+        (error) => {
+            isGeolocating = false;
+            resetGeoButtons();
+
+            console.warn('Geolocation error:', error);
+
+            // Alerta amigável e bonito conforme solicitado
+            showGeoToast(
+                'error',
+                'Não foi possível acessar sua localização. Por favor, digite seu endereço na barra de pesquisa.'
+            );
+            focusSearchInput();
+        },
+        geoOptions
+    );
+}
+
+function resetGeoButtons() {
+    const btnGeo = document.getElementById('btn-geolocate');
+    const btnMapGps = document.getElementById('btn-map-gps');
+
+    if (btnGeo) {
+        btnGeo.classList.remove('is-locating');
+        const label = btnGeo.querySelector('.gps-btn-label');
+        if (label) label.textContent = 'GPS';
+    }
+    if (btnMapGps) {
+        btnMapGps.classList.remove('is-locating');
+        btnMapGps.innerHTML = '🎯 Minha Localização';
+    }
+}
+
+function focusSearchInput() {
+    const input = document.getElementById('universal-search-input');
+    if (input) {
+        setTimeout(() => {
+            input.focus();
+            input.classList.add('highlight-pulse');
+            setTimeout(() => input.classList.remove('highlight-pulse'), 3000);
+        }, 300);
+    }
+}
+
+function showGeoToast(type, message, durationMs = 6000) {
+    const toast = document.getElementById('geo-alert-toast');
+    if (!toast) return;
+
+    const iconEl = document.getElementById('geo-toast-icon');
+    const msgEl = document.getElementById('geo-toast-msg');
+
+    if (type === 'error' || type === 'warning') {
+        toast.className = 'geo-toast geo-toast-error';
+        if (iconEl) iconEl.innerHTML = '⚠️';
+    } else if (type === 'success') {
+        toast.className = 'geo-toast geo-toast-success';
+        if (iconEl) iconEl.innerHTML = '✅';
+    } else {
+        toast.className = 'geo-toast geo-toast-info';
+        if (iconEl) iconEl.innerHTML = '🛰️';
+    }
+
+    if (msgEl) msgEl.innerHTML = message;
+    toast.style.display = 'flex';
+
+    clearTimeout(geoToastTimeout);
+    if (durationMs > 0) {
+        geoToastTimeout = setTimeout(() => {
+            hideGeoToast();
+        }, durationMs);
+    }
+}
+
+function hideGeoToast() {
+    const toast = document.getElementById('geo-alert-toast');
+    if (toast) {
+        toast.style.animation = 'fadeOut 0.3s forwards';
+        setTimeout(() => {
+            toast.style.display = 'none';
+            toast.style.animation = '';
+        }, 300);
+    }
 }
 
 // ─── HELPERS E CORES ─────────────────────────────────────────────────────────

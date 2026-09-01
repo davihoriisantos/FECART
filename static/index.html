@@ -34,14 +34,17 @@
                 <a href="/static/map.html" class="nav-link">Mapa ao Vivo</a>
             </nav>
 
-            <div class="header-actions">
-                <a href="/static/login.html" class="btn btn-primary">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
+                <a href="/static/login.html?tab=register" class="btn btn-outline" style="padding: 8px 16px; font-size: 13px; font-weight: 700; border-color: rgba(56, 189, 248, 0.4);">
+                    ✨ Criar Conta
+                </a>
+                <a href="/static/login.html" class="btn btn-primary" style="padding: 8px 18px; font-size: 13px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
                         <polyline points="10 17 15 12 10 7"/>
                         <line x1="15" y1="12" x2="3" y2="12"/>
                     </svg>
-                    Acessar Sistema
+                    Entrar
                 </a>
             </div>
         </div>
@@ -139,97 +142,6 @@
                     <button type="button" onclick="restaurarDadosReais()" class="btn btn-outline" style="font-size: 14px;">
                         🔄 Restaurar Dados Reais
                     </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Seção: Resumo de Risco Preditivo por Região (Entorno FECAP) -->
-        <div class="card" style="margin-bottom: 60px; text-align: left;">
-            <div class="flex-between" style="margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-                <div>
-                    <h3 style="font-size: 22px; font-weight: 800; color: #FFFFFF; display: flex; align-items: center; gap: 10px;">
-                        <span>📈</span> Resumo de Risco Preditivo por Região
-                    </h3>
-                    <p style="font-size: 14px; color: var(--text-muted); margin-top: 4px;">
-                        Monitoramento contínuo focado no entorno direto da <strong>Escola FECAP</strong> (Bairro da Liberdade e Centro de São Paulo)
-                    </p>
-                </div>
-                <a href="/static/map.html" class="btn btn-outline" style="font-size: 13px; padding: 8px 16px;">
-                    🗺️ Ver no Mapa ao Vivo
-                </a>
-            </div>
-
-            <div class="grid grid-2" style="gap: 14px;">
-                <!-- 1. Baixada do Glicério -->
-                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">🚨</span>
-                        <div>
-                            <strong style="color: #FFFFFF; font-size: 16px; display: block; font-weight: 800;">Baixada do Glicério</strong>
-                            <span style="font-size: 12px; color: #FCA5A5; font-weight: 600;">Várzea do Tamanduateí • Alagamento Severo</span>
-                        </div>
-                    </div>
-                    <span class="chip chip-critico" style="font-size: 13px; font-weight: 800;">CRÍTICO (85%)</span>
-                </div>
-
-                <!-- 2. Viaduto do Chá / Anhangabaú -->
-                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">🌊</span>
-                        <div>
-                            <strong style="color: #FFFFFF; font-size: 16px; display: block; font-weight: 800;">Viaduto do Chá / Anhangabaú</strong>
-                            <span style="font-size: 12px; color: #FCA5A5; font-weight: 600;">Vale do Anhangabaú • Convergência Pluvial</span>
-                        </div>
-                    </div>
-                    <span class="chip chip-critico" style="font-size: 13px; font-weight: 800;">CRÍTICO (78%)</span>
-                </div>
-
-                <!-- 3. Av. do Estado (Trecho Radial) -->
-                <div style="background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.4); border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">⚠️</span>
-                        <div>
-                            <strong style="color: #FFFFFF; font-size: 16px; display: block; font-weight: 800;">Av. do Estado (Trecho Radial)</strong>
-                            <span style="font-size: 12px; color: #FDBA74; font-weight: 600;">Conexão Radial Leste • Retenção de Água</span>
-                        </div>
-                    </div>
-                    <span class="chip chip-alto" style="font-size: 13px; font-weight: 800;">ALTO (68%)</span>
-                </div>
-
-                <!-- 4. Rua Conselheiro Furtado -->
-                <div style="background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.4); border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">🌧️</span>
-                        <div>
-                            <strong style="color: #FFFFFF; font-size: 16px; display: block; font-weight: 800;">Rua Conselheiro Furtado</strong>
-                            <span style="font-size: 12px; color: #FDBA74; font-weight: 600;">Descida para o Glicério • Enxurrada Forte</span>
-                        </div>
-                    </div>
-                    <span class="chip chip-alto" style="font-size: 13px; font-weight: 800;">ALTO (58%)</span>
-                </div>
-
-                <!-- 5. Praça da Sé -->
-                <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">🟡</span>
-                        <div>
-                            <strong style="color: #FFFFFF; font-size: 16px; display: block; font-weight: 800;">Praça da Sé</strong>
-                            <span style="font-size: 12px; color: #FDE047; font-weight: 600;">Centro Histórico • Escoamento Monitorado</span>
-                        </div>
-                    </div>
-                    <span class="chip chip-moderado" style="font-size: 13px; font-weight: 800;">MODERADO (42%)</span>
-                </div>
-
-                <!-- 6. Av. Liberdade (Frente FECAP) -->
-                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">🛡️</span>
-                        <div>
-                            <strong style="color: #FFFFFF; font-size: 16px; display: block; font-weight: 800;">Av. Liberdade (Frente FECAP)</strong>
-                            <span style="font-size: 12px; color: #6EE7B7; font-weight: 600;">Colina da Liberdade • Região Segura & Estável</span>
-                        </div>
-                    </div>
-                    <span class="chip chip-baixo" style="font-size: 13px; font-weight: 800;">BAIXO (15%)</span>
                 </div>
             </div>
         </div>

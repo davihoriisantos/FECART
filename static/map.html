@@ -83,7 +83,7 @@
         .dash-main {
             flex: 1;
             display: grid;
-            grid-template-columns: 420px 1fr;
+            grid-template-columns: 450px 1fr;
             gap: 16px;
             padding: 16px;
             overflow: hidden;
@@ -91,9 +91,9 @@
             height: calc(100vh - 60px);
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1200px) {
             .dash-main {
-                grid-template-columns: 380px 1fr;
+                grid-template-columns: 410px 1fr;
                 padding: 12px;
                 gap: 12px;
             }
@@ -177,7 +177,7 @@
             border-radius: 4px;
         }
 
-        /* ─── Barra de Busca Universal ─── */
+        /* ─── Barra de Busca Universal & Botão GPS ─── */
         .search-box-wrapper {
             position: relative;
         }
@@ -186,6 +186,15 @@
             position: relative;
             display: flex;
             align-items: center;
+            gap: 8px;
+        }
+
+        .search-input-field-wrap {
+            position: relative;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            min-width: 0;
         }
 
         .search-icon-left {
@@ -198,7 +207,7 @@
 
         .search-input {
             width: 100%;
-            padding: 12px 38px 12px 40px;
+            padding: 12px 34px 12px 40px;
             background: rgba(0, 0, 0, 0.35);
             border: 1px solid rgba(56, 189, 248, 0.3);
             border-radius: 10px;
@@ -218,7 +227,7 @@
 
         .search-btn-clear {
             position: absolute;
-            right: 10px;
+            right: 8px;
             background: transparent;
             border: none;
             color: #94A3B8;
@@ -226,6 +235,173 @@
             font-size: 14px;
             padding: 4px;
             display: none;
+        }
+
+        /* Botão Minha Localização (GPS) */
+        .btn-geolocate {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 44px;
+            padding: 0 14px;
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(2, 132, 199, 0.28));
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            border-radius: 10px;
+            color: #38BDF8;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .btn-geolocate:hover {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
+            border-color: #38BDF8;
+            color: #FFFFFF;
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .btn-geolocate:active {
+            transform: translateY(0);
+        }
+
+        .btn-geolocate.is-locating {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.35));
+            border-color: #F59E0B;
+            color: #F59E0B;
+            animation: pulse-gps 1.2s infinite alternate;
+        }
+
+        .btn-geolocate.is-locating .gps-icon {
+            animation: spin-radar 1.2s linear infinite;
+        }
+
+        @keyframes spin-radar {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse-gps {
+            from { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
+            to { box-shadow: 0 0 18px rgba(245, 158, 11, 0.8); }
+        }
+
+        /* Toast / Modal de Alerta de Localização */
+        .geo-toast {
+            position: fixed;
+            top: 75px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            max-width: 540px;
+            width: 90%;
+            background: rgba(15, 23, 42, 0.96);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            border-radius: 12px;
+            padding: 12px 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            animation: slideDownToast 0.3s ease-out;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .geo-toast-error {
+            border-color: rgba(239, 68, 68, 0.7);
+            background: rgba(30, 15, 20, 0.98);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(239, 68, 68, 0.3);
+        }
+
+        .geo-toast-success {
+            border-color: rgba(16, 185, 129, 0.7);
+            background: rgba(10, 25, 20, 0.98);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.3);
+        }
+
+        .geo-toast-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+        }
+
+        .geo-toast-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .geo-toast-msg {
+            font-size: 13px;
+            color: #F8FAFC;
+            font-weight: 600;
+            line-height: 1.45;
+        }
+
+        .geo-toast-close {
+            background: transparent;
+            border: none;
+            color: #94A3B8;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .geo-toast-close:hover {
+            color: #FFFFFF;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        @keyframes slideDownToast {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -20px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+
+        .highlight-pulse {
+            border-color: #38BDF8 !important;
+            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.35) !important;
+            animation: inputPulse 1.2s infinite alternate;
+        }
+
+        @keyframes inputPulse {
+            from { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
+            to { box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.5); }
+        }
+
+        .map-btn-gps {
+            border-color: rgba(56, 189, 248, 0.45);
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(2, 132, 199, 0.35));
+            color: #38BDF8;
+        }
+
+        .map-btn-gps:hover {
+            border-color: #38BDF8;
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.4), rgba(2, 132, 199, 0.6));
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
+            color: #FFFFFF;
+        }
+
+        .map-btn-gps.is-locating {
+            border-color: #F59E0B;
+            color: #F59E0B;
+            background: rgba(245, 158, 11, 0.25);
+            animation: pulse-gps 1.2s infinite alternate;
         }
 
         .search-dropdown {
@@ -237,11 +413,57 @@
             backdrop-filter: blur(20px);
             border: 1px solid rgba(56, 189, 248, 0.3);
             border-radius: 10px;
-            max-height: 280px;
+            max-height: 320px;
             overflow-y: auto;
             z-index: 1000;
             box-shadow: 0 15px 35px rgba(0,0,0,0.7);
             display: none;
+        }
+
+        .search-status-bar {
+            padding: 8px 14px 4px;
+            font-size: 10px;
+            font-weight: 700;
+            color: #38BDF8;
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .search-status-bar.loading {
+            color: #F59E0B;
+        }
+
+        .search-loading-dot {
+            width: 6px;
+            height: 6px;
+            background: #38BDF8;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+
+        .search-section-label {
+            padding: 6px 14px 2px;
+            font-size: 10px;
+            font-weight: 700;
+            color: #64748B;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+
+        .search-empty {
+            padding: 16px;
+            font-size: 12px;
+            color: #64748B;
+            text-align: center;
         }
 
         .search-item {
@@ -262,38 +484,91 @@
             border-bottom: none;
         }
 
-        /* ─── Hero Card: Status de Risco ─── */
+        /* ─── Hero Card: Status de Risco (Sem cortes / Flexível) ─── */
         .risk-hero-card {
-            background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
             border: 1px solid var(--card-inner-border);
             border-radius: 14px;
             padding: 16px;
             position: relative;
-            overflow: hidden;
+            flex-shrink: 0;
+            min-height: auto;
+            overflow: visible;
+            box-sizing: border-box;
             transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
 
         .risk-hero-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            gap: 12px;
         }
 
         .location-title {
-            font-size: 16px;
+            font-size: 17px;
             font-weight: 800;
             color: #FFFFFF;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 10px;
             margin: 0;
+            line-height: 1.35;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        .location-pin-badge {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+        }
+
+        .location-title-text {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .location-bairro {
+            font-size: 13px;
+            font-weight: 700;
+            color: #38BDF8;
+            margin-top: 6px;
+            line-height: 1.35;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        .location-address-full {
+            margin-top: 8px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 8px;
+            font-size: 11px;
+            color: #E2E8F0;
+            line-height: 1.45;
+            word-break: break-word;
+            overflow-wrap: anywhere;
         }
 
         .location-subtitle {
             font-size: 11px;
             color: #94A3B8;
-            margin-top: 2px;
+            margin-top: 6px;
+            line-height: 1.4;
+            word-break: break-word;
+            overflow-wrap: anywhere;
         }
 
         .risk-big-value {
@@ -312,6 +587,7 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             display: inline-block;
+            flex-shrink: 0;
         }
 
         .risk-bar-bg {
@@ -336,6 +612,7 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
+            flex-shrink: 0;
         }
 
         .kpi-card {
@@ -375,6 +652,7 @@
             border: 1px solid var(--card-inner-border);
             border-radius: 12px;
             padding: 14px;
+            flex-shrink: 0;
         }
 
         .chart-header {
@@ -399,6 +677,7 @@
             font-size: 12px;
             line-height: 1.55;
             color: #CBD5E1;
+            flex-shrink: 0;
         }
 
         /* ─── Seção da Rota ─── */
@@ -629,6 +908,15 @@
     </style>
 </head>
 <body>
+    <!-- ─── TOAST DE ALERTA DE GEOLOCALIZAÇÃO / MENSAGENS ─── -->
+    <div id="geo-alert-toast" class="geo-toast" style="display: none;">
+        <div class="geo-toast-content">
+            <span id="geo-toast-icon" class="geo-toast-icon">📍</span>
+            <div id="geo-toast-msg" class="geo-toast-msg">Mensagem de Localização</div>
+        </div>
+        <button class="geo-toast-close" onclick="hideGeoToast()" title="Fechar">✕</button>
+    </div>
+
     <!-- ─── HEADER DO DASHBOARD ─── -->
     <header class="dash-header">
         <div class="header-left">
@@ -647,6 +935,9 @@
         </div>
 
         <div class="header-right">
+            <a href="/static/login.html" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
+                👤 Minha Conta
+            </a>
             <a href="/static/dashboard.html" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
                 📊 Painel Geral
             </a>
@@ -675,12 +966,27 @@
             <!-- Conteúdo da Aba 1: Explorar Região -->
             <div id="panel-explorar" class="dash-sidebar-content">
                 
-                <!-- Barra de Busca Universal -->
+                <!-- Barra de Busca Universal + Botão GPS -->
                 <div class="search-box-wrapper">
                     <div class="search-input-group">
-                        <span class="search-icon-left">🔍</span>
-                        <input type="text" id="universal-search-input" class="search-input" placeholder="Buscar qualquer bairro ou rua em SP (ex: Morumbi, FECAP, Mooca, Itaquera)..." autocomplete="off">
-                        <button id="btn-search-clear" class="search-btn-clear" onclick="clearSearchInput()">✕</button>
+                        <div class="search-input-field-wrap">
+                            <span class="search-icon-left">🔍</span>
+                            <input type="text" id="universal-search-input" class="search-input"
+                                placeholder="Buscar endereço, monumento, CEP..." 
+                                autocomplete="off">
+                            <button id="btn-search-clear" class="search-btn-clear" onclick="clearSearchInput()" title="Limpar busca">✕</button>
+                        </div>
+                        <button id="btn-geolocate" class="btn-geolocate" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
+                            <svg class="gps-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="7"></circle>
+                                <line x1="12" y1="1" x2="12" y2="5"></line>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="1" y1="12" x2="5" y2="12"></line>
+                                <line x1="19" y1="12" x2="23" y2="12"></line>
+                                <circle cx="12" cy="12" r="2.5" fill="currentColor"></circle>
+                            </svg>
+                            <span class="gps-btn-label">GPS</span>
+                        </button>
                     </div>
                     <div id="universal-search-dropdown" class="search-dropdown"></div>
                 </div>
@@ -688,15 +994,22 @@
                 <!-- Hero Card: Status de Risco Preditivo do Ponto Selecionado -->
                 <div id="risk-hero" class="risk-hero-card">
                     <div class="risk-hero-header">
-                        <div>
+                        <div style="flex: 1; min-width: 0;">
                             <h3 id="hero-location-name" class="location-title">
-                                <span>📍</span> FECAP — Campus Liberdade
+                                <span class="location-pin-badge">📍</span>
+                                <span class="location-title-text">FECAP — Campus Liberdade</span>
                             </h3>
+                            <div id="hero-location-bairro" class="location-bairro">
+                                🏙️ Liberdade / Centro • São Paulo
+                            </div>
+                            <div id="hero-location-address" class="location-address-full">
+                                📌 Av. da Liberdade, 532 - Liberdade, São Paulo - SP
+                            </div>
                             <div id="hero-location-coord" class="location-subtitle">
-                                Coordenadas: -23.5574, -46.6367 • São Paulo
+                                Coordenadas: -23.5574, -46.6367 • 735m (Planalto Médio)
                             </div>
                         </div>
-                        <span id="hero-risk-badge" class="risk-badge" style="background: rgba(16, 185, 129, 0.2); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.4);">
+                        <span id="hero-risk-badge" class="risk-badge" style="background: rgba(16, 185, 129, 0.2); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.4); flex-shrink: 0;">
                             BAIXO
                         </span>
                     </div>
@@ -838,6 +1151,9 @@
 
             <!-- Controles Rápidos no Mapa -->
             <div class="map-quick-controls">
+                <button id="btn-map-gps" class="map-btn-icon map-btn-gps" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
+                    🎯 Minha Localização
+                </button>
                 <button class="map-btn-icon" onclick="flyToSaoPauloCenter()" title="Centralizar Mapa em SP">
                     🌆 Centralizar SP
                 </button>
