@@ -222,6 +222,123 @@
             opacity: 1;
             pointer-events: auto;
         }
+
+        /* ─── Painel de Navegação Inteligente ─── */
+        .nav-panel {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            width: 440px;
+            max-width: calc(100vw - 60px);
+            background: rgba(11, 16, 30, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(56, 189, 248, 0.08);
+            display: flex;
+            flex-direction: column;
+            overflow: visible;
+        }
+        .nav-tabs {
+            display: flex;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px 14px 0 0;
+            overflow: hidden;
+        }
+        .nav-tab {
+            flex: 1;
+            padding: 12px 0;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+        .nav-content {
+            padding: 16px;
+            overflow: visible;
+            position: relative;
+        }
+        .nav-input-group {
+            position: relative;
+            margin-bottom: 12px;
+        }
+        .nav-input-group:last-child {
+            margin-bottom: 0;
+        }
+        .nav-input {
+            width: 100%;
+            padding: 12px 14px 12px 38px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            color: #FFF;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+        .nav-input:focus {
+            border-color: #38BDF8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+        .nav-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 16px;
+            color: #94A3B8;
+        }
+        .nav-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #38BDF8 0%, #2563EB 100%);
+            border: none;
+            border-radius: 8px;
+            color: #FFF;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            margin-top: 4px;
+        }
+        .nav-btn:hover {
+            opacity: 0.9;
+        }
+        .nav-btn-demo {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            margin-top: 8px;
+        }
+        .nav-autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.98);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            margin-top: 4px;
+            max-height: 250px;
+            overflow-y: auto;
+            z-index: 1001;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            display: none;
+        }
+        .nav-route-alert {
+            margin-top: 12px;
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        .nav-spin { animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -244,6 +361,51 @@
         <a href="/static/dashboard.html" class="btn btn-outline" style="padding: 8px 16px; font-size: 14px;">
             📊 Voltar ao Painel
         </a>
+    </div>
+
+    <!-- ─── PAINEL DE NAVEGAÇÃO INTELIGENTE ─── -->
+    <div class="nav-panel" id="nav-panel">
+        <div class="nav-tabs">
+            <div id="nav-tab-explorar" class="nav-tab" style="background:rgba(56,189,248,0.12);color:#38BDF8;border-bottom:2px solid #38BDF8;" onclick="switchNavTab('explorar')">
+                🔍 Explorar Região
+            </div>
+            <div id="nav-tab-rota" class="nav-tab" style="background:transparent;color:#94A3B8;border-bottom:2px solid transparent;" onclick="switchNavTab('rota')">
+                🛣️ Checar Minha Rota
+            </div>
+        </div>
+
+        <!-- ABA 1: Explorar -->
+        <div id="nav-content-explorar" class="nav-content">
+            <div class="nav-input-group">
+                <span class="nav-icon">📍</span>
+                <input type="text" id="nav-search-input" class="nav-input" placeholder="Buscar Bairro, CEP ou Ponto (ex: FECAP, Mooca)" autocomplete="off">
+                <div id="nav-autocomplete-dropdown" class="nav-autocomplete-list"></div>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:8px; text-align:center;">
+                Digite para buscar locais de risco ou pontos de interesse em SP.
+            </div>
+        </div>
+
+        <!-- ABA 2: Rota -->
+        <div id="nav-content-rota" class="nav-content" style="display:none;">
+            <div class="nav-input-group">
+                <span class="nav-icon" style="color:#38BDF8;">🚀</span>
+                <input type="text" id="nav-origem" class="nav-input" placeholder="Ponto de Partida..." autocomplete="off" oninput="handleRouteFieldInput('nav-origem', 'nav-dropdown-origem', this.value)">
+                <button type="button" onclick="usarLocalAtual()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:14px;" title="Usar localização atual">🧭</button>
+                <div id="nav-dropdown-origem" class="nav-autocomplete-list"></div>
+            </div>
+            <div class="nav-input-group">
+                <span class="nav-icon" style="color:#A855F7;">🏁</span>
+                <input type="text" id="nav-destino" class="nav-input" placeholder="Destino..." autocomplete="off" oninput="handleRouteFieldInput('nav-destino', 'nav-dropdown-destino', this.value)">
+                <div id="nav-dropdown-destino" class="nav-autocomplete-list"></div>
+            </div>
+            
+            <button class="nav-btn" onclick="calcularRiscoTrajeto()">🗺️ Calcular Risco do Trajeto</button>
+            <button class="nav-btn nav-btn-demo" onclick="testarRotaFECAP()">🧪 Testar Demo: FECAP → Anhangabaú</button>
+
+            <!-- Card de Alerta de Rota -->
+            <div id="nav-route-alert" class="nav-route-alert"></div>
+        </div>
     </div>
 
     <!-- Botão Flutuante para Abrir o Painel Lateral Retrátil -->
@@ -402,5 +564,6 @@
     <script src="/static/js/auth.js"></script>
     <script src="/static/js/historico_defesa_civil.js"></script>
     <script src="/static/js/map.js"></script>
+    <script src="/static/js/navigation.js"></script>
 </body>
 </html>
