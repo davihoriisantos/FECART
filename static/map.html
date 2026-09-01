@@ -3,567 +3,884 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa de Risco - FloodGuard AI</title>
+    <title>FloodGuard AI — Dashboard de Monitoramento Integrado</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; }
-        #map { height: 100vh; width: 100vw; z-index: 1; }
-        .map-overlay { 
-            position: absolute; 
-            z-index: 1000; 
-            background: rgba(15, 23, 42, 0.9); 
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border); 
-            border-radius: var(--radius-md); 
-            box-shadow: var(--shadow-card); 
-            padding: 16px 20px; 
-            color: #FFFFFF;
+        :root {
+            --panel-bg: rgba(15, 23, 42, 0.88);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --card-inner: rgba(255, 255, 255, 0.03);
+            --card-inner-border: rgba(255, 255, 255, 0.07);
         }
-        .top-bar { 
-            top: 20px; 
-            left: 20px; 
-            display: flex; 
-            gap: 20px; 
-            align-items: center; 
-        }
-        .legend { bottom: 24px; right: 24px; min-width: 200px; }
-        .color-box { width: 14px; height: 14px; display: inline-block; margin-right: 8px; border-radius: 4px; }
 
-        /* ─── Botão Flutuante para Abrir Painel Lateral (Superior Direito) ─── */
-        .sidebar-toggle-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.85));
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(56, 189, 248, 0.4);
-            border-radius: var(--radius-md);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 15px rgba(56, 189, 248, 0.25);
-            padding: 12px 18px;
-            color: #FFFFFF;
-            font-size: 14px;
-            font-weight: 700;
-            cursor: pointer;
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #070B12;
+            color: #F8FAFC;
+            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+        }
+
+        /* ─── Header Compacto ─── */
+        .dash-header {
+            height: 60px;
+            background: rgba(11, 15, 23, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--panel-border);
             display: flex;
             align-items: center;
-            gap: 10px;
-            transition: all 0.3s ease;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 100;
+            flex-shrink: 0;
         }
-        .sidebar-toggle-btn:hover {
-            transform: translateY(-2px);
-            border-color: var(--accent-cyan);
-            box-shadow: 0 12px 30px rgba(0,0,0,0.6), 0 0 25px rgba(56, 189, 248, 0.45);
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
         }
-        .sidebar-toggle-btn .pulse-dot {
-            width: 10px;
-            height: 10px;
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .ai-live-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            padding: 5px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #38BDF8;
+        }
+
+        .pulse-dot-cyan {
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background: var(--accent-cyan);
-            box-shadow: 0 0 8px var(--accent-cyan);
+            background: #38BDF8;
+            box-shadow: 0 0 10px #38BDF8;
             animation: pulse-dot-anim 1.5s infinite;
         }
+
         @keyframes pulse-dot-anim {
             0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.4); opacity: 0.6; }
+            50% { transform: scale(1.4); opacity: 0.5; }
         }
 
-        /* ─── Painel Lateral Retrátil (Sidebar) ─── */
-        .risk-sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            width: 440px;
-            max-width: 95vw;
-            background: linear-gradient(180deg, rgba(11, 15, 23, 0.98) 0%, rgba(15, 23, 42, 0.96) 100%);
+        /* ─── Grid Principal (Split Screen) ─── */
+        .dash-main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            gap: 16px;
+            padding: 16px;
+            overflow: hidden;
+            box-sizing: border-box;
+            height: calc(100vh - 60px);
+        }
+
+        @media (max-width: 1100px) {
+            .dash-main {
+                grid-template-columns: 380px 1fr;
+                padding: 12px;
+                gap: 12px;
+            }
+        }
+
+        @media (max-width: 900px) {
+            body { overflow-y: auto; height: auto; }
+            .dash-main {
+                grid-template-columns: 1fr;
+                height: auto;
+                overflow: visible;
+            }
+            #map-container { height: 500px !important; }
+        }
+
+        /* ─── Coluna Esquerda: Painel de Controle ─── */
+        .dash-sidebar {
+            background: var(--panel-bg);
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
-            border-right: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 15px 0 50px rgba(0, 0, 0, 0.7);
-            z-index: 2000;
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
             display: flex;
             flex-direction: column;
-            transform: translateX(-100%);
-            transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
-            color: #FFFFFF;
-        }
-        .risk-sidebar.open {
-            transform: translateX(0);
-        }
-        .sidebar-header {
-            padding: 20px 24px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(255, 255, 255, 0.02);
-        }
-        .sidebar-close-btn {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: #FFFFFF;
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        .sidebar-close-btn:hover {
-            background: rgba(239, 68, 68, 0.2);
-            border-color: rgba(239, 68, 68, 0.5);
-            color: #FCA5A5;
-        }
-        .sidebar-content {
-            padding: 20px 24px;
-            overflow-y: auto;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-        }
-        .sidebar-content::-webkit-scrollbar {
-            width: 6px;
-        }
-        .sidebar-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 4px;
-        }
-        .sidebar-select {
-            width: 100%;
-            padding: 10px 14px;
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            border-radius: 8px;
-            color: #FFFFFF;
-            font-size: 13px;
-            font-weight: 600;
-            outline: none;
-            cursor: pointer;
-            transition: border-color 0.2s ease;
-        }
-        .sidebar-select:focus {
-            border-color: var(--accent-cyan);
-            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
-        }
-        .kpi-mini-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-        }
-        .kpi-mini-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            padding: 12px 14px;
-        }
-        .kpi-mini-label {
-            font-size: 11px;
-            font-weight: 600;kk
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }
-        .kpi-mini-value {
-            font-size: 20px;
-            font-weight: 800;
-            color: #FFFFFF;
-        }
-        .chart-box {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-            padding: 16px;
-        }
-        .chart-legend-custom {
-            display: flex;
-            gap: 14px;
-            font-size: 11px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-        }
-        .chart-legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .legend-line-solid {
-            width: 18px;
-            height: 3px;
-            background: #38BDF8;
-            border-radius: 2px;
-        }
-        .legend-line-dotted {
-            width: 18px;
-            height: 3px;
-            border-top: 3px dashed #F59E0B;
-        }
-        .sidebar-backdrop {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(2px);
-            z-index: 1999;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-        }
-        .sidebar-backdrop.active {
-            opacity: 1;
-            pointer-events: auto;
+            overflow: hidden;
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
         }
 
-        /* ─── Painel de Navegação Inteligente ─── */
-        .nav-panel {
-            position: absolute;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1000;
-            width: 440px;
-            max-width: calc(100vw - 60px);
-            background: rgba(11, 16, 30, 0.96);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 14px;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(56, 189, 248, 0.08);
+        /* ─── Abas de Navegação no Painel ─── */
+        .dash-tabs {
             display: flex;
-            flex-direction: column;
-            overflow: visible;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
         }
-        .nav-tabs {
-            display: flex;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 14px 14px 0 0;
-            overflow: hidden;
-        }
-        .nav-tab {
+
+        .dash-tab {
             flex: 1;
-            padding: 12px 0;
+            padding: 14px 10px;
             text-align: center;
             font-size: 13px;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
+            color: #94A3B8;
             border-bottom: 2px solid transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            user-select: none;
         }
-        .nav-content {
+
+        .dash-tab.active-explorar {
+            color: #38BDF8;
+            background: rgba(56, 189, 248, 0.08);
+            border-bottom: 2px solid #38BDF8;
+        }
+
+        .dash-tab.active-rota {
+            color: #A855F7;
+            background: rgba(168, 85, 247, 0.08);
+            border-bottom: 2px solid #A855F7;
+        }
+
+        /* ─── Conteúdo Rolável do Painel ─── */
+        .dash-sidebar-content {
+            flex: 1;
+            overflow-y: auto;
             padding: 16px;
-            overflow: visible;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .dash-sidebar-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .dash-sidebar-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 4px;
+        }
+
+        /* ─── Barra de Busca Universal ─── */
+        .search-box-wrapper {
             position: relative;
         }
-        .nav-input-group {
+
+        .search-input-group {
             position: relative;
-            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
         }
-        .nav-input-group:last-child {
-            margin-bottom: 0;
+
+        .search-icon-left {
+            position: absolute;
+            left: 14px;
+            color: #38BDF8;
+            font-size: 15px;
+            pointer-events: none;
         }
-        .nav-input {
+
+        .search-input {
             width: 100%;
-            padding: 12px 14px 12px 38px;
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 8px;
-            color: #FFF;
+            padding: 12px 38px 12px 40px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 10px;
+            color: #FFFFFF;
             font-size: 13px;
+            font-weight: 600;
             outline: none;
-            transition: border-color 0.2s;
-            box-sizing: border-box;
+            transition: all 0.2s ease;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
         }
-        .nav-input:focus {
+
+        .search-input:focus {
             border-color: #38BDF8;
-            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+            background: rgba(0, 0, 0, 0.5);
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
         }
-        .nav-icon {
+
+        .search-btn-clear {
+            position: absolute;
+            right: 10px;
+            background: transparent;
+            border: none;
+            color: #94A3B8;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px;
+            display: none;
+        }
+
+        .search-dropdown {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            background: rgba(11, 16, 30, 0.98);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 10px;
+            max-height: 280px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.7);
+            display: none;
+        }
+
+        .search-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.15s ease;
+        }
+
+        .search-item:hover {
+            background: rgba(56, 189, 248, 0.12);
+        }
+
+        .search-item:last-child {
+            border-bottom: none;
+        }
+
+        /* ─── Hero Card: Status de Risco ─── */
+        .risk-hero-card {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+            border: 1px solid var(--card-inner-border);
+            border-radius: 14px;
+            padding: 16px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .risk-hero-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .location-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin: 0;
+        }
+
+        .location-subtitle {
+            font-size: 11px;
+            color: #94A3B8;
+            margin-top: 2px;
+        }
+
+        .risk-big-value {
+            font-size: 38px;
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: -1px;
+            color: #10B981;
+        }
+
+        .risk-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-block;
+        }
+
+        .risk-bar-bg {
+            height: 6px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 999px;
+            margin: 12px 0 8px 0;
+            overflow: hidden;
+        }
+
+        .risk-bar-fill {
+            height: 100%;
+            width: 15%;
+            background: #10B981;
+            border-radius: 999px;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+        }
+
+        /* ─── Grid de Mini KPIs ─── */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .kpi-card {
+            background: var(--card-inner);
+            border: 1px solid var(--card-inner-border);
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+
+        .kpi-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .kpi-val {
+            font-size: 18px;
+            font-weight: 800;
+            color: #FFFFFF;
+        }
+
+        .kpi-sub {
+            font-size: 10px;
+            color: #64748B;
+            margin-top: 2px;
+        }
+
+        /* ─── Box de Gráfico Chart.js ─── */
+        .chart-container-box {
+            background: var(--card-inner);
+            border: 1px solid var(--card-inner-border);
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .chart-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #E2E8F0;
+        }
+
+        /* ─── Box Diagnóstico IA ─── */
+        .ai-insight-box {
+            background: rgba(56, 189, 248, 0.06);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 12px;
+            line-height: 1.55;
+            color: #CBD5E1;
+        }
+
+        /* ─── Seção da Rota ─── */
+        .route-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .route-field {
+            position: relative;
+        }
+
+        .route-field-icon {
             position: absolute;
             left: 12px;
             top: 50%;
             transform: translateY(-50%);
-            font-size: 16px;
-            color: #94A3B8;
+            font-size: 14px;
         }
-        .nav-btn {
+
+        .route-input {
             width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #38BDF8 0%, #2563EB 100%);
+            padding: 10px 36px 10px 36px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            color: #FFFFFF;
+            font-size: 12px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        .route-input:focus {
+            border-color: #A855F7;
+            box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+        }
+
+        .btn-calc-route {
+            width: 100%;
+            padding: 11px;
+            background: linear-gradient(135deg, #A855F7 0%, #6366F1 100%);
             border: none;
             border-radius: 8px;
-            color: #FFF;
+            color: #FFFFFF;
             font-size: 13px;
             font-weight: 700;
             cursor: pointer;
             transition: opacity 0.2s;
-            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
-        .nav-btn:hover {
+
+        .btn-calc-route:hover {
             opacity: 0.9;
         }
-        .nav-btn-demo {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            margin-top: 8px;
-        }
-        .nav-autocomplete-list {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
-            background: rgba(15, 23, 42, 0.98);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+
+        .btn-demo-fecap {
+            width: 100%;
+            padding: 9px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 8px;
+            color: #E2E8F0;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 6px;
+        }
+
+        .btn-demo-fecap:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* ─── Coluna Direita: Moldura do Mapa ─── */
+        #map-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .leaflet-div-icon {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        /* ─── Overlays no Mapa ─── */
+        .map-floating-tip {
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 999px;
+            padding: 6px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #38BDF8;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .map-floating-legend {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            z-index: 1000;
+            background: rgba(11, 16, 30, 0.92);
+            backdrop-filter: blur(14px);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 11px;
+            color: #FFFFFF;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .legend-row:last-child { margin-bottom: 0; }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* Botões de Ação Rápida no Mapa */
+        .map-quick-controls {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .map-btn-icon {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--panel-border);
+            color: #FFFFFF;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .map-btn-icon:hover {
+            border-color: #38BDF8;
+            background: rgba(30, 41, 59, 0.95);
+        }
+
+        /* ─── Botões de Simulação Meteorológica ─── */
+        .sim-scenarios-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
             margin-top: 4px;
-            max-height: 250px;
-            overflow-y: auto;
-            z-index: 1001;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            display: none;
         }
-        .nav-route-alert {
-            margin-top: 12px;
-            display: none;
-            animation: fadeIn 0.3s ease;
+
+        .btn-scenario {
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1px solid transparent;
+            text-align: left;
+            transition: all 0.15s;
         }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-        .nav-spin { animation: spin 1s linear infinite; display: inline-block; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        .btn-scenario-storm {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.4);
+            color: #FCA5A5;
+        }
+        .btn-scenario-storm:hover { background: rgba(239, 68, 68, 0.25); }
+
+        .btn-scenario-moderate {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.4);
+            color: #FDE047;
+        }
+        .btn-scenario-moderate:hover { background: rgba(245, 158, 11, 0.25); }
+
+        .btn-scenario-real {
+            grid-column: span 2;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.12);
+            color: #CBD5E1;
+            text-align: center;
+        }
+        .btn-scenario-real:hover { background: rgba(255, 255, 255, 0.1); }
     </style>
 </head>
 <body>
-    <!-- Barra Superior -->
-    <div class="map-overlay top-bar">
-        <a href="/" class="logo-brand" style="text-decoration: none;">
-            <div class="logo-icon" style="width: 34px; height: 34px;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                </svg>
-            </div>
-            <div class="logo-text" style="font-size: 18px;">FloodGuard <span>AI</span></div>
-        </a>
-
-        <div class="ai-badge">
-            <span class="ai-badge-pulse"></span>
-            Monitoramento ao Vivo
-        </div>
-
-        <a href="/static/dashboard.html" class="btn btn-outline" style="padding: 8px 16px; font-size: 14px;">
-            📊 Voltar ao Painel
-        </a>
-    </div>
-
-    <!-- ─── PAINEL DE NAVEGAÇÃO INTELIGENTE ─── -->
-    <div class="nav-panel" id="nav-panel">
-        <div class="nav-tabs">
-            <div id="nav-tab-explorar" class="nav-tab" style="background:rgba(56,189,248,0.12);color:#38BDF8;border-bottom:2px solid #38BDF8;" onclick="switchNavTab('explorar')">
-                🔍 Explorar Região
-            </div>
-            <div id="nav-tab-rota" class="nav-tab" style="background:transparent;color:#94A3B8;border-bottom:2px solid transparent;" onclick="switchNavTab('rota')">
-                🛣️ Checar Minha Rota
+    <!-- ─── HEADER DO DASHBOARD ─── -->
+    <header class="dash-header">
+        <div class="header-left">
+            <a href="/" class="logo-brand" style="text-decoration: none;">
+                <div class="logo-icon" style="width: 34px; height: 34px; border-radius: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                </div>
+                <div class="logo-text" style="font-size: 18px;">FloodGuard <span>AI</span></div>
+            </a>
+            <div class="ai-live-badge">
+                <span class="pulse-dot-cyan"></span>
+                <span>Motor Preditivo Dinâmico Ativo</span>
             </div>
         </div>
 
-        <!-- ABA 1: Explorar -->
-        <div id="nav-content-explorar" class="nav-content">
-            <div class="nav-input-group">
-                <span class="nav-icon">📍</span>
-                <input type="text" id="nav-search-input" class="nav-input" placeholder="Buscar Bairro, CEP ou Ponto (ex: FECAP, Mooca)" autocomplete="off">
-                <div id="nav-autocomplete-dropdown" class="nav-autocomplete-list"></div>
-            </div>
-            <div style="font-size:11px; color:var(--text-muted); margin-top:8px; text-align:center;">
-                Digite para buscar locais de risco ou pontos de interesse em SP.
-            </div>
+        <div class="header-right">
+            <a href="/static/dashboard.html" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
+                📊 Painel Geral
+            </a>
+            <a href="/" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
+                🏠 Início
+            </a>
         </div>
+    </header>
 
-        <!-- ABA 2: Rota -->
-        <div id="nav-content-rota" class="nav-content" style="display:none;">
-            <div class="nav-input-group">
-                <span class="nav-icon" style="color:#38BDF8;">🚀</span>
-                <input type="text" id="nav-origem" class="nav-input" placeholder="Ponto de Partida..." autocomplete="off" oninput="handleRouteFieldInput('nav-origem', 'nav-dropdown-origem', this.value)">
-                <button type="button" onclick="usarLocalAtual()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:14px;" title="Usar localização atual">🧭</button>
-                <div id="nav-dropdown-origem" class="nav-autocomplete-list"></div>
-            </div>
-            <div class="nav-input-group">
-                <span class="nav-icon" style="color:#A855F7;">🏁</span>
-                <input type="text" id="nav-destino" class="nav-input" placeholder="Destino..." autocomplete="off" oninput="handleRouteFieldInput('nav-destino', 'nav-dropdown-destino', this.value)">
-                <div id="nav-dropdown-destino" class="nav-autocomplete-list"></div>
-            </div>
+    <!-- ─── CORPO PRINCIPAL (SPLIT SCREEN) ─── -->
+    <main class="dash-main">
+        
+        <!-- ─── COLUNA ESQUERDA: PAINEL DE CONTROLE E MÉTRICAS ─── -->
+        <aside class="dash-sidebar">
             
-            <button class="nav-btn" onclick="calcularRiscoTrajeto()">🗺️ Calcular Risco do Trajeto</button>
-            <button class="nav-btn nav-btn-demo" onclick="testarRotaFECAP()">🧪 Testar Demo: FECAP → Anhangabaú</button>
-
-            <!-- Card de Alerta de Rota -->
-            <div id="nav-route-alert" class="nav-route-alert"></div>
-        </div>
-    </div>
-
-    <!-- Botão Flutuante para Abrir o Painel Lateral Retrátil -->
-    <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" onclick="toggleSidebar()">
-        <span class="pulse-dot"></span>
-        <span>📈 Tendência de Risco (24h) & Previsão IA</span>
-    </button>
-
-    <!-- Fundo Escurecido quando Sidebar está Aberta (Clique para Fechar) -->
-    <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
-
-    <!-- ─── PAINEL LATERAL RETRÁTIL (SIDEBAR) ─── -->
-    <aside id="risk-sidebar" class="risk-sidebar">
-        <div class="sidebar-header">
-            <div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 20px;">📈</span>
-                    <h3 style="font-size: 17px; font-weight: 800; color: #FFFFFF; margin: 0;">Tendência de Risco (24h)</h3>
+            <!-- Abas do Painel -->
+            <div class="dash-tabs">
+                <div id="tab-btn-explorar" class="dash-tab active-explorar" onclick="switchDashboardTab('explorar')">
+                    <span>🔍</span> Explorar Bairro / Região
                 </div>
-                <div style="font-size: 12px; color: var(--accent-cyan); margin-top: 2px; font-weight: 600;">
-                    🔮 Projeção Preditiva IA • Próximas 3 Horas
-                </div>
-            </div>
-            <button class="sidebar-close-btn" onclick="closeSidebar()" title="Fechar painel (Esc)">✕</button>
-        </div>
-
-        <div class="sidebar-content">
-            <!-- Seletor de Ponto de Monitoramento -->
-            <div>
-                <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">
-                    📍 Ponto de Monitoramento Selecionado:
-                </label>
-                <select id="sidebar-point-select" class="sidebar-select" onchange="onSidebarPointChange(this.value)">
-                    <option value="sp_media">🌆 Média Geral — Região Metropolitana de SP</option>
-                </select>
-            </div>
-
-            <!-- KPIs Rápidos -->
-            <div class="kpi-mini-grid">
-                <div class="kpi-mini-card">
-                    <div class="kpi-mini-label">Risco Atual (Agora)</div>
-                    <div id="sidebar-kpi-current" class="kpi-mini-value" style="color: #10B981;">-- %</div>
-                    <div id="sidebar-kpi-current-label" style="font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px;">Calculando...</div>
-                </div>
-                <div class="kpi-mini-card">
-                    <div class="kpi-mini-label">Previsão IA (+3h)</div>
-                    <div id="sidebar-kpi-forecast" class="kpi-mini-value" style="color: #38BDF8;">-- %</div>
-                    <div id="sidebar-kpi-forecast-trend" style="font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px;">Calculando...</div>
-                </div>
-                <div class="kpi-mini-card">
-                    <div class="kpi-mini-label">Chuva Acum. 24h</div>
-                    <div id="sidebar-kpi-acc24h" class="kpi-mini-value" style="color: #38BDF8;">-- mm</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">Solo monitorado</div>
-                </div>
-                <div class="kpi-mini-card">
-                    <div class="kpi-mini-label">Chuva Prevista (+3h)</div>
-                    <div id="sidebar-kpi-rain-forecast" class="kpi-mini-value" style="color: #F59E0B;">-- mm</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">Open-Meteo AI</div>
+                <div id="tab-btn-rota" class="dash-tab" onclick="switchDashboardTab('rota')">
+                    <span>🛣️</span> Checar Trajeto
                 </div>
             </div>
 
-            <!-- Card do Gráfico Chart.js -->
-            <div class="chart-box">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <div style="font-size: 13px; font-weight: 700; color: #FFFFFF;">Curva de Probabilidade de Risco</div>
-                    <span class="chip chip-baixo" id="sidebar-chart-badge" style="font-size: 10px; padding: 2px 8px;">Atualizado</span>
-                </div>
-
-                <div class="chart-legend-custom">
-                    <div class="chart-legend-item">
-                        <div class="legend-line-solid"></div>
-                        <span style="color: #94A3B8;">Histórico Real (Últimas 24h)</span>
+            <!-- Conteúdo da Aba 1: Explorar Região -->
+            <div id="panel-explorar" class="dash-sidebar-content">
+                
+                <!-- Barra de Busca Universal -->
+                <div class="search-box-wrapper">
+                    <div class="search-input-group">
+                        <span class="search-icon-left">🔍</span>
+                        <input type="text" id="universal-search-input" class="search-input" placeholder="Buscar qualquer bairro ou rua em SP (ex: Morumbi, FECAP, Mooca, Itaquera)..." autocomplete="off">
+                        <button id="btn-search-clear" class="search-btn-clear" onclick="clearSearchInput()">✕</button>
                     </div>
-                    <div class="chart-legend-item">
-                        <div class="legend-line-dotted"></div>
-                        <span style="color: #FDE047;">Previsão IA (+3h)</span>
+                    <div id="universal-search-dropdown" class="search-dropdown"></div>
+                </div>
+
+                <!-- Hero Card: Status de Risco Preditivo do Ponto Selecionado -->
+                <div id="risk-hero" class="risk-hero-card">
+                    <div class="risk-hero-header">
+                        <div>
+                            <h3 id="hero-location-name" class="location-title">
+                                <span>📍</span> FECAP — Campus Liberdade
+                            </h3>
+                            <div id="hero-location-coord" class="location-subtitle">
+                                Coordenadas: -23.5574, -46.6367 • São Paulo
+                            </div>
+                        </div>
+                        <span id="hero-risk-badge" class="risk-badge" style="background: rgba(16, 185, 129, 0.2); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.4);">
+                            BAIXO
+                        </span>
+                    </div>
+
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-top: 10px;">
+                        <div>
+                            <div style="font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase;">Probabilidade Preditiva</div>
+                            <div id="hero-risk-percent" class="risk-big-value">12%</div>
+                        </div>
+                        <div id="hero-risk-label" style="font-size: 13px; font-weight: 700; color: #E2E8F0; text-align: right;">
+                            Condição Normal
+                        </div>
+                    </div>
+
+                    <div class="risk-bar-bg">
+                        <div id="hero-risk-bar" class="risk-bar-fill" style="width: 12%; background: #10B981;"></div>
+                    </div>
+
+                    <div id="hero-recommendation" style="font-size: 12px; color: #94A3B8; margin-top: 6px;">
+                        🛡️ Sem risco iminente de alagamento nas próximas horas.
                     </div>
                 </div>
 
-                <!-- Canvas do Gráfico -->
-                <div style="position: relative; height: 230px; width: 100%;">
-                    <canvas id="riskTrendChart"></canvas>
+                <!-- Grid de Mini KPIs: 4 Pilares Geográficos e Meteorológicos -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-label">💧 Chuva Atual</div>
+                        <div id="kpi-rain-current" class="kpi-val" style="color: #38BDF8;">0.0 mm/h</div>
+                        <div id="kpi-rain-forecast-sub" class="kpi-sub">+0.0 mm prev. (+3h)</div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-label">🌧️ Acumulado 24h</div>
+                        <div id="kpi-rain-acc24" class="kpi-val" style="color: #38BDF8;">0.0 mm</div>
+                        <div id="kpi-soil-status" class="kpi-sub">Solo Estável</div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-label">🌊 Distância da Calha</div>
+                        <div id="kpi-river-dist" class="kpi-val" style="color: #06B6D4;">-- m</div>
+                        <div id="kpi-river-name" class="kpi-sub" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Rio Próximo</div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-label">⛰️ Altitude Local (API)</div>
+                        <div id="kpi-altitude" class="kpi-val" style="color: #A855F7;">735 m</div>
+                        <div id="kpi-altitude-sub" class="kpi-sub" style="font-weight: 700;">Planalto Paulistano</div>
+                    </div>
                 </div>
 
-                <!-- Escala de Thresholds -->
-                <div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 10px; color: var(--text-muted);">
-                    <span style="color: #10B981;">● &lt;30% Baixo</span>
-                    <span style="color: #F59E0B;">● 30-50% Moderado</span>
-                    <span style="color: #F97316;">● 50-75% Alto</span>
-                    <span style="color: #EF4444;">● &gt;75% Crítico</span>
+                <!-- Box Gráfico de Tendência (24h + 3h) -->
+                <div class="chart-container-box">
+                    <div class="chart-header">
+                        <div class="chart-title">📈 Curva de Risco Preditivo (24h + 3h)</div>
+                        <span id="chart-status-badge" style="font-size: 10px; font-weight: 700; color: #10B981; background: rgba(16,185,129,0.15); padding: 2px 8px; border-radius: 6px;">
+                            Em Tempo Real
+                        </span>
+                    </div>
+
+                    <div style="position: relative; height: 170px; width: 100%;">
+                        <canvas id="riskTrendChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Box Diagnóstico da IA -->
+                <div class="ai-insight-box">
+                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-weight: 700; color: #38BDF8; font-size: 11px; text-transform: uppercase;">
+                        <span>🧠</span> Diagnóstico do Modelo Preditivo:
+                    </div>
+                    <div id="ai-insight-text">
+                        Avaliando microclima, altitude e saturação do solo para a região selecionada...
+                    </div>
+                </div>
+
+                <!-- Simulador de Cenários Meteorológicos -->
+                <div style="background: var(--card-inner); border: 1px solid var(--card-inner-border); border-radius: 10px; padding: 12px;">
+                    <div style="font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; margin-bottom: 6px;">
+                        🧪 Simular Cenários (Apresentação FECART):
+                    </div>
+                    <div class="sim-scenarios-grid">
+                        <button class="btn-scenario btn-scenario-storm" onclick="simulateScenario('tempestade')">
+                            ⚡ Tempestade Extrema (+45mm)
+                        </button>
+                        <button class="btn-scenario btn-scenario-moderate" onclick="simulateScenario('moderada')">
+                            🌧️ Chuva Moderada (+8mm)
+                        </button>
+                        <button class="btn-scenario btn-scenario-real" onclick="simulateScenario('real')">
+                            🔄 Restaurar Clima Real (Open-Meteo)
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Conteúdo da Aba 2: Checar Rota -->
+            <div id="panel-rota" class="dash-sidebar-content" style="display: none;">
+                
+                <div style="font-size: 12px; color: #94A3B8; margin-bottom: 4px;">
+                    Calcule os riscos de alagamento ao longo de qualquer percurso em SP:
+                </div>
+
+                <div class="route-input-group">
+                    <div class="route-field">
+                        <span class="route-field-icon" style="color: #38BDF8;">🚀</span>
+                        <input type="text" id="route-origem" class="route-input" placeholder="Ponto de Partida..." autocomplete="off">
+                        <button type="button" onclick="useCurrentLocationForRoute()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; font-size: 14px;" title="Usar GPS Atual">🧭</button>
+                        <div id="route-origem-dropdown" class="search-dropdown"></div>
+                    </div>
+
+                    <div class="route-field">
+                        <span class="route-field-icon" style="color: #A855F7;">🏁</span>
+                        <input type="text" id="route-destino" class="route-input" placeholder="Destino..." autocomplete="off">
+                        <div id="route-destino-dropdown" class="search-dropdown"></div>
+                    </div>
+
+                    <button class="btn-calc-route" onclick="calculateRouteRisk()">
+                        <span>🗺️</span> Calcular Risco do Trajeto
+                    </button>
+
+                    <button class="btn-demo-fecap" onclick="runFecapDemoRoute()">
+                        🧪 Testar Demo: FECAP → Anhangabaú
+                    </button>
+                </div>
+
+                <!-- Alerta de Resultado de Rota -->
+                <div id="route-alert-box" style="display: none; margin-top: 6px;"></div>
+
+            </div>
+
+        </aside>
+
+        <!-- ─── COLUNA DIREITA: MOLDURA DO MAPA ─── -->
+        <section id="map-container">
+            
+            <!-- Badge de Dica Flutuante -->
+            <div class="map-floating-tip">
+                <span>💡</span> Clique em qualquer ponto do mapa para calcular o risco instantâneo
+            </div>
+
+            <!-- Controles Rápidos no Mapa -->
+            <div class="map-quick-controls">
+                <button class="map-btn-icon" onclick="flyToSaoPauloCenter()" title="Centralizar Mapa em SP">
+                    🌆 Centralizar SP
+                </button>
+                <button class="map-btn-icon" onclick="flyToFECAP()" title="Focar na FECAP">
+                    🎓 Focar na FECAP
+                </button>
+            </div>
+
+            <!-- Mapa Leaflet -->
+            <div id="map"></div>
+
+            <!-- Legenda Flutuante -->
+            <div class="map-floating-legend">
+                <div style="font-weight: 800; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; color: #94A3B8;">
+                    Níveis de Risco
+                </div>
+                <div class="legend-row">
+                    <span class="legend-dot" style="background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
+                    <span>Baixo (&lt;30%)</span>
+                </div>
+                <div class="legend-row">
+                    <span class="legend-dot" style="background: #F59E0B; box-shadow: 0 0 6px #F59E0B;"></span>
+                    <span>Moderado (30-50%)</span>
+                </div>
+                <div class="legend-row">
+                    <span class="legend-dot" style="background: #F97316; box-shadow: 0 0 6px #F97316;"></span>
+                    <span>Alto (50-75%)</span>
+                </div>
+                <div class="legend-row">
+                    <span class="legend-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span>
+                    <span>Crítico (&gt;75%)</span>
                 </div>
             </div>
 
-            <!-- Diagnóstico Preditivo da IA -->
-            <div id="sidebar-ai-insight" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                    <span style="font-size: 16px;">🧠</span>
-                    <strong style="font-size: 12px; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.5px;">Diagnóstico Preditivo da IA:</strong>
-                </div>
-                <p id="sidebar-ai-insight-text" style="font-size: 12px; color: #E2E8F0; margin: 0; line-height: 1.5;">
-                    Analisando série histórica de 24h e modelos de previsão atmosférica...
-                </p>
-            </div>
+        </section>
 
-            <!-- Simulação Rápida para Apresentação na FECART -->
-            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 14px;">
-                <div style="font-size: 12px; font-weight: 700; color: #FFFFFF; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-                    <span>🧪</span> Demonstração Preditiva na FECART:
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <button onclick="simularPrevisaoSidebar('tempestade')" class="btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #FCA5A5; font-size: 12px; padding: 8px 12px; text-align: left;">
-                        ⚡ Simular IA Prevendo Tempestade (+45mm nas próximas 3h)
-                    </button>
-                    <button onclick="simularPrevisaoSidebar('moderada')" class="btn" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE047; font-size: 12px; padding: 8px 12px; text-align: left;">
-                        🌧️ Simular IA Prevendo Chuva Moderada (+8mm)
-                    </button>
-                    <button onclick="simularPrevisaoSidebar('normal')" class="btn btn-outline" style="font-size: 12px; padding: 8px 12px; text-align: left;">
-                        🔄 Restaurar Previsão Real da Open-Meteo
-                    </button>
-                </div>
-            </div>
-        </div>
-    </aside>
-    
-    <!-- Legenda no Canto Inferior Direito -->
-    <div class="map-overlay legend">
-        <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 700; color: #FFFFFF;">Níveis Preventivos de Risco</h4>
-        <div style="margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
-            <span class="color-box" style="background: #10B981; border: 1px solid rgba(16, 185, 129, 0.8);"></span>
-            <span>Baixo (Verde)</span>
-        </div>
-        <div style="margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
-            <span class="color-box" style="background: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.8);"></span>
-            <span>Moderado (Amarelo)</span>
-        </div>
-        <div style="font-size: 13px; display: flex; align-items: center; gap: 8px;">
-            <span class="color-box" style="background: #EF4444; border: 1px solid rgba(239, 68, 68, 0.8);"></span>
-            <span>Alto (Vermelho)</span>
-        </div>
-    </div>
+    </main>
 
-    <!-- Mapa Leaflet -->
-    <div id="map"></div>
-
-    <!-- Simulador de Tempos no Canto Inferior Esquerdo -->
-    <div class="control-panel" style="position:fixed; bottom:24px; left:24px; z-index:1000; background:rgba(15,23,42,0.9); backdrop-filter:blur(16px); padding:10px 14px; border-radius:var(--radius-md); border:1px solid var(--glass-border); box-shadow:var(--shadow-card); display:flex; align-items:center; gap:8px;">
-        <span style="font-size:12px; font-weight:700; color:var(--text-muted); margin-right:4px;">Simular:</span>
-        <button id="btn-enchente" class="btn" style="background:rgba(239, 68, 68, 0.85); color:#fff; font-size:12px; padding:8px 12px; border:1px solid rgba(239, 68, 68, 0.5);">🌧️ Simular Enchente</button>
-        <button id="btn-limpo" class="btn" style="background:rgba(16, 185, 129, 0.85); color:#fff; font-size:12px; padding:8px 12px; border:1px solid rgba(16, 185, 129, 0.5);">☀️ Simular Tempo Limpo</button>
-    </div>
-
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="/static/js/api.js"></script>
     <script src="/static/js/auth.js"></script>
-    <script src="/static/js/historico_defesa_civil.js"></script>
-    <script src="/static/js/map.js"></script>
-    <script src="/static/js/navigation.js"></script>
+    <script src="/static/js/map_dashboard.js"></script>
 </body>
 </html>
