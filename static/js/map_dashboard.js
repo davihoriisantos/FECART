@@ -65,14 +65,22 @@ let activeRiskCircle = null;
 let riskTrendChart = null;
 let simulatedScenario = 'real'; // 'real', 'tempestade', 'moderada'
 let routeLayers = [];
+let routeRequestId = 0;
 let geocodeCache = {};
 let searchTimeout = null;
+let searchRequestId = 0;
+let searchSuggestionResults = [];
 
 // ─── INICIALIZAÇÃO GERAL ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     initLeafletMap();
     setupSearchListeners();
     setupRouteAutocomplete();
+
+    // Força o Leaflet a recalcular as dimensões reais do container após o layout flex ser resolvido
+    setTimeout(() => {
+        if (map) map.invalidateSize();
+    }, 200);
 
     // Carrega dados iniciais da FECAP
     await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
@@ -202,6 +210,15 @@ const CHRONIC_FLOOD_ZONES = [
     { nome: "Marginal Pinheiros (Ponte Roberto Zuccolo)", lat: -23.5280, lon: -46.7150, raio: 600 }
 ];
 
+// Estruturas de macrodrenagem relevantes para reduzir picos locais de escoamento.
+// O efeito é gradual e limitado: a presença de um reservatório não zera o risco.
+const SP_DRAINAGE_STRUCTURES = [
+    { nome: "Reservatório de Retenção do Pacaembu", lat: -23.5488, lon: -46.6654, raio: 900 },
+    { nome: "Piscinão Aricanduva", lat: -23.5685, lon: -46.5175, raio: 1200 },
+    { nome: "Piscinão Rincão", lat: -23.5367, lon: -46.5702, raio: 900 },
+    { nome: "Piscinão Guamiranga", lat: -23.5797, lon: -46.5909, raio: 900 }
+];
+
 // ─── CÁLCULO DE DISTÂNCIA ATÉ O RIO MAIS PRÓXIMO ──────────────────────────────
 function getMinDistanceToRivers(lat, lon) {
     let minDistance = 999999;
@@ -241,15 +258,56 @@ function distanceToSegment(lat, lon, lat1, lon1, lat2, lon2) {
 
 // ─── VERIFICAÇÃO DE HISTÓRICO CRÔNICO DEFESA CIVIL / CGE ──────────────────────
 function checkChronicFloodZone(lat, lon) {
+    let nearest = null;
+
     for (const zone of CHRONIC_FLOOD_ZONES) {
         const dy = (lat - zone.lat) * 111000;
         const dx = (lon - zone.lon) * 102000;
         const dist = Math.hypot(dx, dy);
-        if (dist <= zone.raio) {
-            return { isChronic: true, zoneName: zone.nome, dist: Math.round(dist) };
+
+        if (!nearest || dist < nearest.dist) {
+            nearest = { zone, dist };
         }
     }
-    return { isChronic: false, zoneName: null, dist: null };
+
+    if (!nearest) {
+        return { isChronic: false, zoneName: null, dist: null, influence: 0 };
+    }
+
+    // A influência desaparece gradualmente entre o centro e 2,5 raios.
+    // Isso evita o salto artificial de risco ao cruzar a borda de uma zona.
+    const normalizedDistance = nearest.dist / nearest.zone.raio;
+    const influence = 1 - smoothstep(0.35, 2.5, normalizedDistance);
+
+    return {
+        isChronic: influence >= 0.35,
+        zoneName: nearest.zone.nome,
+        dist: Math.round(nearest.dist),
+        influence
+    };
+}
+
+function getDrainageInfluence(lat, lon) {
+    let nearest = null;
+    for (const structure of SP_DRAINAGE_STRUCTURES) {
+        const dy = (lat - structure.lat) * 111000;
+        const dx = (lon - structure.lon) * 102000;
+        const distance = Math.hypot(dx, dy);
+        if (!nearest || distance < nearest.distance) nearest = { structure, distance };
+    }
+
+    if (!nearest) return { influence: 0, name: null, distance: null };
+    const influence = 1 - smoothstep(0.25, 2.0, nearest.distance / nearest.structure.raio);
+    return { influence, name: nearest.structure.nome, distance: Math.round(nearest.distance) };
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function smoothstep(edge0, edge1, value) {
+    const x = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+    return x * x * (3 - 2 * x);
 }
 
 // ─── CLASSIFICAÇÃO TOPOGRÁFICA DE SÃO PAULO ───────────────────────────────────
@@ -287,13 +345,24 @@ function getAltitudeClassification(alt) {
 function initLeafletMap() {
     map = L.map('map', {
         zoomControl: true,
-        attributionControl: false
+        attributionControl: true
     }).setView([currentSelectedPoint.lat, currentSelectedPoint.lon], 15);
 
-    // Tiles modernos e nítidos do OpenStreetMap
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19
-    }).addTo(map);
+    // Mapas-base alternáveis: ruas para navegação e imagem aérea para inspeção do relevo.
+    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    });
+    const satelliteLayer = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics'
+        }
+    );
+
+    streetLayer.addTo(map);
+    createMapLayerSwitcher(streetLayer, satelliteLayer);
 
     // Adiciona escala métrica
     L.control.scale({ imperial: false, metric: true, position: 'bottomleft' }).addTo(map);
@@ -405,6 +474,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
     const times = data.hourly.time;
     const rains = data.hourly.rain;
     const probs = data.hourly.precipitation_probability || [];
+    const soilMoistures = data.hourly.soil_moisture_0_to_1cm || [];
     const now = new Date();
 
     // Encontra o índice da hora atual
@@ -440,8 +510,9 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 
         const rainVal = (idx >= 0 && rains[idx] !== null) ? rains[idx] : 0;
         const probVal = (idx >= 0 && probs[idx] !== null) ? probs[idx] : 0;
+        const soilMoisture = (idx >= 0 && soilMoistures[idx] !== null) ? soilMoistures[idx] : null;
 
-        const risk = calculateRiskFormula(rainVal, localAcc, probVal, altitude, lat, lon);
+        const risk = calculateRiskFormula(rainVal, localAcc, probVal, altitude, lat, lon, soilMoisture);
         labels.push(i === 0 ? `Agora (${horaStr})` : horaStr);
         historyRisks.push(risk);
         forecastRisks.push(null);
@@ -461,6 +532,9 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 
         let rainVal = (idx < rains.length && rains[idx] !== null) ? rains[idx] : 0;
         let probVal = (idx < probs.length && probs[idx] !== null) ? probs[idx] : 0;
+        const soilMoisture = (idx < soilMoistures.length && soilMoistures[idx] !== null)
+            ? soilMoistures[idx]
+            : (soilMoistures[currentIdx] ?? null);
 
         // Se houver cenário simulado para a FECART
         if (simulatedScenario === 'tempestade') {
@@ -472,7 +546,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         }
 
         forecastRainTotal += rainVal;
-        const risk = calculateRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon);
+        const risk = calculateRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon, soilMoisture);
 
         labels.push(horaStr);
         historyRisks.push(null);
@@ -495,82 +569,56 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 }
 
 // ─── EQUAÇÃO MULTIFATORIAL DE RISCO GEOGRÁFICO (0 a 100%) ─────────────────────
-function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon) {
-    // ─── PILAR 3: VOLUME INSTANTÂNEO E ACÚMULO DE CHUVA (METEOROLÓGICO) ──────
-    let rainBase = 0;
+function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture = null) {
+    // Entradas normalizadas em curvas contínuas. Não há limiares que adicionem
+    // dezenas de pontos de uma vez ao mudar alguns metros ou décimos de chuva.
+    const rain = Math.max(0, Number(rainMm) || 0);
+    const accumulated = Math.max(0, Number(acc24h) || 0);
+    const probability = clamp(Number(prob) || 0, 0, 100);
+    const elevation = Number.isFinite(Number(alt)) ? Number(alt) : 745;
 
-    if (rainMm <= 0.2) {
-        rainBase = prob > 60 ? 6 : (prob > 30 ? 3 : 1);
-    } else if (rainMm <= 5.0) {
-        rainBase = 8 + (rainMm / 5.0) * 14;          // 8% a 22%
-    } else if (rainMm <= 15.0) {
-        rainBase = 25 + ((rainMm - 5.0) / 10.0) * 20; // 25% a 45%
-    } else if (rainMm <= 30.0) {
-        rainBase = 48 + ((rainMm - 15.0) / 15.0) * 20; // 48% a 68%
-    } else {
-        // Volume altíssimo (>30mm/h) -> A base já começa em 70%
-        rainBase = 70 + Math.min(18, ((rainMm - 30.0) / 20.0) * 18); // 70% a 88%
-    }
+    const rainScore = 100 * (1 - Math.exp(-rain / 16));
+    const accumulatedScore = 100 * (1 - Math.exp(-accumulated / 55));
+    const probabilityScore = probability * (0.25 + 0.75 * Math.min(1, rain / 2));
 
-    // Impacto do solo encharcado pelas 24h anteriores
-    let soilBonus = 0;
-    if (acc24h > 35) soilBonus = 16;
-    else if (acc24h > 20) soilBonus = 9;
-    else if (acc24h > 10) soilBonus = 4;
+    // A Open-Meteo retorna umidade volumétrica (m³/m³). 0,18 é solo seco e
+    // 0,46 representa saturação aproximada; valores ausentes são inferidos pelo acumulado.
+    const inferredMoisture = 0.18 + 0.28 * (1 - Math.exp(-accumulated / 45));
+    const moisture = soilMoisture === null || !Number.isFinite(Number(soilMoisture))
+        ? inferredMoisture
+        : Number(soilMoisture);
+    const soilScore = 100 * smoothstep(0.18, 0.46, moisture);
 
-    let meteorologicalBase = rainBase + soilBonus;
+    const meteorologicalHazard = (
+        rainScore * 0.48 +
+        accumulatedScore * 0.24 +
+        probabilityScore * 0.10 +
+        soilScore * 0.18
+    );
 
-    // Se tempo totalmente limpo (sem chuva presente/futura e solo seco), risco é residual
-    if (rainMm <= 0.1 && acc24h < 4 && prob < 30 && simulatedScenario === 'real') {
-        return Math.max(1, Math.round(meteorologicalBase));
-    }
+    // Altitude absoluta é apenas um indicador aproximado. A curva sigmoide
+    // impede que 1 m de diferença provoque uma mudança desproporcional.
+    const topographicSusceptibility = 1 / (1 + Math.exp((elevation - 748) / 15));
 
-    // ─── PILAR 1: TOPOGRAFIA E ALTITUDE (FATOR DE RELEVO) ────────────────────
-    // - Regiões altas (>780m): desconto drástico de -40% (multiplier = 0.60)
-    // - Regiões de vale (<730m): acréscimo agressivo de +40% (multiplier = 1.40)
-    // - Entre 730m e 780m: gradiente contínuo
-    let topoMultiplier = 1.0;
-    if (alt >= 780) {
-        topoMultiplier = 0.60; // -40%
-    } else if (alt <= 730) {
-        topoMultiplier = 1.40; // +40%
-    } else {
-        topoMultiplier = 1.40 - ((alt - 730) / 50.0) * 0.80;
-    }
-
-    // ─── PILAR 2: PROXIMIDADE DE CORPOS HÍDRICOS (FATOR DE TRANSBORDAMENTO) ───
-    // - Menos de 500m de um rio/córrego: multiplica o risco por 1.8x
-    // - Mais de 2km de qualquer bacia e em área elevada: impacto reduzido para zero
+    // Proximidade hidrográfica também decai suavemente, sem fronteiras de 500/1200 m.
     const riverInfo = getMinDistanceToRivers(lat, lon);
     const riverDist = riverInfo.distance;
-    let riverMultiplier = 1.0;
+    const riverSusceptibility = Math.exp(-riverDist / 900);
 
-    if (riverDist < 500) {
-        riverMultiplier = 1.80; // 1.8x
-    } else if (riverDist <= 1200) {
-        riverMultiplier = 1.80 - ((riverDist - 500) / 700.0) * 0.55;
-    } else if (riverDist <= 2000) {
-        riverMultiplier = 1.25 - ((riverDist - 1200) / 800.0) * 0.25;
-    } else {
-        // Mais de 2km do rio
-        riverMultiplier = alt >= 765 ? 0.85 : 1.00;
-    }
-
-    // ─── PILAR 4: HISTÓRICO DO LOCAL (FATOR DE INCIDÊNCIA DEFESA CIVIL / CGE) ─
-    // Se rua/bairro tem histórico crônico E há chuva (ou previsão): +25% fixos
+    // Histórico entra como influência espacial gradual, e não como bônus fixo.
     const chronicInfo = checkChronicFloodZone(lat, lon);
-    let historyBonus = 0;
-    if (chronicInfo.isChronic && (rainMm >= 0.25 || prob > 30 || simulatedScenario !== 'real' || acc24h > 15)) {
-        historyBonus = 25; // +25% fixos
-    }
+    const drainageInfo = getDrainageInfluence(lat, lon);
+    const geographicMultiplier = 0.62
+        + topographicSusceptibility * 0.24
+        + riverSusceptibility * 0.25
+        + chronicInfo.influence * 0.18
+        - drainageInfo.influence * 0.10;
 
-    // ─── EQUAÇÃO MULTIFATORIAL FINAL ──────────────────────────────────────────
-    // Combinação: (Base Meteorológica × Multiplicador Topográfico × Multiplicador Hidrográfico) + Bônus Histórico
-    let calculatedRisk = (meteorologicalBase * topoMultiplier * riverMultiplier) + historyBonus;
+    let calculatedRisk = meteorologicalHazard * geographicMultiplier;
 
-    // Em tempestades extremas em pontos baixos colados a rios com histórico ruim, garante teto crítico
-    if (rainMm >= 25 && riverDist < 500 && alt <= 730) {
-        calculatedRisk = Math.max(96, calculatedRisk);
+    // Mantém risco residual pequeno em tempo seco, inclusive em fundos de vale.
+    if (rain < 0.1 && accumulated < 4 && probability < 30 && simulatedScenario === 'real') {
+        calculatedRisk = Math.min(calculatedRisk, 8);
     }
 
     return Math.max(1, Math.min(100, Math.round(calculatedRisk)));
@@ -839,10 +887,13 @@ function setupSearchListeners() {
     input.addEventListener('input', () => {
         const val = input.value.trim();
         clearBtn.style.display = val.length > 0 ? 'block' : 'none';
+        const requestId = ++searchRequestId;
+        clearTimeout(searchTimeout);
 
         if (val.length < 2) {
             dropdown.style.display = 'none';
             dropdown.innerHTML = '';
+            searchSuggestionResults = [];
             return;
         }
 
@@ -855,9 +906,9 @@ function setupSearchListeners() {
         }
 
         // Debounce: aguarda o usuário parar de digitar antes de chamar a API
-        clearTimeout(searchTimeout);
         searchTimeout = setTimeout(async () => {
             const nominatimResults = await searchNominatim(val);
+            if (requestId !== searchRequestId || input.value.trim() !== val) return;
             renderSearchDropdown({
                 local: localResults,
                 nominatim: nominatimResults,
@@ -866,23 +917,21 @@ function setupSearchListeners() {
         }, 350);
     });
 
-    input.addEventListener('keydown', (e) => {
+    input.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            const firstItem = dropdown.querySelector('.search-item');
-            if (firstItem) {
-                firstItem.click();
-            } else if (input.value.trim().length >= 2) {
-                showSearchLoading(input.value.trim());
-                searchNominatim(input.value.trim()).then(res => {
-                    if (res.length > 0) {
-                        const r = res[0];
-                        selectSearchResult(r.lat, r.lon, r.nome, r.bairro, null, r.display_name, r.icon);
-                    } else {
-                        showSearchEmpty();
-                    }
-                });
-            }
+            const query = input.value.trim();
+            if (query.length < 2) return;
+
+            clearTimeout(searchTimeout);
+            const requestId = ++searchRequestId;
+            showSearchLoading(query);
+            const nominatimResults = await searchNominatim(query);
+            if (requestId !== searchRequestId || input.value.trim() !== query) return;
+
+            const firstResult = nominatimResults[0] || filterLocalNeighborhoods(query)[0];
+            if (firstResult) selectSearchSuggestion(firstResult);
+            else showSearchEmpty();
         } else if (e.key === 'Escape') {
             dropdown.style.display = 'none';
             input.blur();
@@ -901,24 +950,74 @@ function setupSearchListeners() {
     });
 }
 
+// ─── NORMALIZAÇÃO ÚNICA PARA BUSCA REMOTA E BASE LOCAL ───────────────────────
+function normalizeText(text) {
+    return String(text ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 // ─── FILTRO LOCAL (Base de Bairros Offline) ────────────────────────────────────
 function filterLocalNeighborhoods(query) {
-    const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const q = normalizeText(query);
+    if (!q) return [];
+
     return SP_NEIGHBORHOODS.filter(n => {
-        const nome = n.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const bairro = n.bairro.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const nome = normalizeText(n.nome);
+        const bairro = normalizeText(n.bairro);
         return nome.includes(q) || bairro.includes(q);
     });
 }
 
-// ─── NOMINATIM GLOBAL: Endereços, POIs, Monumentos, CEP ──────────────────────
+function createMapLayerSwitcher(streetLayer, satelliteLayer) {
+    const container = document.getElementById('map-layer-toolbar');
+    if (!container) return;
+    const switcher = L.DomUtil.create('div', 'map-layer-switcher', container);
+    switcher.setAttribute('role', 'group');
+    switcher.setAttribute('aria-label', 'Tipo de mapa');
+    switcher.innerHTML = `
+        <button type="button" class="map-layer-option active" data-layer="map" aria-pressed="true">🗺️ Mapa</button>
+        <button type="button" class="map-layer-option" data-layer="satellite" aria-pressed="false">🛰️ Satélite</button>
+    `;
+
+    L.DomEvent.disableClickPropagation(switcher);
+    L.DomEvent.disableScrollPropagation(switcher);
+
+    switcher.querySelectorAll('.map-layer-option').forEach(button => {
+        button.addEventListener('click', () => {
+            const useSatellite = button.dataset.layer === 'satellite';
+            if (useSatellite) {
+                if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
+                if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
+            } else {
+                if (map.hasLayer(satelliteLayer)) map.removeLayer(satelliteLayer);
+                if (!map.hasLayer(streetLayer)) streetLayer.addTo(map);
+            }
+
+            switcher.querySelectorAll('.map-layer-option').forEach(option => {
+                const active = option === button;
+                option.classList.toggle('active', active);
+                option.setAttribute('aria-pressed', String(active));
+            });
+        });
+    });
+}
+
+// ─── NOMINATIM SP: Endereços, números, estabelecimentos e pontos turísticos ──
 async function searchNominatim(query) {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        // Primeiro tenta busca sem restringir país (resultado global)
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=7&addressdetails=1&namedetails=1&accept-language=pt-BR`;
+        const normalizedQuery = normalizeText(query);
+        if (!normalizedQuery) return [];
+
+        const searchTerm = `${normalizedQuery}, Sao Paulo, SP, Brasil`;
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchTerm)}&bounded=1&viewbox=-46.826,-23.383,-46.365,-23.723&limit=5&addressdetails=1&namedetails=1&accept-language=pt-BR`;
         const res = await fetch(url, {
             headers: { 'Accept-Language': 'pt-BR, pt;q=0.9, en;q=0.8' },
             signal: controller.signal
@@ -931,39 +1030,27 @@ async function searchNominatim(query) {
         return data.map(item => {
             const addr = item.address || {};
             const nameDetails = item.namedetails || {};
-
-            // Extrai nome mais específico disponível
-            let nome = nameDetails['name:pt'] || nameDetails['name'] ||
-                       addr.amenity || addr.leisure || addr.tourism ||
-                       addr.historic || addr.shop || addr.office ||
-                       addr.stadium || addr.sports_centre ||
-                       (addr.building && addr.building !== 'yes' ? addr.building : null) ||
-                       addr.road || item.display_name.split(',')[0].trim();
-
-            // Extrai bairro/localização de referência
-            let bairro = addr.suburb || addr.neighbourhood || addr.city_district ||
-                         addr.quarter || addr.borough || '';
+            const nome = nameDetails['name:pt'] || nameDetails.name ||
+                addr.amenity || addr.leisure || addr.tourism || addr.historic ||
+                addr.shop || addr.office || addr.stadium || addr.sports_centre ||
+                (addr.building && addr.building !== 'yes' ? addr.building : null) ||
+                addr.road || item.display_name.split(',')[0].trim();
+            const bairro = addr.suburb || addr.neighbourhood || addr.city_district ||
+                addr.quarter || addr.borough || '';
             const cidade = addr.city || addr.town || addr.municipality || addr.county || '';
             const estado = addr.state || '';
             const pais = addr.country || '';
-
-            // Monta linha de contexto legível
             const contextParts = [bairro, cidade, estado].filter(Boolean);
-            const contexto = contextParts.length > 0
-                ? contextParts.slice(0, 2).join(', ')
-                : pais;
-
-            // Detecta ícone por tipo de POI
-            const icon = getNominatimIcon(item, addr);
+            const contexto = contextParts.length > 0 ? contextParts.slice(0, 2).join(', ') : pais;
 
             return {
-                nome: nome,
+                nome,
                 bairro: contexto || pais,
                 display_name: item.display_name,
                 lat: parseFloat(item.lat),
                 lon: parseFloat(item.lon),
                 alt: null,
-                icon: icon,
+                icon: getNominatimIcon(item, addr),
                 type: item.type,
                 category: item.class
             };
@@ -1045,8 +1132,8 @@ function showSearchEmpty() {
     if (!dropdown) return;
     dropdown.innerHTML = `
         <div class="search-empty">
-            ❌ Nenhum resultado encontrado.<br>
-            <span style="color:#38BDF8;">Tente um endereço mais completo ou nome diferente.</span>
+            📍 Local não encontrado em SP.<br>
+            <span style="color:#38BDF8;">Tente adicionar o número da rua ou o nome do bairro.</span>
         </div>
     `;
     dropdown.style.display = 'block';
@@ -1075,48 +1162,52 @@ function renderSearchDropdown({ local = [], nominatim = [], loading = false }) {
         html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
     }
 
-    // Seção: base local (rápida, offline)
-    if (hasLocal) {
-        if (hasNominatim) {
-            html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
-        }
-        html += local.map(item => buildSearchItemHtml(item)).join('');
-    }
-
-    // Seção: resultados Nominatim (endereços, POIs globais)
+    // Resultados precisos do Nominatim aparecem primeiro e são priorizados no Enter.
     if (hasNominatim) {
-        if (hasLocal) {
-            html += `<div class="search-section-label">🌍 Resultados da Busca</div>`;
-        }
-        html += nominatim.map(item => buildSearchItemHtml(item)).join('');
+        html += `<div class="search-section-label">📍 Endereços e locais em São Paulo</div>`;
+        html += nominatim.map((item, index) => buildSearchItemHtml(item, index)).join('');
     }
 
+    if (hasLocal) {
+        html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
+        html += local.map((item, index) => buildSearchItemHtml(item, nominatim.length + index)).join('');
+    }
+
+    searchSuggestionResults = [...nominatim, ...local];
     dropdown.innerHTML = html;
     dropdown.style.display = 'block';
+    dropdown.querySelectorAll('[data-search-index]').forEach(element => {
+        element.addEventListener('click', () => {
+            const item = searchSuggestionResults[Number(element.dataset.searchIndex)];
+            if (item) selectSearchSuggestion(item);
+        });
+    });
 }
 
 // ─── CONSTRÓI HTML DE UM ITEM DO DROPDOWN ─────────────────────────────────────
-function buildSearchItemHtml(item) {
+function buildSearchItemHtml(item, index) {
     const safeNome = escapeHtml(item.nome);
-    const safeBairro = escapeHtml(item.bairro);
     const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
-    const altParam = (item.alt !== undefined && item.alt !== null) ? item.alt : 'null';
     const safeIcon = escapeHtml(item.icon || '📍');
 
     return `
-    <div class="search-item" onclick="selectSearchResult(${item.lat}, ${item.lon}, '${safeNome}', '${safeBairro}', ${altParam}, '${safeDisplay}', '${safeIcon}')">
-        <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">${item.icon || '📍'}</span>
+    <div class="search-item" data-search-index="${index}" role="button" tabindex="0">
+        <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">${safeIcon}</span>
         <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700; font-size: 13px; color: #FFFFFF; line-height: 1.35; word-break: break-word;">
-                ${item.nome}
+                ${safeNome}
             </div>
             <div style="font-size: 11px; color: #94A3B8; margin-top: 3px; line-height: 1.3; word-break: break-word;">
-                ${item.bairro}
+                ${safeDisplay}
             </div>
         </div>
         <span style="font-size: 10px; color: #38BDF8; font-weight: 700; flex-shrink: 0; background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.25); padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">IR</span>
     </div>
     `;
+}
+
+function selectSearchSuggestion(item) {
+    selectSearchResult(item.lat, item.lon, item.nome, item.bairro, item.alt ?? null, item.display_name, item.icon);
 }
 
 // ─── SELECIONAR RESULTADO E ANALISAR RISCO DO LOCAL ───────────────────────────
@@ -1134,11 +1225,17 @@ function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = nu
     const clearBtn = document.getElementById('btn-search-clear');
     if (clearBtn) clearBtn.style.display = 'block';
 
+    // Move o mapa imediatamente; clima, altitude e marcador são atualizados em seguida.
+    if (map) map.flyTo([Number(lat), Number(lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+
     // Aciona o motor de análise completo: clima + elevação + risco
     analyzePoint(lat, lon, nome, bairro, alt, fullAddress);
 }
 
 function clearSearchInput() {
+    searchRequestId++;
+    clearTimeout(searchTimeout);
+    searchSuggestionResults = [];
     const input = document.getElementById('universal-search-input');
     if (input) input.value = '';
     const clearBtn = document.getElementById('btn-search-clear');
@@ -1330,35 +1427,41 @@ async function calculateRouteRisk() {
         return;
     }
 
+    clearCurrentRoute();
+    setRouteStatus('loading', 'Calculando a rota pelas ruas e analisando os riscos...');
+
     const [origem, destino] = await Promise.all([
         resolveLocation(origemVal),
         resolveLocation(destinoVal)
     ]);
 
     if (!origem || !destino) {
-        alert("Não foi possível localizar um dos endereços informados.");
+        setRouteStatus('error', 'Não foi possível localizar um dos endereços informados. Confira os dados e tente novamente.');
         return;
     }
 
-    processRouteTrajectory(origem, destino, false);
+    await processRouteTrajectory(origem, destino);
 }
 
-function runFecapDemoRoute() {
+async function runFecapDemoRoute() {
     switchDashboardTab('rota');
     document.getElementById('route-origem').value = "FECAP — Campus Liberdade";
     document.getElementById('route-destino').value = "Viaduto do Chá / Anhangabaú";
 
     const origem = { lat: -23.5574, lon: -46.6367, nome: "FECAP — Campus Liberdade" };
     const destino = { lat: -23.5475, lon: -46.6378, nome: "Viaduto do Chá / Anhangabaú" };
-    processRouteTrajectory(origem, destino, true);
+    clearCurrentRoute();
+    setRouteStatus('loading', 'Calculando a rota de demonstração pelas ruas...');
+    await processRouteTrajectory(origem, destino);
 }
 
 async function resolveLocation(query) {
-    const local = SP_NEIGHBORHOODS.find(n => n.nome.toLowerCase().includes(query.toLowerCase()));
+    const normalizedQuery = normalizeText(query);
+    const local = SP_NEIGHBORHOODS.find(n => normalizeText(n.nome).includes(normalizedQuery));
     if (local) return local;
 
     try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ' São Paulo')}&limit=1&countrycodes=br`;
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedQuery + ', Sao Paulo, SP, Brasil')}&bounded=1&viewbox=-46.826,-23.383,-46.365,-23.723&limit=1&countrycodes=br`;
         const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
         const data = await res.json();
         if (data.length > 0) {
@@ -1368,87 +1471,309 @@ async function resolveLocation(query) {
     return null;
 }
 
-function processRouteTrajectory(origem, destino, isDemo) {
-    // Limpa rota anterior
+function clearCurrentRoute() {
+    routeRequestId++;
     routeLayers.forEach(l => { try { map.removeLayer(l); } catch(_) {} });
     routeLayers = [];
+}
 
-    const SAMPLES = 30;
-    const pts = [];
-    for (let i = 0; i <= SAMPLES; i++) {
-        const t = i / SAMPLES;
-        pts.push({
-            lat: origem.lat + (destino.lat - origem.lat) * t,
-            lon: origem.lon + (destino.lon - origem.lon) * t
-        });
-    }
-
-    // Identifica interseções com pontos críticos conhecidos (ex: Baixada do Glicério / Anhangabaú)
-    const dangerousPoints = [
-        { nome: "Baixada do Glicério", lat: -23.5592, lon: -46.6288, risk: 85, nivel: "Crítico" },
-        { nome: "Viaduto do Chá / Anhangabaú", lat: -23.5475, lon: -46.6378, risk: 78, nivel: "Crítico" },
-        { nome: "Av. do Estado", lat: -23.5528, lon: -46.6268, risk: 65, nivel: "Alto" }
-    ];
-
-    const detectedDangers = [];
-    const segRisks = [];
-
-    for (let i = 0; i < pts.length - 1; i++) {
-        const midLat = (pts[i].lat + pts[i + 1].lat) / 2;
-        const midLon = (pts[i].lon + pts[i + 1].lon) / 2;
-
-        let segDanger = null;
-        for (const dp of dangerousPoints) {
-            const dist = Math.hypot(midLat - dp.lat, midLon - dp.lon);
-            const threshold = isDemo ? 0.007 : 0.004;
-            if (dist < threshold) {
-                segDanger = dp;
-                if (!detectedDangers.find(d => d.nome === dp.nome)) detectedDangers.push(dp);
-            }
-        }
-        segRisks.push(segDanger);
-    }
-
-    // Desenha Linha de Rota
-    for (let i = 0; i < pts.length - 1; i++) {
-        const danger = segRisks[i];
-        const color = danger ? (danger.risk >= 75 ? '#EF4444' : '#F97316') : '#10B981';
-        const weight = danger ? 7 : 5;
-
-        const seg = L.polyline([[pts[i].lat, pts[i].lon], [pts[i + 1].lat, pts[i + 1].lon]], {
-            color,
-            weight,
-            opacity: 0.95
-        }).addTo(map);
-        routeLayers.push(seg);
-    }
-
-    // Marcador Partida e Destino
-    const m1 = L.marker([origem.lat, origem.lon]).addTo(map).bindPopup(`<b>🚀 Partida:</b> ${origem.nome}`);
-    const m2 = L.marker([destino.lat, destino.lon]).addTo(map).bindPopup(`<b>🏁 Destino:</b> ${destino.nome}`);
-    routeLayers.push(m1, m2);
-
-    // Ajusta visualização do mapa para a rota
-    map.fitBounds([[Math.min(origem.lat, destino.lat) - 0.005, Math.min(origem.lon, destino.lon) - 0.005], [Math.max(origem.lat, destino.lat) + 0.005, Math.max(origem.lon, destino.lon) + 0.005]]);
-
-    // Renderiza Card de Alerta de Rota
+function setRouteStatus(type, message) {
     const alertBox = document.getElementById('route-alert-box');
-    if (detectedDangers.length > 0) {
-        const worst = detectedDangers[0];
-        alertBox.innerHTML = `
-            <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; padding: 12px; font-size: 12px; color: #FCA5A5; line-height: 1.5;">
-                🚨 <strong>Atenção:</strong> Seu trajeto passa por <strong>${detectedDangers.length} ponto(s) de risco crítico</strong> (${worst.nome} - Risco ${worst.risk}%).<br>
-                <span style="color: #E2E8F0; margin-top: 4px; display: block;">Recomendamos alterar a rota ou evitar este trecho durante chuvas intensas.</span>
-            </div>
-        `;
-    } else {
-        alertBox.innerHTML = `
-            <div style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; padding: 12px; font-size: 12px; color: #6EE7B7; line-height: 1.5;">
-                ✅ <strong>Trajeto Seguro:</strong> Nenhum ponto de alagamento detectado no caminho entre ${origem.nome} e ${destino.nome}.
-            </div>
-        `;
-    }
+    if (!alertBox) return;
+
+    const styles = {
+        loading: ['rgba(56, 189, 248, 0.14)', 'rgba(56, 189, 248, 0.4)', '#7DD3FC', '⏳'],
+        safe: ['rgba(16, 185, 129, 0.15)', 'rgba(16, 185, 129, 0.4)', '#6EE7B7', '✅'],
+        moderate: ['rgba(234, 179, 8, 0.15)', 'rgba(234, 179, 8, 0.45)', '#FDE047', '⚠️'],
+        danger: ['rgba(239, 68, 68, 0.15)', 'rgba(239, 68, 68, 0.45)', '#FCA5A5', '🚨'],
+        error: ['rgba(239, 68, 68, 0.15)', 'rgba(239, 68, 68, 0.45)', '#FCA5A5', '❌']
+    };
+    const [background, border, color, icon] = styles[type] || styles.loading;
+    alertBox.innerHTML = `
+        <div style="background:${background};border:1px solid ${border};border-radius:10px;padding:12px;font-size:12px;color:${color};line-height:1.5;">
+            ${icon} ${message}
+        </div>
+    `;
     alertBox.style.display = 'block';
+}
+
+function getRouteRiskStyle(risk) {
+    if (risk <= 30) return { level: 'Baixo', color: '#10B981' };
+    if (risk <= 50) return { level: 'Moderado', color: '#EAB308' };
+    if (risk <= 75) return { level: 'Alto', color: '#F97316' };
+    return { level: 'Crítico', color: '#EF4444' };
+}
+
+async function fetchOsrmRoute(origem, destino) {
+    const coordinates = `${origem.lon},${origem.lat};${destino.lon},${destino.lat}`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`OSRM respondeu com status ${response.status}`);
+
+    const data = await response.json();
+    if (data.code !== 'Ok' || !data.routes?.[0]?.geometry?.coordinates?.length) {
+        throw new Error('O OSRM não encontrou uma rota dirigível entre os pontos.');
+    }
+
+    return data.routes[0];
+}
+
+function routeDistanceMeters(a, b) {
+    const earthRadius = 6371000;
+    const toRadians = degrees => degrees * Math.PI / 180;
+    const lat1 = toRadians(a[1]);
+    const lat2 = toRadians(b[1]);
+    const deltaLat = lat2 - lat1;
+    const deltaLon = toRadians(b[0] - a[0]);
+    const haversine = Math.sin(deltaLat / 2) ** 2
+        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+    return earthRadius * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function getRouteCumulativeDistances(coordinates) {
+    const distances = [0];
+    for (let index = 1; index < coordinates.length; index++) {
+        distances.push(distances[index - 1] + routeDistanceMeters(coordinates[index - 1], coordinates[index]));
+    }
+    return distances;
+}
+
+function selectRouteSamples(coordinates, intervalMeters = 200) {
+    if (!coordinates.length) return [];
+    const cumulative = getRouteCumulativeDistances(coordinates);
+    const totalDistance = cumulative[cumulative.length - 1];
+    const targetDistances = [];
+    for (let distance = 0; distance < totalDistance; distance += intervalMeters) targetDistances.push(distance);
+    if (!targetDistances.length || totalDistance - targetDistances[targetDistances.length - 1] > 1) {
+        targetDistances.push(totalDistance);
+    }
+
+    let segmentIndex = 0;
+    return targetDistances.map(distance => {
+        while (segmentIndex < cumulative.length - 2 && cumulative[segmentIndex + 1] < distance) segmentIndex++;
+        const startDistance = cumulative[segmentIndex];
+        const endDistance = cumulative[segmentIndex + 1] ?? startDistance;
+        const progress = endDistance === startDistance ? 0 : (distance - startDistance) / (endDistance - startDistance);
+        const start = coordinates[segmentIndex];
+        const end = coordinates[segmentIndex + 1] || start;
+        return {
+            distance,
+            lon: start[0] + (end[0] - start[0]) * progress,
+            lat: start[1] + (end[1] - start[1]) * progress
+        };
+    });
+}
+
+async function fetchRouteEnvironment(samples) {
+    const chunkSize = 35;
+    const chunks = [];
+    for (let start = 0; start < samples.length; start += chunkSize) {
+        chunks.push(samples.slice(start, start + chunkSize));
+    }
+
+    const responses = [];
+    for (let batchStart = 0; batchStart < chunks.length; batchStart += 3) {
+        const batch = chunks.slice(batchStart, batchStart + 3);
+        const batchResponses = await Promise.all(batch.map(async chunk => {
+            const latitudes = chunk.map(point => point.lat).join(',');
+            const longitudes = chunk.map(point => point.lon).join(',');
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitudes}&longitude=${longitudes}&hourly=rain,precipitation_probability,soil_moisture_0_to_1cm&past_days=2&forecast_days=2&timezone=America%2FSao_Paulo`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Open-Meteo respondeu com status ${response.status}`);
+            const data = await response.json();
+            return Array.isArray(data) ? data : [data];
+        }));
+        responses.push(...batchResponses);
+    }
+
+    return responses.flat();
+}
+
+function interpolateRouteRisks(coordinates, samples, sampleRisks) {
+    const cumulative = getRouteCumulativeDistances(coordinates);
+    let sampleIndex = 0;
+    return cumulative.map(distance => {
+        while (sampleIndex < samples.length - 2 && samples[sampleIndex + 1].distance < distance) sampleIndex++;
+        const start = samples[sampleIndex];
+        const end = samples[sampleIndex + 1] || start;
+        const progress = end.distance === start.distance ? 0 : (distance - start.distance) / (end.distance - start.distance);
+        return Math.round(sampleRisks[sampleIndex] + ((sampleRisks[sampleIndex + 1] ?? sampleRisks[sampleIndex]) - sampleRisks[sampleIndex]) * clamp(progress, 0, 1));
+    });
+}
+
+function getRouteTerrainContext(samples, elevations, index) {
+    const currentElevation = elevations[index];
+    const previousIndex = Math.max(0, index - 1);
+    const nextIndex = Math.min(samples.length - 1, index + 1);
+    const previousElevation = elevations[previousIndex];
+    const nextElevation = elevations[nextIndex];
+    const horizontalDistance = Math.max(1, samples[nextIndex].distance - samples[previousIndex].distance);
+    const gradePercent = ((nextElevation - previousElevation) / horizontalDistance) * 100;
+    const neighborAverage = (previousElevation + nextElevation) / 2;
+    const relativeHeight = currentElevation - neighborAverage;
+
+    // Depressões acumulam escoamento; cristas favorecem a dispersão. O ajuste é
+    // limitado para que uma leitura isolada de elevação não domine clima e histórico.
+    const valleyAdjustment = clamp(-relativeHeight * 1.2, -8, 10);
+    const slopeAdjustment = clamp(Math.abs(gradePercent) * 0.7, 0, 5);
+    const adjustment = clamp(valleyAdjustment + slopeAdjustment, -8, 12);
+    const type = relativeHeight <= -2 ? 'vale/depressão'
+        : (Math.abs(gradePercent) >= 2 ? (gradePercent > 0 ? 'aclive' : 'declive') : 'relevo estável');
+
+    return { gradePercent, relativeHeight, adjustment, type };
+}
+
+function groupRouteSegments(coordinates, risks) {
+    const groups = [];
+    let current = null;
+    for (let index = 0; index < coordinates.length - 1; index++) {
+        const segmentRisk = Math.round((risks[index] + risks[index + 1]) / 2);
+        const style = getRouteRiskStyle(segmentRisk);
+        const start = [coordinates[index][1], coordinates[index][0]];
+        const end = [coordinates[index + 1][1], coordinates[index + 1][0]];
+
+        if (!current || current.level !== style.level) {
+            current = { ...style, maxRisk: segmentRisk, latlngs: [start, end] };
+            groups.push(current);
+        } else {
+            current.latlngs.push(end);
+            current.maxRisk = Math.max(current.maxRisk, segmentRisk);
+        }
+    }
+    return groups;
+}
+
+function formatRouteDuration(durationSeconds) {
+    const totalMinutes = Math.max(1, Math.round((Number(durationSeconds) || 0) / 60));
+    if (totalMinutes < 60) return `${totalMinutes} min`;
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes > 0 ? `${hours}h ${minutes} min` : `${hours}h`;
+}
+
+function buildRouteMetrics(distanceKm, baseDurationSeconds, maxRisk) {
+    let rainDelayFactor = 0;
+    if (maxRisk > 50) {
+        // Cresce continuamente de aproximadamente 20% até o teto de 40%.
+        rainDelayFactor = clamp(0.20 + ((maxRisk - 50) / 50) * 0.20, 0.20, 0.40);
+    }
+
+    const adjustedDurationSeconds = baseDurationSeconds * (1 + rainDelayFactor);
+    const extraMinutes = Math.max(0, Math.round((adjustedDurationSeconds - baseDurationSeconds) / 60));
+    const adjustedRow = rainDelayFactor > 0
+        ? `<div><strong>Tempo com chuva:</strong> ${formatRouteDuration(adjustedDurationSeconds)}</div>
+           <div style="margin-top:5px;color:#FDE68A;">⚠️ Tempo ajustado devido à redução de velocidade em áreas de alagamento (+${extraMinutes} min).</div>`
+        : '';
+
+    return `
+        <span style="display:block;color:#E2E8F0;margin-top:7px;line-height:1.65;">
+            <span style="display:block;"><strong>Distância Total:</strong> ${distanceKm} km</span>
+            <span style="display:block;"><strong>Tempo Estimado (OSRM):</strong> ${formatRouteDuration(baseDurationSeconds)}</span>
+            ${adjustedRow}
+        </span>
+    `;
+}
+
+async function processRouteTrajectory(origem, destino) {
+    clearCurrentRoute();
+    const requestId = routeRequestId;
+
+    try {
+        const osrmRoute = await fetchOsrmRoute(origem, destino);
+        if (requestId !== routeRequestId) return;
+
+        const coordinates = osrmRoute.geometry.coordinates;
+        const samples = selectRouteSamples(coordinates);
+        setRouteStatus('loading', `Rota encontrada. Analisando clima e relevo em ${samples.length} pontos do trajeto...`);
+
+        const environments = await fetchRouteEnvironment(samples);
+        if (requestId !== routeRequestId) return;
+        if (environments.length !== samples.length) throw new Error('Dados ambientais incompletos para a rota.');
+
+        const elevations = environments.map(weather =>
+            Number.isFinite(Number(weather?.elevation)) ? Number(weather.elevation) : 745
+        );
+        const terrainContexts = samples.map((_, index) => getRouteTerrainContext(samples, elevations, index));
+        const sampleRisks = samples.map((point, index) => {
+            const baseRisk = processRiskAnalysis(environments[index], elevations[index], point.lat, point.lon).maxForecastRisk;
+            return Math.round(clamp(baseRisk + terrainContexts[index].adjustment, 1, 100));
+        });
+        const vertexRisks = interpolateRouteRisks(coordinates, samples, sampleRisks);
+        const groups = groupRouteSegments(coordinates, vertexRisks);
+
+        groups.forEach(group => {
+            const outline = L.polyline(group.latlngs, {
+                color: '#0F172A',
+                weight: group.level === 'Alto' || group.level === 'Crítico' ? 11 : 9,
+                opacity: 0.78,
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(map);
+            const segment = L.polyline(group.latlngs, {
+                color: group.color,
+                weight: group.level === 'Alto' || group.level === 'Crítico' ? 8 : 6,
+                opacity: 0.98,
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(map).bindTooltip(`${group.level}: até ${group.maxRisk}% de risco`);
+            routeLayers.push(outline, segment);
+        });
+
+        const startMarker = L.marker([origem.lat, origem.lon]).addTo(map).bindPopup(`<b>🚀 Partida:</b> ${escapeHtml(origem.nome)}`);
+        const endMarker = L.marker([destino.lat, destino.lon]).addTo(map).bindPopup(`<b>🏁 Destino:</b> ${escapeHtml(destino.nome)}`);
+        routeLayers.push(startMarker, endMarker);
+
+        const routeLatLngs = coordinates.map(([lon, lat]) => [lat, lon]);
+        map.fitBounds(L.latLngBounds(routeLatLngs), { padding: [32, 32] });
+
+        const maxRisk = Math.max(...sampleRisks);
+        const worstSampleIndex = sampleRisks.indexOf(maxRisk);
+        const worstPoint = samples[worstSampleIndex];
+        const worstStyle = getRouteRiskStyle(maxRisk);
+        const worstTerrain = terrainContexts[worstSampleIndex];
+        const chronic = checkChronicFloodZone(worstPoint.lat, worstPoint.lon);
+        const drainage = getDrainageInfluence(worstPoint.lat, worstPoint.lon);
+        const reverseLocation = await reverseGeocode(worstPoint.lat, worstPoint.lon);
+        if (requestId !== routeRequestId) return;
+        const locationLabel = reverseLocation?.nome
+            || (chronic.isChronic ? chronic.zoneName : getMinDistanceToRivers(worstPoint.lat, worstPoint.lon).river);
+        const dangerousGroups = groups.filter(group => group.level === 'Alto' || group.level === 'Crítico');
+        const distanceKm = (osrmRoute.distance / 1000).toFixed(1);
+        const routeMetrics = buildRouteMetrics(distanceKm, osrmRoute.duration, maxRisk);
+        const drainageText = drainage.influence > 0.1
+            ? ` • Macrodrenagem próxima: ${escapeHtml(drainage.name)}`
+            : '';
+        const terrainText = `Relevo: ${worstTerrain.type} (${elevations[worstSampleIndex]} m)`;
+
+        const maxRiskIcon = L.divIcon({
+            className: '',
+            iconSize: [52, 58],
+            iconAnchor: [26, 54],
+            html: `
+                <div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 5px 8px rgba(0,0,0,.55));">
+                    <div style="min-width:48px;padding:7px 8px;border:3px solid #fff;border-radius:14px;background:${worstStyle.color};color:#fff;font:900 12px 'Plus Jakarta Sans',sans-serif;text-align:center;">⚠ ${maxRisk}%</div>
+                    <div style="width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:11px solid ${worstStyle.color};margin-top:-1px;"></div>
+                </div>`
+        });
+        const maxRiskMarker = L.marker([worstPoint.lat, worstPoint.lon], { icon: maxRiskIcon, zIndexOffset: 1000 })
+            .addTo(map)
+            .bindPopup(`<b>Ponto de Risco Máximo: ${maxRisk}%</b><br>${escapeHtml(locationLabel)}<br>Nível ${worstStyle.level}`);
+        routeLayers.push(maxRiskMarker);
+
+        if (maxRisk < 30) {
+            setRouteStatus('safe', `<strong>Trajeto Limpo e Seguro.</strong> Nenhuma área de risco detectada nas ruas do caminho. <span style="display:block;color:#E2E8F0;margin-top:4px;"><strong>Risco Máximo: ${maxRisk}%</strong> em ${escapeHtml(locationLabel)}${terrainText}${drainageText}</span>${routeMetrics}`);
+        } else if (maxRisk <= 50) {
+            setRouteStatus('moderate', `<strong>Atenção moderada.</strong> <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)}. Dirija com atenção. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${drainageText}</span>${routeMetrics}`);
+        } else {
+            const trechoLabel = dangerousGroups.length === 1 ? '1 trecho' : `${dangerousGroups.length} trechos`;
+            setRouteStatus('danger', `<strong>Atenção:</strong> Seu trajeto passa por ${trechoLabel} de risco alto ou crítico. <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)} (nível ${worstStyle.level}). Mantenha cautela ou altere seu caminho. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${drainageText}</span>${routeMetrics}`);
+        }
+    } catch (error) {
+        if (requestId !== routeRequestId) return;
+        console.error('Falha ao calcular rota real:', error);
+        setRouteStatus('error', 'Não foi possível calcular a rota pelas ruas agora. Verifique sua conexão e tente novamente.');
+    }
 }
 
 // ─── BOTÕES DE CONTROLE RÁPIDO DO MAPA ────────────────────────────────────────

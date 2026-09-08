@@ -13,9 +13,7 @@ const API = {
       
       if (response.status === 401) {
         localStorage.removeItem('floodguard_token');
-        if (window.location.pathname !== '/static/login.html' && window.location.pathname !== '/static/index.html' && window.location.pathname !== '/') {
-            window.location.href = '/static/login.html';
-        }
+        // Sistema aberto: sem redirecionamento para login
         return;
       }
       

@@ -14,6 +14,13 @@
             --card-inner-border: rgba(255, 255, 255, 0.07);
         }
 
+        /* Garante que o layout do dashboard ocupe exatamente 100vh sem scroll */
+        html, body {
+            height: 100% !important;
+            min-height: unset !important;
+            overflow: hidden !important;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -771,7 +778,25 @@
         #map {
             width: 100%;
             height: 100%;
+            min-height: 0;
             z-index: 1;
+        }
+
+        .map-layer-toolbar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 54px;
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--panel-border);
+            background: linear-gradient(180deg, rgba(22, 30, 48, 0.98), rgba(13, 19, 32, 0.98));
+            flex-shrink: 0;
+        }
+
+        .map-stage {
+            position: relative;
+            flex: 1;
+            min-height: 0;
         }
 
         .leaflet-div-icon {
@@ -905,6 +930,47 @@
             text-align: center;
         }
         .btn-scenario-real:hover { background: rgba(255, 255, 255, 0.1); }
+
+        /* ─── Alternador moderno entre mapa e satélite ─── */
+        .map-layer-switcher {
+            display: flex;
+            gap: 4px;
+            padding: 5px;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 14px;
+            background: rgba(11, 16, 30, 0.88);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+            backdrop-filter: blur(14px);
+        }
+
+        .map-layer-option {
+            min-width: 92px;
+            padding: 9px 14px;
+            border: 0;
+            border-radius: 10px;
+            background: transparent;
+            color: #94A3B8;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .map-layer-option:hover {
+            color: #FFFFFF;
+            transform: translateY(-1px);
+        }
+
+        .map-layer-option.active {
+            color: #FFFFFF;
+            background: linear-gradient(135deg, #0EA5E9, #2563EB);
+            box-shadow: 0 5px 14px rgba(37, 99, 235, 0.36);
+        }
+
+        @media (max-width: 680px) {
+            .map-layer-toolbar { min-height: 50px; padding: 6px 10px; }
+            .map-layer-option { min-width: 78px; padding: 8px 10px; }
+        }
     </style>
 </head>
 <body>
@@ -935,9 +1001,6 @@
         </div>
 
         <div class="header-right">
-            <a href="/static/login.html" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
-                👤 Minha Conta
-            </a>
             <a href="/static/dashboard.html" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
                 📊 Painel Geral
             </a>
@@ -1143,12 +1206,9 @@
 
         <!-- ─── COLUNA DIREITA: MOLDURA DO MAPA ─── -->
         <section id="map-container">
-            
-            <!-- Badge de Dica Flutuante -->
-            <div class="map-floating-tip">
-                <span>💡</span> Clique em qualquer ponto do mapa para calcular o risco instantâneo
-            </div>
+            <div id="map-layer-toolbar" class="map-layer-toolbar" aria-label="Controles de visualização do mapa"></div>
 
+            <div class="map-stage">
             <!-- Controles Rápidos no Mapa -->
             <div class="map-quick-controls">
                 <button id="btn-map-gps" class="map-btn-icon map-btn-gps" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
@@ -1172,20 +1232,21 @@
                 </div>
                 <div class="legend-row">
                     <span class="legend-dot" style="background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
-                    <span>Baixo (&lt;30%)</span>
+                    <span>Baixo (0–30%)</span>
                 </div>
                 <div class="legend-row">
-                    <span class="legend-dot" style="background: #F59E0B; box-shadow: 0 0 6px #F59E0B;"></span>
-                    <span>Moderado (30-50%)</span>
+                    <span class="legend-dot" style="background: #EAB308; box-shadow: 0 0 6px #EAB308;"></span>
+                    <span>Moderado (31–50%)</span>
                 </div>
                 <div class="legend-row">
                     <span class="legend-dot" style="background: #F97316; box-shadow: 0 0 6px #F97316;"></span>
-                    <span>Alto (50-75%)</span>
+                    <span>Alto (51–75%)</span>
                 </div>
                 <div class="legend-row">
                     <span class="legend-dot" style="background: #EF4444; box-shadow: 0 0 6px #EF4444;"></span>
-                    <span>Crítico (&gt;75%)</span>
+                    <span>Crítico (76–100%)</span>
                 </div>
+            </div>
             </div>
 
         </section>
@@ -1197,6 +1258,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/static/js/api.js"></script>
     <script src="/static/js/auth.js"></script>
-    <script src="/static/js/map_dashboard.js"></script>
+    <script src="/static/js/map_dashboard.js?v=20260908-route3"></script>
 </body>
 </html>

@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FloodGuard AI - Inteligência Artificial para Salvar Vidas em Enchentes</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260908-3">
     <script src="/static/js/splash.js"></script>
 </head>
-<body>
+<body id="inicio">
     <!-- Site Header / Navigation Menu -->
     <header class="site-header">
         <div class="container header-wrapper">
-            <a href="/" class="logo-brand">
+            <a href="#inicio" class="logo-brand">
                 <div class="logo-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -27,24 +27,16 @@
             </div>
 
             <nav class="main-nav">
-                <a href="/" class="nav-link active">Início</a>
+                <a href="#inicio" class="nav-link active">Início</a>
                 <a href="#clima-ao-vivo" class="nav-link">Chuva Ao Vivo</a>
-                <a href="#demo-fecart" class="nav-link">Simulador FECART</a>
-                <a href="#citacao" class="nav-link">Nossa Missão</a>
-                <a href="/static/map.html" class="nav-link">Mapa ao Vivo</a>
+                <a href="#consequencias" class="nav-link">Consequências</a>
+                <a href="#nossa-missao" class="nav-link">Nossa Missão</a>
+                <a href="#como-fazemos" class="nav-link">Como Fazemos Isso</a>
             </nav>
 
             <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
-                <a href="/static/login.html?tab=register" class="btn btn-outline" style="padding: 8px 16px; font-size: 13px; font-weight: 700; border-color: rgba(56, 189, 248, 0.4);">
-                    ✨ Criar Conta
-                </a>
-                <a href="/static/login.html" class="btn btn-primary" style="padding: 8px 18px; font-size: 13px;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-                        <polyline points="10 17 15 12 10 7"/>
-                        <line x1="15" y1="12" x2="3" y2="12"/>
-                    </svg>
-                    Entrar
+                <a href="/static/map.html" class="btn btn-primary" style="padding: 8px 20px; font-size: 13px; font-weight: 700; gap: 8px;">
+                    🗺️ Acessar Mapa
                 </a>
             </div>
         </div>
@@ -66,9 +58,6 @@
         <div class="flex-center" style="gap: 16px; margin-bottom: 50px;">
             <a href="/static/map.html" class="btn btn-primary" style="padding: 16px 36px; font-size: 16px;">
                 🗺️ Ver Mapa de Risco ao Vivo
-            </a>
-            <a href="#demo-fecart" class="btn btn-outline" style="padding: 16px 32px; font-size: 16px;">
-                🧪 Testar Simulador FECART
             </a>
         </div>
 
@@ -116,7 +105,7 @@
             <div id="om-alert-banner"></div>
 
             <!-- Painel de Botões de Demonstração FECART -->
-            <div id="demo-fecart" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--glass-border); text-align: left;">
+            <div id="demo-fecart" class="simulator-anchor" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--glass-border); text-align: left;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
                     <span style="font-size: 20px;">🧪</span>
                     <h4 style="font-size: 16px; font-weight: 800; color: #FFFFFF;">Modo de Demonstração para a FECART (Simulação de Cenários):</h4>
@@ -146,47 +135,76 @@
             </div>
         </div>
 
-        <!-- Quote Card ("Citação Estética Salva-Vidas") -->
-        <div id="citacao" class="quote-wrapper">
-            <div class="quote-card">
-                <div class="quote-tag">
-                    ✨ TECNOLOGIA PREDITIVA QUE FAZ A DIFERENÇA
-                </div>
+        <!-- Consequências globais das enchentes -->
+        <section id="consequencias" class="quote-wrapper impact-section">
+            <h2 class="content-section-title">Consequências</h2>
+            <div class="quote-card impact-card">
                 <blockquote class="quote-body">
-                    "Em momentos onde minutos definem destinos, a tecnologia não deve apenas observar — ela precisa proteger. Nossa Inteligência Artificial prevê o avanço das enchentes com horas de antecedência, dando às famílias e equipes de resgate o tempo crucial para agir e salvar o que é insubstituível: a vida humana."
+                    <strong>As enchentes causam impactos a dezenas de milhões de pessoas e provocam milhares de mortes anualmente em todo o mundo.</strong>
+                    Somente em 2025, ocorreram cerca de <strong>4.200 mortes associadas a inundações</strong>, além de mais de <strong>US$ 28 bilhões em prejuízos financeiros</strong>.
+                    Em análises históricas de longo prazo, as inundações afetaram mais de <strong>3,2 bilhões de pessoas</strong> e tiraram a vida de <strong>218 mil cidadãos</strong> mundialmente.
                 </blockquote>
-                <div class="quote-author">
-                    <div class="quote-avatar">🛡️</div>
-                    <div class="quote-info">
-                        <div class="quote-name">FloodGuard AI Engine</div>
-                        <div class="quote-role">Sistema Inteligente de Proteção & Resposta Preditiva</div>
-                    </div>
-                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Features Section -->
-        <div id="tecnologia" class="features-grid">
+        <!-- Missão do FloodGuard -->
+        <section id="nossa-missao" class="quote-wrapper mission-section">
+            <h2 class="content-section-title">Nossa Missão</h2>
+            <div class="quote-card mission-card">
+                <div class="mission-icon" aria-hidden="true">🛡️</div>
+                <p class="mission-lead"><strong>Nossa missão é usar a tecnologia para proteger pessoas e cuidar da nossa cidade.</strong></p>
+                <p class="mission-text">Queremos que ninguém mais perca o carro, a casa ou a paz de espírito por ser pego de surpresa durante uma tempestade. Estamos aqui para trazer segurança à sua rotina e ajudar a garantir que você e sua família sempre cheguem bem ao seu destino.</p>
+            </div>
+        </section>
+
+        <!-- Como o FloodGuard transforma dados em proteção -->
+        <section id="como-fazemos" class="how-section">
+            <h2 class="content-section-title">Como Fazemos Isso</h2>
+            <p class="how-section-intro">Da leitura do ambiente ao alerta final: tecnologia aplicada em três etapas.</p>
+
+            <!-- Etapas apresentadas nos três cards principais -->
+            <div id="tecnologia" class="features-grid">
             <div class="feature-card">
                 <div class="feature-icon">🛰️</div>
-                <h3 class="feature-title">Sensores IOT 24/7</h3>
-                <p class="feature-desc">Coleta contínua de dados de pluviômetros, umidade do solo e nível dos rios em pontos estratégicos da cidade.</p>
+                <h3 class="feature-title">1. Coleta de Dados em Tempo Real</h3>
+                <p class="feature-desc">Monitoramos continuamente dados meteorológicos, níveis de chuva, altitude do relevo e a proximidade de rios e córregos em São Paulo.</p>
             </div>
             
             <div class="feature-card">
                 <div class="feature-icon">🧠</div>
-                <h3 class="feature-title">Modelos Preditivos de IA</h3>
-                <p class="feature-desc">Algoritmos avançados que analisam o acúmulo de água e calculam com exatidão o risco de transbordamento.</p>
+                <h3 class="feature-title">2. Análise Preditiva com IA</h3>
+                <p class="feature-desc">Nossa Inteligência Artificial cruza essas informações com o histórico de enchentes da cidade para calcular o risco exato de alagamento metro a metro.</p>
             </div>
 
             <div class="feature-card">
-                <div class="feature-icon">🚨</div>
-                <h3 class="feature-title">Alertas Que Salvam Vidas</h3>
-                <p class="feature-desc">Notificações em tempo real para residentes e órgãos de segurança antes que o alagamento atinja a região.</p>
+                <div class="feature-icon">⚠️</div>
+                <h3 class="feature-title">3. Alertas e Recomendações</h3>
+                <p class="feature-desc">Entregamos diagnósticos precisos e recomendações claras para que você saiba exatamente o nível de risco no seu caminho antes de sair de casa.</p>
             </div>
-        </div>
+            </div>
+        </section>
     </section>
 
     <script src="/static/js/openmeteo.js"></script>
+    <script>
+        // Navegação interna sem recarregar a página e sem esconder o conteúdo sob o cabeçalho.
+        document.querySelectorAll('a[href^="#"]').forEach(link => {
+            link.addEventListener('click', event => {
+                const targetId = link.getAttribute('href').slice(1);
+                const target = document.getElementById(targetId);
+                if (!target) return;
+
+                event.preventDefault();
+                const header = document.querySelector('.site-header');
+                const headerOffset = (header?.getBoundingClientRect().height || 0) + 28;
+                const targetTop = targetId === 'inicio'
+                    ? 0
+                    : target.getBoundingClientRect().top + window.scrollY - headerOffset;
+
+                window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+                history.replaceState(null, '', `#${targetId}`);
+            });
+        });
+    </script>
 </body>
 </html>
