@@ -1382,29 +1382,122 @@ function switchDashboardTab(tab) {
     }
 }
 
-// ─── AUTOCOMPLETE DA ABA DE ROTAS ─────────────────────────────────────────────
+let selectedRouteOrigem = null;
+let selectedRouteDestino = null;
+
+// ─── AUTOCOMPLETE DA ABA DE ROTAS (Nominatim + Base Local) ───────────────────
 function setupRouteAutocomplete() {
-    const setupField = (inputId, dropdownId) => {
+    const setupField = (inputId, dropdownId, isOrigem) => {
         const input = document.getElementById(inputId);
-        const dd = document.getElementById(dropdownId);
-        if (!input || !dd) return;
+        const dropdown = document.getElementById(dropdownId);
+        if (!input || !dropdown) return;
+
+        let routeTimeout = null;
+        let routeRequestId = 0;
 
         input.addEventListener('input', () => {
+            if (isOrigem) selectedRouteOrigem = null;
+            else selectedRouteDestino = null;
+
             const val = input.value.trim();
-            if (val.length < 2) { dd.style.display = 'none'; return; }
-            const results = filterLocalNeighborhoods(val).slice(0, 5);
-            dd.innerHTML = results.map(r => `
-                <div class="search-item" onclick="document.getElementById('${inputId}').value='${r.nome}'; document.getElementById('${dropdownId}').style.display='none';">
-                    <span>${r.icon || '📍'}</span>
-                    <div style="font-size: 12px; color: #fff;">${r.nome} <small style="color:#94A3B8;">(${r.bairro})</small></div>
-                </div>
-            `).join('');
-            dd.style.display = 'block';
+            const requestId = ++routeRequestId;
+            clearTimeout(routeTimeout);
+
+            if (val.length < 2) {
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '';
+                return;
+            }
+
+            const localResults = filterLocalNeighborhoods(val);
+            if (localResults.length > 0) {
+                renderRouteDropdown(inputId, dropdownId, localResults, [], true, isOrigem);
+            } else {
+                dropdown.innerHTML = `<div class="search-status-bar loading"><div class="search-loading-dot"></div>Buscando endereços em SP...</div>`;
+                dropdown.style.display = 'block';
+            }
+
+            routeTimeout = setTimeout(async () => {
+                const nominatimResults = await searchNominatim(val);
+                if (requestId !== routeRequestId || input.value.trim() !== val) return;
+                renderRouteDropdown(inputId, dropdownId, localResults, nominatimResults, false, isOrigem);
+            }, 350);
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                dropdown.style.display = 'none';
+                input.blur();
+            }
         });
     };
 
-    setupField('route-origem', 'route-origem-dropdown');
-    setupField('route-destino', 'route-destino-dropdown');
+    setupField('route-origem', 'route-origem-dropdown', true);
+    setupField('route-destino', 'route-destino-dropdown', false);
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.route-field')) {
+            const dd1 = document.getElementById('route-origem-dropdown');
+            const dd2 = document.getElementById('route-destino-dropdown');
+            if (dd1) dd1.style.display = 'none';
+            if (dd2) dd2.style.display = 'none';
+        }
+    });
+}
+
+function renderRouteDropdown(inputId, dropdownId, localResults, nominatimResults, loading, isOrigem) {
+    const dropdown = document.getElementById(dropdownId);
+    const input = document.getElementById(inputId);
+    if (!dropdown || !input) return;
+
+    const hasLocal = localResults.length > 0;
+    const hasNominatim = nominatimResults.length > 0;
+
+    if (!hasLocal && !hasNominatim && !loading) {
+        dropdown.innerHTML = `<div class="search-empty">Nenhum endereço encontrado em SP</div>`;
+        dropdown.style.display = 'block';
+        return;
+    }
+
+    let html = '';
+
+    if (loading) {
+        html += `<div class="search-status-bar loading"><div class="search-loading-dot"></div>Buscando na base de São Paulo...</div>`;
+    } else {
+        const total = localResults.length + nominatimResults.length;
+        html += `<div class="search-status-bar">📍 ${total} endereço${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
+    }
+
+    if (hasNominatim) {
+        html += `<div class="search-section-label">📍 Endereços e Ruas em São Paulo</div>`;
+        html += nominatimResults.map((item, index) => buildSearchItemHtml(item, index)).join('');
+    }
+
+    if (hasLocal) {
+        html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
+        html += localResults.map((item, index) => buildSearchItemHtml(item, nominatimResults.length + index)).join('');
+    }
+
+    const currentResults = [...nominatimResults, ...localResults];
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+
+    dropdown.querySelectorAll('[data-search-index]').forEach(element => {
+        element.addEventListener('click', () => {
+            const item = currentResults[Number(element.dataset.searchIndex)];
+            if (item) {
+                const label = item.nome + (item.bairro ? ` (${item.bairro})` : '');
+                input.value = label;
+                if (isOrigem) {
+                    selectedRouteOrigem = { lat: item.lat, lon: item.lon, nome: label };
+                } else {
+                    selectedRouteDestino = { lat: item.lat, lon: item.lon, nome: label };
+                }
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '';
+            }
+        });
+    });
 }
 
 function useCurrentLocationForRoute() {
@@ -1413,7 +1506,9 @@ function useCurrentLocationForRoute() {
         return;
     }
     navigator.geolocation.getCurrentPosition(pos => {
-        document.getElementById('route-origem').value = `Minha Localização (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
+        const locLabel = `Minha Localização (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
+        document.getElementById('route-origem').value = locLabel;
+        selectedRouteOrigem = { lat: pos.coords.latitude, lon: pos.coords.longitude, nome: locLabel };
     }, () => alert("Não foi possível obter localização."));
 }
 
@@ -1431,8 +1526,8 @@ async function calculateRouteRisk() {
     setRouteStatus('loading', 'Calculando a rota pelas ruas e analisando os riscos...');
 
     const [origem, destino] = await Promise.all([
-        resolveLocation(origemVal),
-        resolveLocation(destinoVal)
+        (selectedRouteOrigem && selectedRouteOrigem.nome === origemVal) ? selectedRouteOrigem : resolveLocation(origemVal),
+        (selectedRouteDestino && selectedRouteDestino.nome === destinoVal) ? selectedRouteDestino : resolveLocation(destinoVal)
     ]);
 
     if (!origem || !destino) {
@@ -1653,24 +1748,9 @@ function formatRouteDuration(durationSeconds) {
 }
 
 function buildRouteMetrics(distanceKm, baseDurationSeconds, maxRisk) {
-    let rainDelayFactor = 0;
-    if (maxRisk > 50) {
-        // Cresce continuamente de aproximadamente 20% até o teto de 40%.
-        rainDelayFactor = clamp(0.20 + ((maxRisk - 50) / 50) * 0.20, 0.20, 0.40);
-    }
-
-    const adjustedDurationSeconds = baseDurationSeconds * (1 + rainDelayFactor);
-    const extraMinutes = Math.max(0, Math.round((adjustedDurationSeconds - baseDurationSeconds) / 60));
-    const adjustedRow = rainDelayFactor > 0
-        ? `<div><strong>Tempo com chuva:</strong> ${formatRouteDuration(adjustedDurationSeconds)}</div>
-           <div style="margin-top:5px;color:#FDE68A;">⚠️ Tempo ajustado devido à redução de velocidade em áreas de alagamento (+${extraMinutes} min).</div>`
-        : '';
-
     return `
         <span style="display:block;color:#E2E8F0;margin-top:7px;line-height:1.65;">
             <span style="display:block;"><strong>Distância Total:</strong> ${distanceKm} km</span>
-            <span style="display:block;"><strong>Tempo Estimado (OSRM):</strong> ${formatRouteDuration(baseDurationSeconds)}</span>
-            ${adjustedRow}
         </span>
     `;
 }
