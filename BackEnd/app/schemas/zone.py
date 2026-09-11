@@ -27,3 +27,32 @@ class HeatmapPoint(BaseModel):
     latitude: float
     longitude: float
     intensity: float
+
+class SpatialRecordItem(BaseModel):
+    id: int
+    nome: str
+    latitude: float
+    longitude: float
+    distancia_metros: float
+    nivel_risco: str
+    probabilidade_enchente: float
+    raio_metros: float
+    descricao: Optional[str] = None
+
+class BasinFallbackInfo(BaseModel):
+    zona_geografica: str
+    bacia_hidrografica: str
+    probabilidade_base: float
+    vulnerabilidade_relevo: str
+    descricao: str
+
+class SpatialQueryResponse(BaseModel):
+    latitude: float
+    longitude: float
+    radius_meters: float
+    has_records_within_radius: bool
+    nearest_record: Optional[SpatialRecordItem] = None
+    records_within_radius: list[SpatialRecordItem] = []
+    basin_fallback: BasinFallbackInfo
+    calculated_historical_influence: float # 0.0 a 1.0
+
