@@ -90,6 +90,7 @@ function switchNavTab(tab) {
         tabRo.setAttribute('style', _tabBase(tabRo) + OFF);
         cEx.style.display = 'block';
         cRo.style.display = 'none';
+        clearRoute();
     } else {
         tabRo.setAttribute('style', _tabBase(tabRo) + ONV);
         tabEx.setAttribute('style', _tabBase(tabEx) + OFF);
@@ -340,10 +341,8 @@ function _processRoute(origem, destino, isDemo) {
 
     // Ajustar câmera
     if (typeof map !== 'undefined') {
-        map.fitBounds([
-            [Math.min(origem.lat, destino.lat) - 0.005, Math.min(origem.lon, destino.lon) - 0.008],
-            [Math.max(origem.lat, destino.lat) + 0.005, Math.max(origem.lon, destino.lon) + 0.008]
-        ], { padding: [80, 80], animate: true });
+        const rotaPolyline = L.polyline(pts.map(p => [p.lat, p.lon]));
+        map.fitBounds(rotaPolyline.getBounds(), { padding: [50, 50], animate: true });
     }
 }
 
@@ -366,15 +365,17 @@ function _drawRoute(pts, segRisks, origem, destino, riskyZones) {
         );
     }
 
-    // Marcador Origem
+    // Marcador Origem (VERDE)
     _routeLayers.push(
-        L.marker([origem.lat, origem.lon], { icon: _pinIcon('#38BDF8', '🚀') }).addTo(map)
-            .bindPopup(`<b>🚀 Partida:</b> ${origem.nome}`)
+        L.marker([origem.lat, origem.lon], { icon: _pinIcon('#10B981', '🚀') }).addTo(map)
+            .bindTooltip("Origem / Ponto de Partida", { direction: 'top', offset: [0, -32] })
+            .bindPopup(`<b>🚀 Origem / Ponto de Partida:</b><br>${origem.nome}`)
     );
-    // Marcador Destino
+    // Marcador Destino (VERMELHO)
     _routeLayers.push(
-        L.marker([destino.lat, destino.lon], { icon: _pinIcon('#A855F7', '🏁') }).addTo(map)
-            .bindPopup(`<b>🏁 Destino:</b> ${destino.nome}`)
+        L.marker([destino.lat, destino.lon], { icon: _pinIcon('#EF4444', '🏁') }).addTo(map)
+            .bindTooltip("Destino / Chegada", { direction: 'top', offset: [0, -32] })
+            .bindPopup(`<b>🏁 Destino / Chegada:</b><br>${destino.nome}`)
     );
 
     // Marcadores de aviso nos pontos de risco
@@ -511,16 +512,42 @@ function _filterPOI(val, limit) {
 
 // ─── GEOCODIFICAÇÃO ───────────────────────────────────────────────────────────
 async function _geocodeQuery(query) {
-    const local = _filterPOI(query, 1)[0];
-    if (local) return { lat: local.lat, lon: local.lon, nome: local.nome };
-    if (_geocodeCache[query]) return _geocodeCache[query];
+    if (!query || typeof query !== 'string') return null;
+    const trimmed = query.trim();
+    if (!trimmed) return null;
+
+    // 1. Verifica padrão de coordenadas (lat, lng)
+    const coordPattern = /(-?\d{1,2}\.\d+)[,\s/]+(-?\d{1,3}\.\d+)/;
+    const coordMatch = trimmed.match(coordPattern);
+    if (coordMatch) {
+        const lat = parseFloat(coordMatch[1]);
+        const lon = parseFloat(coordMatch[2]);
+        if (!isNaN(lat) && !isNaN(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+            return { lat, lon, lng: lon, nome: trimmed.toLowerCase().includes('minha') ? 'Minha Localização' : `Coordenadas (${lat.toFixed(4)}, ${lon.toFixed(4)})` };
+        }
+    }
+
+    // 2. Cache ou Minha Localização
+    if (_geocodeCache[trimmed]) return _geocodeCache[trimmed];
+    const lower = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (lower.includes('minha localizacao') || lower.includes('localizacao atual')) {
+        // Se já tiver alguma entrada no cache com Minha Localização
+        for (const k in _geocodeCache) {
+            if (k.toLowerCase().includes('minha localizacao')) return _geocodeCache[k];
+        }
+        return null;
+    }
+
+    const local = _filterPOI(trimmed, 1)[0];
+    if (local) return { lat: local.lat, lon: local.lon, lng: local.lon, nome: local.nome };
+
     try {
-        const url  = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ' São Paulo')}&limit=1&countrycodes=br`;
+        const url  = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed + ' São Paulo')}&limit=1&countrycodes=br`;
         const resp = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
         const data = await resp.json();
         if (data.length > 0) {
-            const r = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), nome: data[0].display_name.split(',')[0] };
-            _geocodeCache[query] = r;
+            const r = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), lng: parseFloat(data[0].lon), nome: data[0].display_name.split(',')[0] };
+            _geocodeCache[trimmed] = r;
             return r;
         }
     } catch (_) {}
