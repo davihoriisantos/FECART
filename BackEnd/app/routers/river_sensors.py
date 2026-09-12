@@ -200,16 +200,18 @@ def _get_mock_cota(station: dict) -> float:
     # Variação aleatória determinística por estação + slot
     seed_str = f"{station['id']}_{slot}_{now.date()}"
     h = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
-    noise = ((h % 1000) / 1000.0 - 0.5) * 0.2  # ±10% de ruído
+    noise = ((h % 1000) / 1000.0 - 0.5) * 0.15  # ruído suave
 
     amplitude = station["_mock_amplitude"] * seasonal
-    cota = station["_mock_base"] + amplitude * (0.3 + 0.7 * daily) + noise
+    cota = station["_mock_base"] + amplitude * (0.05 + 0.95 * daily) + noise
     return round(max(0.08, min(cota, station["cota_maxima_m"] * 0.97)), 2)
 
 
 # ─── CLASSIFICAÇÃO DE NÍVEL ───────────────────────────────────────────────────
 def _classify_level(cota: float, station: dict) -> dict:
     pct = (cota / station["cota_maxima_m"]) * 100.0
+    pct_rounded = round(pct, 1)
+
     if pct > 90.0:
         return {
             "nivel": "extravasamento",
@@ -217,18 +219,20 @@ def _classify_level(cota: float, station: dict) -> dict:
             "emoji": "🔴",
             "label": "Extravasamento Iminente",
             "multiplicador": 2.0,
-            "percentual_ocupacao": round(pct, 1),
-            "risco_minimo_forca": 87,
+            "percentual_ocupacao": pct_rounded,
+            "porcentagem_calha": pct_rounded,
+            "risco_minimo_forca": 92,  # Força Risco Crítico >85%
         }
-    elif pct >= 71.0:
+    elif pct >= 70.0:
         return {
             "nivel": "alerta",
             "cor": "laranja",
             "emoji": "🟠",
             "label": "Alerta — Cota Laranja",
             "multiplicador": 1.7,
-            "percentual_ocupacao": round(pct, 1),
-            "risco_minimo_forca": None,
+            "percentual_ocupacao": pct_rounded,
+            "porcentagem_calha": pct_rounded,
+            "risco_minimo_forca": 86,  # Força Risco Crítico >85%
         }
     elif pct >= 50.0:
         return {
@@ -237,7 +241,8 @@ def _classify_level(cota: float, station: dict) -> dict:
             "emoji": "🟡",
             "label": "Atenção — Cota Amarela",
             "multiplicador": 1.3,
-            "percentual_ocupacao": round(pct, 1),
+            "percentual_ocupacao": pct_rounded,
+            "porcentagem_calha": pct_rounded,
             "risco_minimo_forca": None,
         }
     else:
@@ -247,27 +252,39 @@ def _classify_level(cota: float, station: dict) -> dict:
             "emoji": "🟢",
             "label": "Nível Normal",
             "multiplicador": 1.0,
-            "percentual_ocupacao": round(pct, 1),
+            "percentual_ocupacao": pct_rounded,
+            "porcentagem_calha": pct_rounded,
             "risco_minimo_forca": None,
         }
 
 
-def _get_station_data(st: dict) -> dict:
+def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
     """Obtém cota atual: tenta real → fallback mock. Cache 5min."""
-    cache_key = f"river_{st['id']}"
+    cache_key = f"river_{st['id']}_{scenario or 'real'}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
     cota = None
     fonte = "mock"
-    if st.get("_saisp_id"):
-        cota = _try_fetch_real_data(st["_saisp_id"])
-        if cota is not None:
-            fonte = "SAISP/CGE (tempo real)"
 
-    if cota is None:
-        cota = _get_mock_cota(st)
+    if scenario == "tempestade":
+        cota = round(st["cota_maxima_m"] * 0.94, 2)
+        fonte = "Simulação Tempestade"
+    elif scenario == "moderada":
+        cota = round(st["cota_maxima_m"] * 0.76, 2)
+        fonte = "Simulação Chuva Moderada"
+    elif scenario in ("seguro", "normal"):
+        cota = round(st["cota_maxima_m"] * 0.36, 2)
+        fonte = "Simulação Nível Seguro"
+    else:
+        if st.get("_saisp_id"):
+            cota = _try_fetch_real_data(st["_saisp_id"])
+            if cota is not None:
+                fonte = "SAISP/CGE (tempo real)"
+
+        if cota is None:
+            cota = _get_mock_cota(st)
 
     classificacao = _classify_level(cota, st)
     result = {
@@ -281,7 +298,22 @@ def _get_station_data(st: dict) -> dict:
         "cota_atencao_m": st["cota_atencao_m"],
         "cota_alerta_m": st["cota_alerta_m"],
         "fonte_dados": fonte,
+        "nome_estacao": st["nome"],
+        "rio_nome": st["rio"],
+        "altura_atual_m": round(cota, 2),
+        "altura_maxima_m": st["cota_maxima_m"],
+        "porcentagem_calha": round((cota / st["cota_maxima_m"]) * 100, 1),
         **classificacao,
+        # Force >88% calha for Rio Tietê in tempestade scenario
+        **({
+            "porcentagem_calha": max(round((cota / st["cota_maxima_m"]) * 100, 1), 88),
+            "nivel": "extravasamento" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) > 90 else "alerta" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) >= 70 else "atencao",
+            "cor": "vermelho" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) > 90 else "laranja" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) >= 70 else "amarelo",
+            "emoji": "🔴" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) > 90 else "🟠" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) >= 70 else "🟡",
+            "label": "Extravasamento Iminente" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) > 90 else "Cota de Alerta" if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) >= 70 else "Cota de Atenção",
+            "multiplicador": 2.0 if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) > 90 else 1.7 if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) >= 70 else 1.3,
+            "risco_minimo_forca": 92 if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) > 90 else 86 if max(round((cota / st["cota_maxima_m"]) * 100, 1), 88) >= 70 else None,
+        } if scenario == "tempestade" and st["rio"] == "Rio Tietê" else {})
     }
     _cache_set(cache_key, result)
     return result
@@ -307,7 +339,7 @@ def get_rivers_status():
 
 
 @router.get("/nearest")
-def get_nearest_river_status(lat: float, lon: float, radius_m: float = 800.0):
+def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, scenario: Optional[str] = None):
     """
     Retorna a estação mais próxima dentro do raio, com dados telemétricos
     e cálculo de impacto sobre o risco de inundação.
@@ -321,14 +353,14 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 800.0):
         dy = (lat - st["lat"]) * 111000.0
         dx = (lon - st["lon"]) * 102000.0
         dist = math.hypot(dx, dy)
-        data = _get_station_data(st)
+        data = _get_station_data(st, scenario)
         data["_distancia_calculo"] = dist
         all_data.append(data)
         if dist < best_dist:
             best_dist = dist
             best_data = data
 
-    # Estações em alerta dentro de 2km (contexto regional)
+    # Estações em alerta dentro de 5km (contexto regional)
     alertas_regionais = [
         {
             "nome": d["nome"],
@@ -337,34 +369,43 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 800.0):
             "emoji": d["emoji"],
             "distancia_m": round(d["_distancia_calculo"], 0),
             "percentual_ocupacao": d["percentual_ocupacao"],
+            "porcentagem_calha": d["porcentagem_calha"],
+            "label": d["label"],
         }
         for d in all_data
-        if d["nivel"] in ("alerta", "extravasamento") and d["_distancia_calculo"] <= 2000
+        if d["nivel"] in ("alerta", "extravasamento") and d["_distancia_calculo"] <= 5000
     ]
     alertas_regionais.sort(key=lambda x: x["distancia_m"])
 
     within_radius = best_data is not None and best_dist <= radius_m
 
     mensagem = None
-    if within_radius and best_data:
+    if best_data:
+        rio_nome = best_data["rio"]
+        pct_calha = best_data["percentual_ocupacao"]
         nivel = best_data["nivel"]
         if nivel == "extravasamento":
             mensagem = (
-                f"⚠️ ALERTA HÍDRICO: Nível do {best_data['rio']} em "
-                f"{best_data['percentual_ocupacao']}% da calha — "
-                f"Extravasamento Iminente (estação a {int(best_dist)}m). "
-                f"CGE / Defesa Civil em monitoramento contínuo."
+                f"⚠️ ALERTA HÍDRICO: Nível do {rio_nome} em {pct_calha}% da calha — Extravasamento Iminente"
             )
         elif nivel == "alerta":
             mensagem = (
-                f"⚠️ ATENÇÃO HÍDRICA: {best_data['rio']} em Alerta Laranja "
-                f"({best_data['percentual_ocupacao']}% da capacidade). "
-                f"Acompanhe o Boletim CGE-SP."
+                f"⚠️ ALERTA HÍDRICO: Nível do {rio_nome} em {pct_calha}% da calha — Cota de Alerta"
             )
+        elif nivel == "atencao":
+            mensagem = (
+                f"⚠️ ATENÇÃO HÍDRICA: Nível do {rio_nome} em {pct_calha}% da calha — Cota de Atenção"
+            )
+        else:
+            mensagem = f"🟢 Nível Normal - {rio_nome}"
 
     return {
         "dentro_raio": within_radius,
         "distancia_m": round(best_dist, 1) if best_data else None,
+        "nome_estacao": best_data["nome"] if best_data else None,
+        "rio_nome": best_data["rio"] if best_data else None,
+        "porcentagem_calha": best_data["percentual_ocupacao"] if best_data else 0.0,
+        "percentual_ocupacao": best_data["percentual_ocupacao"] if best_data else 0.0,
         "estacao": {
             "id": best_data["id"],
             "nome": best_data["nome"],
@@ -374,14 +415,16 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 800.0):
             "cota_atual_m": best_data["cota_atual_m"],
             "cota_maxima_m": best_data["cota_maxima_m"],
             "fonte_dados": best_data.get("fonte_dados", "mock"),
+            "nome_estacao": best_data["nome"],
+            "rio_nome": best_data["rio"],
+            "porcentagem_calha": best_data["percentual_ocupacao"],
         } if best_data else None,
         "nivel": best_data["nivel"] if best_data else "normal",
         "cor": best_data["cor"] if best_data else "verde",
         "emoji": best_data["emoji"] if best_data else "🟢",
         "label": best_data["label"] if best_data else "Nível Normal",
-        "multiplicador": best_data["multiplicador"] if (within_radius and best_data) else 1.0,
-        "percentual_ocupacao": best_data["percentual_ocupacao"] if best_data else 0.0,
-        "risco_minimo_forca": best_data["risco_minimo_forca"] if (within_radius and best_data) else None,
+        "multiplicador": best_data["multiplicador"] if best_data else 1.0,
+        "risco_minimo_forca": best_data["risco_minimo_forca"] if best_data else None,
         "alertas_regionais": alertas_regionais,
         "mensagem_alerta": mensagem,
     }
