@@ -64,6 +64,7 @@ let activeMarker = null;
 let activeRiskCircle = null;
 let riskTrendChart = null;
 let simulatedScenario = 'real'; // 'real', 'tempestade', 'moderada'
+let currentRiverTelemetry = null; // Guardará o status do rio mais próximo
 let routeLayers = [];
 let routeRequestId = 0;
 let routeStartMarker = null;
@@ -468,6 +469,27 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
     // 2. Buscar Dados Climáticos da Open-Meteo para a coordenada
     const weatherData = await fetchWeatherData(lat, lon);
 
+    // 2.5 Buscar Telemetria de Rios (URL relativa — funciona local e em produção)
+    try {
+        const riverUrl = `/api/rivers/nearest?lat=${lat}&lon=${lon}&radius_m=800`;
+        const res = await fetch(riverUrl, { signal: AbortSignal.timeout(4000) });
+        if (res.ok) {
+            currentRiverTelemetry = await res.json();
+            console.debug('[FloodGuard] Telemetria de Rio:', 
+                currentRiverTelemetry.estacao?.rio,
+                '|', currentRiverTelemetry.nivel,
+                '|', currentRiverTelemetry.percentual_ocupacao + '%',
+                '| Fonte:', currentRiverTelemetry.estacao?.fonte_dados || 'mock'
+            );
+        } else {
+            console.warn('[FloodGuard] River API retornou:', res.status);
+            currentRiverTelemetry = null;
+        }
+    } catch (e) {
+        console.warn('[FloodGuard] Telemetria de rio indisponível:', e.message);
+        currentRiverTelemetry = null;
+    }
+
     // 3. Processar Série Temporal e Calcular Risco Preditivo com os 4 Pilares Geográficos
     const analysis = processRiskAnalysis(weatherData, realAlt, lat, lon);
 
@@ -631,10 +653,20 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     // Vales de SP (715-725m) têm alta suscetibilidade; cotas altas (>770m) dispersam o escoamento
     const Score_Topografia = clamp(100 / (1 + Math.exp((elevation - 744) / 14)), 5, 98);
 
-    // ─── 3. PILAR PROXIMIDADE A CORPOS HÍDRICOS (CALHAS FLUVIAIS DE SP) [0 a 100] ───
+    // ─── 3. PILAR PROXIMIDADE A CORPOS HÍDRICOS (CALHAS FLUVIAIS DE SP) E TELEMETRIA [0 a 100] ───
     const riverInfo = getMinDistanceToRivers(lat, lon);
     const riverDist = riverInfo.distance;
     const Score_Proximidade_Rio = clamp(100 * Math.exp(-riverDist / 800), 2, 98);
+
+    let riverMultiplier = 1.0;
+    let forceMinRisk = null;
+    if (currentRiverTelemetry && currentRiverTelemetry.dentro_raio) {
+        riverMultiplier = currentRiverTelemetry.multiplicador;
+        if (currentRiverTelemetry.risco_minimo_forca) {
+            forceMinRisk = currentRiverTelemetry.risco_minimo_forca;
+        }
+    }
+    const Score_Nivel_Rio = clamp(Score_Proximidade_Rio * riverMultiplier, 2, 100);
 
     // ─── 4. PILAR HISTÓRICO DEFESA CIVIL / CGE (RAIO 1000m + FALLBACK DE BACIA) [0 a 100] ───
     const chronicInfo = checkChronicFloodZone(lat, lon);
@@ -648,16 +680,17 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     }
 
     // ─── PESOS BALANCEADOS DO MOTOR PREDITIVO DE IA ───
-    const Peso_Chuva = 0.40;
+    // Fórmula solicitada: Risco_Final = (Relevo * 0.25) + (Chuva_Acumulada * 0.25) + (Histórico * 0.20) + (Nivel_Telemetrico_Rio * 0.30)
     const Peso_Topografia = 0.25;
-    const Peso_Proximidade = 0.20;
-    const Peso_Historico = 0.15;
+    const Peso_Chuva = 0.25;
+    const Peso_Historico = 0.20;
+    const Peso_Rio = 0.30;
 
     let Risco_Multifatorial = (
         (Peso_Topografia * Score_Topografia) +
-        (Peso_Proximidade * Score_Proximidade_Rio) +
         (Peso_Chuva * Score_Clima) +
-        (Peso_Historico * Score_Historico_CGE)
+        (Peso_Historico * Score_Historico_CGE) +
+        (Peso_Rio * Score_Nivel_Rio)
     );
 
     // Atenuação por estruturas de macrodrenagem e piscinões
@@ -666,12 +699,20 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Risco_Multifatorial *= (1 - drainageInfo.influence * 0.08);
     }
 
+    // Forçar Risco Crítico em caso de extravasamento iminente (raio < 800m)
+    if (forceMinRisk !== null) {
+        Risco_Multifatorial = Math.max(Risco_Multifatorial, forceMinRisk);
+    }
+
     // Modulação física para tempo seco real:
-    // Evita falsos positivos de enchente no instante presente quando o céu está limpo,
-    // mas preserva o potencial latente para quando o temporal precipitar.
-    if (rain < 0.1 && accumulated < 3.5 && probability < 25 && simulatedScenario === 'real') {
+    // Evita falsos positivos de enchente quando o céu está limpo,
+    // MAS NÃO aplica o cap se houver alerta hídrico ativo (rio em extravasamento/alerta).
+    const riverAlerting = currentRiverTelemetry && currentRiverTelemetry.dentro_raio &&
+        ['alerta', 'extravasamento'].includes(currentRiverTelemetry.nivel);
+    if (rain < 0.1 && accumulated < 3.5 && probability < 25 && simulatedScenario === 'real' && !riverAlerting) {
         Risco_Multifatorial = Math.min(Risco_Multifatorial, 8);
     }
+
 
     return Math.max(1, Math.min(100, Math.round(Risco_Multifatorial)));
 }
@@ -704,6 +745,81 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
 
     elBar.style.width = `${Math.max(8, risk)}%`;
     elBar.style.background = color;
+
+    // ─── CARD DE TELEMETRIA HÍDRICA ───────────────────────────────────────────
+    const alertBox    = document.getElementById('river-telemetry-alert');
+    const alertOkBox  = document.getElementById('river-telemetry-ok');
+    const alertMsg    = document.getElementById('river-telemetry-alert-msg');
+    const alertPct    = document.getElementById('river-alert-pct');
+    const alertBar    = document.getElementById('river-alert-bar');
+    const alertLabel  = document.getElementById('river-alert-label');
+    const alertEmoji  = document.getElementById('river-alert-emoji');
+    const alertName   = document.getElementById('river-alert-station-name');
+    const alertFonte  = document.getElementById('river-alert-fonte');
+    const alertReg    = document.getElementById('river-alert-regional');
+    const alertRegList= document.getElementById('river-alert-regional-list');
+
+    if (currentRiverTelemetry && currentRiverTelemetry.estacao) {
+        const rt = currentRiverTelemetry;
+        const nivel = rt.nivel || 'normal';
+        const pct   = rt.percentual_ocupacao || 0;
+        const nomeEstacao = rt.estacao.nome || rt.estacao.rio;
+        const fonte = rt.estacao.fonte_dados || 'mock dinâmico';
+        const fonteLabel = fonte.includes('tempo real') ? '🔴 AO VIVO — SAISP/CGE' : '🔵 Simulação FloodGuard AI';
+
+        // Cores por nível
+        const lvlColors = {
+            extravasamento: { border: '#EF4444', bg: 'rgba(239,68,68,0.08)', text: '#EF4444', light: '#FCA5A5' },
+            alerta:         { border: '#F97316', bg: 'rgba(249,115,22,0.08)', text: '#F97316', light: '#FDBA74' },
+            atencao:        { border: '#EAB308', bg: 'rgba(234,179,8,0.08)',  text: '#EAB308', light: '#FDE047' },
+            normal:         { border: '#10B981', bg: 'rgba(16,185,129,0.08)', text: '#10B981', light: '#6EE7B7' },
+        };
+        const lc = lvlColors[nivel] || lvlColors.normal;
+
+        if (nivel === 'alerta' || nivel === 'extravasamento') {
+            // Modo ALERTA — mostra o card vermelho/laranja
+            if (alertBox)  alertBox.style.display = 'block';
+            if (alertOkBox) alertOkBox.style.display = 'none';
+
+            if (alertBox) alertBox.style.borderColor = lc.border;
+            const hdr = document.getElementById('river-alert-header');
+            if (hdr) hdr.style.background = `linear-gradient(90deg, ${lc.border}30 0%, ${lc.border}08 100%)`;
+            if (alertEmoji) alertEmoji.textContent = rt.emoji;
+            if (alertName)  alertName.style.color = lc.light;
+            if (alertName)  alertName.textContent = nomeEstacao;
+            if (alertPct)   { alertPct.textContent = `${pct}%`; alertPct.style.color = lc.text; }
+            if (alertBar)   { alertBar.style.width = `${Math.min(pct, 100)}%`; alertBar.style.background = lc.text; }
+            if (alertLabel) { alertLabel.textContent = rt.label || nivel.toUpperCase(); alertLabel.style.color = lc.text; alertLabel.style.background = `${lc.text}22`; }
+            if (alertFonte) alertFonte.textContent = `Fonte: ${fonteLabel}`;
+            if (alertMsg)   alertMsg.innerHTML = (rt.mensagem_alerta || '') + ` <strong style="color:${lc.text}">IA eleva risco para ${risk}%.</strong>`;
+
+            // Alertas regionais extras
+            if (alertReg && alertRegList && rt.alertas_regionais && rt.alertas_regionais.length > 0) {
+                alertReg.style.display = 'block';
+                alertRegList.innerHTML = rt.alertas_regionais.slice(0, 3)
+                    .map(a => `${a.emoji} <b>${a.rio}</b>: ${a.label} (${a.distancia_m}m)`)
+                    .join('<br>');
+            } else if (alertReg) {
+                alertReg.style.display = 'none';
+            }
+        } else {
+            // Modo NORMAL — esconde o card de alerta, mostra indicador OK
+            if (alertBox) alertBox.style.display = 'none';
+            if (alertOkBox) {
+                alertOkBox.style.display = 'flex';
+                const okEmoji = document.getElementById('river-ok-emoji');
+                const okName  = document.getElementById('river-ok-name');
+                const okInfo  = document.getElementById('river-ok-info');
+                if (okEmoji) okEmoji.textContent = rt.emoji || '🟢';
+                if (okName)  okName.textContent = rt.estacao.rio;
+                if (okInfo)  okInfo.textContent = `${rt.label} — ${pct}% da calha • ${fonteLabel}`;
+            }
+        }
+    } else {
+        // Sem dados de telemetria — esconde ambos
+        if (alertBox)  alertBox.style.display = 'none';
+        if (alertOkBox) alertOkBox.style.display = 'none';
+    }
 
     // Recomendações
     if (risk >= 75) {
@@ -746,21 +862,34 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         elAltSub.style.color = altInfo.color;
     }
 
-    // Insight da IA: Síntese dos 4 Pilares
+    // Insight da IA: Síntese dos 5 Pilares (incluindo Telemetria Fluvial)
     const elInsight = document.getElementById('ai-insight-text');
-    const riverFactorTxt = riverInfo.distance < 500 ? "1.8x (crítico)" : (riverInfo.distance <= 1200 ? "1.3x" : "neutro");
+    const riverFactorTxt = riverInfo.distance < 500 ? "×1.8 (crítico)" : (riverInfo.distance <= 1200 ? "×1.3" : "neutro");
     const chronicTxt = chronicInfo.hasRecordsWithinRadius
-        ? `🚨 <strong>Histórico Defesa Civil:</strong> Ponto Crítico a ${chronicInfo.dist}m (${chronicInfo.zoneName}).`
-        : `🌐 <strong>Histórico Universal:</strong> Monitoramento por Bacia Hidrográfica (${chronicInfo.bacia || chronicInfo.zoneName}).`;
+        ? `🚨 <strong>Defesa Civil:</strong> Ponto Crítico a ${chronicInfo.dist}m (${chronicInfo.zoneName}).`
+        : `🌐 <strong>Bacia Hidrográfica:</strong> ${chronicInfo.bacia || chronicInfo.zoneName}.`;
+
+    // Telemetria fluvial no Insight
+    let telemetriaTxt = '';
+    if (currentRiverTelemetry && currentRiverTelemetry.estacao) {
+        const rt = currentRiverTelemetry;
+        const multi = rt.dentro_raio ? `×${rt.multiplicador}` : 'fora do raio (800m)';
+        const emojiRio = rt.emoji || '🟢';
+        const fonteTag = rt.estacao.fonte_dados && rt.estacao.fonte_dados.includes('tempo real')
+            ? '<span style="color:#EF4444;font-weight:800;">[AO VIVO]</span>'
+            : '<span style="color:#38BDF8;font-weight:700;">[Simulado]</span>';
+        telemetriaTxt = ` ${emojiRio} <strong>Telemetria ${rt.estacao.rio}:</strong> ${rt.percentual_ocupacao}% da calha (${rt.label}) ${fonteTag} — Multiplicador ${multi}.`;
+    }
 
     if (risk >= 75) {
-        elInsight.innerHTML = `<strong>ALERTA MÁXIMO DA IA (${risk}%):</strong> Chuva de +${analysis.forecastRainTotal.toFixed(1)}mm combinada com <strong>Relevo em ${alt}m (${altInfo.factorTxt})</strong> e proximidade de <strong>${riverInfo.distance}m da calha (${riverFactorTxt})</strong>. ${chronicTxt}`;
+        elInsight.innerHTML = `<strong>🚨 ALERTA MÁXIMO DA IA (${risk}%):</strong> Precipitação +${analysis.forecastRainTotal.toFixed(1)}mm • Relevo ${alt}m (${altInfo.factorTxt}) • Calha a ${riverInfo.distance}m (${riverFactorTxt}).${telemetriaTxt} ${chronicTxt}`;
     } else if (risk >= 50) {
-        elInsight.innerHTML = `<strong>ATENÇÃO ELEVADA (${risk}%):</strong> Precipitação de +${analysis.forecastRainTotal.toFixed(1)}mm. Topografia em ${alt}m (${altInfo.tipo}) a ${riverInfo.distance}m de corpo hídrico. ${chronicTxt}`;
+        elInsight.innerHTML = `<strong>⚠️ ATENÇÃO ELEVADA (${risk}%):</strong> Chuva +${analysis.forecastRainTotal.toFixed(1)}mm • Topografia ${alt}m (${altInfo.tipo}) • ${riverInfo.distance}m de corpo hídrico.${telemetriaTxt} ${chronicTxt}`;
     } else {
-        elInsight.innerHTML = `<strong>ANÁLISE PREDITIVA (${risk}%):</strong> Relevo em ${alt}m (${altInfo.tipo}, ${altInfo.factorTxt}) a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance / 1000).toFixed(1) + 'km'} da calha. ${chronicTxt}`;
+        elInsight.innerHTML = `<strong>🔍 ANÁLISE PREDITIVA (${risk}%):</strong> Relevo ${alt}m (${altInfo.tipo}, ${altInfo.factorTxt}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt} ${chronicTxt}`;
     }
 }
+
 
 // ─── ATUALIZAR MARCADOR E CÍRCULO DINÂMICO NO MAPA ────────────────────────────
 function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUserLocation = false) {

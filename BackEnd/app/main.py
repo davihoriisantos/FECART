@@ -31,8 +31,9 @@ app.include_router(zones.router)
 app.include_router(alerts.router)
 app.include_router(dashboard.router)
 
-from .routers import confirmations
+from .routers import confirmations, river_sensors
 app.include_router(confirmations.router)
+app.include_router(river_sensors.router)
 
 import os
 static_dir = os.path.join(os.path.dirname(__file__), "../../static")

@@ -1116,6 +1116,49 @@
                     </div>
                 </div>
 
+                <!-- ─── CARD ALERTA HÍDRICO / TELEMETRIA DE RIOS ─── -->
+                <div id="river-telemetry-alert" style="display: none; border-radius: 10px; margin-bottom: 14px; overflow: hidden; border: 1.5px solid #EF4444;">
+                    <!-- Header com gradiente dinâmico -->
+                    <div id="river-alert-header" style="background: linear-gradient(90deg, rgba(239,68,68,0.30) 0%, rgba(239,68,68,0.08) 100%); padding: 8px 12px; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px;" id="river-alert-emoji">🔴</span>
+                        <div style="flex:1;">
+                            <div style="font-size: 10px; font-weight: 800; color: #EF4444; text-transform: uppercase; letter-spacing: 0.5px;">ALERTA HÍDRICO — Telemetria Fluvial</div>
+                            <div style="font-size: 12px; font-weight: 700; color: #F87171; margin-top: 1px;" id="river-alert-station-name">Rio Tietê — Estação Anhembi</div>
+                        </div>
+                        <div style="text-align: right; flex-shrink: 0;">
+                            <div style="font-size: 18px; font-weight: 900; color: #EF4444;" id="river-alert-pct">--</div>
+                            <div style="font-size: 9px; color: #F87171; font-weight: 700;">da calha</div>
+                        </div>
+                    </div>
+                    <!-- Barra de capacidade do rio -->
+                    <div style="background: rgba(15,23,42,0.6); height: 5px; position: relative;">
+                        <div id="river-alert-bar" style="height: 100%; background: #EF4444; transition: width 0.6s ease; width: 0%;"></div>
+                    </div>
+                    <!-- Corpo do alerta -->
+                    <div style="background: rgba(15,23,42,0.85); padding: 8px 12px;">
+                        <div style="font-size: 11px; color: #FCA5A5; line-height: 1.5;" id="river-telemetry-alert-msg">
+                            Nível crítico detectado.
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                            <div style="font-size: 10px; color: #64748B;" id="river-alert-fonte">Fonte: FloodGuard AI Mock</div>
+                            <div style="font-size: 10px; background: rgba(239,68,68,0.2); color: #EF4444; padding: 2px 6px; border-radius: 4px; font-weight: 700;" id="river-alert-label">EXTRAVASAMENTO</div>
+                        </div>
+                        <!-- Alertas Regionais -->
+                        <div id="river-alert-regional" style="display: none; margin-top: 8px; border-top: 1px solid rgba(239,68,68,0.2); padding-top: 8px;">
+                            <div style="font-size: 10px; color: #94A3B8; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">📍 Outros Rios em Alerta na Região</div>
+                            <div id="river-alert-regional-list" style="font-size: 10px; color: #F87171; line-height: 1.8;"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- ─── Indicador de telemetria normal (flutuante, só aparece quando nível está ok) ─── -->
+                <div id="river-telemetry-ok" style="display: none; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25); border-radius: 8px; padding: 7px 12px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                    <span id="river-ok-emoji" style="font-size: 14px;">🟢</span>
+                    <div style="flex:1;">
+                        <div style="font-size: 10px; font-weight: 700; color: #10B981;" id="river-ok-name">Rio Tietê</div>
+                        <div style="font-size: 10px; color: #64748B;" id="river-ok-info">Nível Normal — --% da calha</div>
+                    </div>
+                </div>
+
                 <!-- Grid de Mini KPIs: 4 Pilares Geográficos e Meteorológicos -->
                 <div class="kpi-grid">
                     <div class="kpi-card">
