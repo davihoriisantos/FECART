@@ -498,7 +498,9 @@
             border-radius: 14px;
             padding: 16px;
             position: relative;
-            flex-shrink: 0;
+            flex: 0 0 auto;
+            width: 100%;
+            height: auto;
             min-height: auto;
             overflow: visible;
             box-sizing: border-box;
@@ -619,6 +621,7 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
+            width: 100%;
             flex-shrink: 0;
         }
 
@@ -627,6 +630,9 @@
             border: 1px solid var(--card-inner-border);
             border-radius: 10px;
             padding: 10px 12px;
+            width: 100%;
+            height: auto;
+            box-sizing: border-box;
         }
 
         .kpi-label {
@@ -659,6 +665,9 @@
             border: 1px solid var(--card-inner-border);
             border-radius: 12px;
             padding: 14px;
+            width: 100%;
+            height: auto;
+            box-sizing: border-box;
             flex-shrink: 0;
         }
 
@@ -684,6 +693,9 @@
             font-size: 12px;
             line-height: 1.55;
             color: #CBD5E1;
+            width: 100%;
+            height: auto;
+            box-sizing: border-box;
             flex-shrink: 0;
         }
 
@@ -1114,7 +1126,7 @@
                     <div id="hero-recommendation" style="font-size: 12px; color: #94A3B8; margin-top: 6px;">
                         🛡️ Sem risco iminente de alagamento nas próximas horas.
                     </div>
-                    <canvas id="probability-gauge" width="80" height="80" style="margin-top:8px;"></canvas>
+                    <canvas id="probability-gauge" width="80" height="80" style="margin-top:8px; display:block;"></canvas>
                 </div>
 
                 <!-- ─── CARD ALERTA HÍDRICO / TELEMETRIA DE RIOS ─── -->
@@ -1212,7 +1224,7 @@
                 </div>
 
                 <!-- Simulador de Cenários Meteorológicos -->
-                <div style="background: var(--card-inner); border: 1px solid var(--card-inner-border); border-radius: 10px; padding: 12px;">
+                <div style="background: var(--card-inner); border: 1px solid var(--card-inner-border); border-radius: 10px; padding: 12px; width: 100%; box-sizing: border-box;">
                     <div style="font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; margin-bottom: 6px;">
                         🧪 Simular Cenários (Apresentação FECART):
                     </div>

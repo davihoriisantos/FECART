@@ -338,29 +338,284 @@ def get_rivers_status():
     }
 
 
+# ─── REDE HIDROGRÁFICA COMPLETA DE SÃO PAULO (polilinhas densas) ──────────────
+# Vértices espaçados ~200–400m ao longo de cada calha para garantir que
+# qualquer ponto na margem/avenida de fundo de vale retorne ≤ 50m.
+# O campo-chave em RIVER_STATIONS["rio"] mapeia para a entrada correta aqui.
+RIVER_POLYLINES: dict[str, list[tuple[float, float]]] = {
+
+    # ── RIO TIETÊ ──────────────────────────────────────────────────────────────
+    # Nascente (Salesópolis) → Barragem Edgard de Souza (Santana de Parnaíba)
+    # Trecho urbano de SP: Zona Leste → Zona Norte → Zona Oeste
+    "Rio Tietê": [
+        # Zona Leste — Itaquera / Penha / Tatuapé
+        (-23.540, -46.390), (-23.538, -46.400), (-23.536, -46.410),
+        (-23.534, -46.420), (-23.531, -46.430), (-23.528, -46.440),
+        (-23.525, -46.450), (-23.522, -46.460), (-23.519, -46.470),
+        (-23.516, -46.480), (-23.514, -46.492), (-23.513, -46.504),
+        # Ponte da Penha / Belém / Brás
+        (-23.512, -46.516), (-23.511, -46.528), (-23.511, -46.540),
+        (-23.510, -46.552), (-23.510, -46.564), (-23.510, -46.576),
+        (-23.510, -46.588), (-23.510, -46.600), (-23.510, -46.610),
+        # Anhembi / Ponte das Bandeiras / Centro
+        (-23.510, -46.620), (-23.510, -46.628), (-23.511, -46.636),
+        (-23.511, -46.644), (-23.512, -46.652), (-23.512, -46.660),
+        (-23.513, -46.668), (-23.514, -46.676), (-23.514, -46.684),
+        # Lapa / Pompéia / Casa Verde
+        (-23.515, -46.692), (-23.515, -46.700), (-23.516, -46.708),
+        (-23.517, -46.716), (-23.518, -46.724), (-23.519, -46.732),
+        (-23.521, -46.740), (-23.523, -46.748), (-23.525, -46.756),
+        # Freguesia do Ó / Limão / Perus / Jaraguá
+        (-23.527, -46.764), (-23.529, -46.772), (-23.532, -46.780),
+        (-23.535, -46.788), (-23.538, -46.796), (-23.541, -46.804),
+        (-23.544, -46.812), (-23.547, -46.820), (-23.550, -46.828),
+    ],
+
+    # ── RIO PINHEIROS ──────────────────────────────────────────────────────────
+    # Represa Guarapiranga (sul) → Foz no Tietê (norte, Ceagesp)
+    "Rio Pinheiros": [
+        (-23.710, -46.694), (-23.700, -46.698), (-23.690, -46.703),
+        (-23.680, -46.708), (-23.670, -46.712), (-23.660, -46.714),
+        (-23.650, -46.714), (-23.640, -46.713), (-23.630, -46.711),
+        (-23.620, -46.709), (-23.610, -46.707), (-23.600, -46.704),
+        (-23.592, -46.701), (-23.584, -46.699), (-23.576, -46.698),
+        (-23.568, -46.698), (-23.560, -46.699), (-23.552, -46.701),
+        (-23.545, -46.703), (-23.539, -46.708), (-23.534, -46.714),
+        (-23.530, -46.720), (-23.526, -46.728), (-23.522, -46.736),
+        (-23.519, -46.744), (-23.517, -46.752),
+    ],
+
+    # ── RIO TAMANDUATEÍ ────────────────────────────────────────────────────────
+    # Santo André (ABC) → Av. do Estado → foz no Tietê
+    "Rio Tamanduateí": [
+        (-23.670, -46.565), (-23.660, -46.572), (-23.650, -46.578),
+        (-23.640, -46.582), (-23.630, -46.585), (-23.620, -46.587),
+        (-23.610, -46.589), (-23.600, -46.592), (-23.590, -46.596),
+        (-23.580, -46.601), (-23.571, -46.607), (-23.562, -46.614),
+        (-23.556, -46.619), (-23.550, -46.623), (-23.544, -46.625),
+        (-23.538, -46.624), (-23.532, -46.622), (-23.525, -46.621),
+        (-23.518, -46.620), (-23.512, -46.619),
+    ],
+
+    # ── RIO ARICANDUVA ─────────────────────────────────────────────────────────
+    # Nascente (Guaianases, Zona Leste) → foz no Tietê
+    "Rio Aricanduva": [
+        (-23.615, -46.478), (-23.607, -46.488), (-23.600, -46.498),
+        (-23.592, -46.507), (-23.584, -46.515), (-23.576, -46.522),
+        (-23.568, -46.529), (-23.560, -46.535), (-23.552, -46.540),
+        (-23.545, -46.545), (-23.538, -46.550), (-23.531, -46.556),
+        (-23.524, -46.561), (-23.518, -46.567), (-23.513, -46.574),
+    ],
+
+    # ── CÓRREGO ANHANGABAÚ / VALE DO ANHANGABAÚ ────────────────────────────────
+    "Córrego Anhangabaú": [
+        (-23.574, -46.648), (-23.570, -46.645), (-23.566, -46.642),
+        (-23.562, -46.640), (-23.558, -46.639), (-23.554, -46.638),
+        (-23.550, -46.637), (-23.546, -46.636), (-23.542, -46.635),
+        (-23.538, -46.634), (-23.534, -46.633),
+    ],
+
+    # ── CÓRREGO IPIRANGA (Zona Sul) ─────────────────────────────────────────────
+    "Córrego do Ipiranga": [
+        (-23.610, -46.615), (-23.606, -46.611), (-23.602, -46.608),
+        (-23.598, -46.605), (-23.594, -46.602), (-23.590, -46.599),
+        (-23.586, -46.597), (-23.582, -46.595),
+    ],
+
+    # ── CÓRREGO JAGUARÉ (Zona Oeste / Pinheiros) ────────────────────────────────
+    "Córrego Jaguaré": [
+        (-23.578, -46.752), (-23.572, -46.748), (-23.567, -46.744),
+        (-23.562, -46.740), (-23.557, -46.737), (-23.552, -46.734),
+        (-23.547, -46.731),
+    ],
+
+    # ── CÓRREGO PIRAJUÇARA (Butantã / Taboão) ──────────────────────────────────
+    "Córrego Pirajuçara": [
+        (-23.630, -46.745), (-23.622, -46.742), (-23.614, -46.739),
+        (-23.607, -46.737), (-23.600, -46.735), (-23.593, -46.733),
+        (-23.586, -46.732), (-23.579, -46.731),
+    ],
+
+    # ── CÓRREGO MANDAQUI (Zona Norte) ──────────────────────────────────────────
+    "Córrego Mandaqui": [
+        (-23.468, -46.625), (-23.474, -46.622), (-23.480, -46.620),
+        (-23.486, -46.619), (-23.492, -46.619), (-23.498, -46.620),
+        (-23.504, -46.621), (-23.509, -46.623),
+    ],
+
+    # ── CÓRREGO CABUÇU DE CIMA (Zona Norte / Tucuruvi) ─────────────────────────
+    "Córrego Cabuçu de Cima": [
+        (-23.462, -46.605), (-23.468, -46.608), (-23.473, -46.611),
+        (-23.479, -46.613), (-23.485, -46.615), (-23.491, -46.616),
+        (-23.497, -46.617),
+    ],
+
+    # ── CÓRREGO ÁGUA BRANCA / LAPA ──────────────────────────────────────────────
+    "Córrego Água Branca": [
+        (-23.528, -46.704), (-23.525, -46.708), (-23.522, -46.712),
+        (-23.519, -46.716), (-23.516, -46.720), (-23.514, -46.724),
+    ],
+
+    # ── CÓRREGO SARACURA (Bixiga / Bela Vista) ─────────────────────────────────
+    "Córrego Saracura": [
+        (-23.566, -46.651), (-23.562, -46.648), (-23.558, -46.646),
+        (-23.554, -46.644), (-23.550, -46.642), (-23.546, -46.640),
+    ],
+
+    # ── CÓRREGO ZAVUVUS / ACLIMAÇÃO ────────────────────────────────────────────
+    "Córrego Zavuvus": [
+        (-23.575, -46.638), (-23.572, -46.635), (-23.568, -46.633),
+        (-23.564, -46.631), (-23.560, -46.630), (-23.556, -46.629),
+    ],
+
+    # ── CÓRREGO GUAPIRA / TREMEMBÉ (Zona Norte) ────────────────────────────────
+    "Córrego Guapira": [
+        (-23.448, -46.638), (-23.454, -46.635), (-23.460, -46.632),
+        (-23.466, -46.630), (-23.472, -46.629), (-23.478, -46.628),
+        (-23.484, -46.627),
+    ],
+
+    # ── CÓRREGO DO ORATÓRIO / MOOCA ────────────────────────────────────────────
+    "Córrego do Oratório": [
+        (-23.568, -46.598), (-23.564, -46.595), (-23.560, -46.593),
+        (-23.556, -46.591), (-23.552, -46.590), (-23.548, -46.589),
+    ],
+
+    # ── RIO EMBU-MIRIM / SANTO AMARO ───────────────────────────────────────────
+    "Córrego Embu-Mirim": [
+        (-23.650, -46.760), (-23.643, -46.755), (-23.636, -46.750),
+        (-23.629, -46.746), (-23.622, -46.742), (-23.615, -46.739),
+        (-23.608, -46.736),
+    ],
+
+    # ── CANAL DO IBIRAPUERA / SAÚDE ────────────────────────────────────────────
+    "Canal Ibirapuera": [
+        (-23.590, -46.660), (-23.587, -46.655), (-23.584, -46.650),
+        (-23.581, -46.645), (-23.578, -46.641),
+    ],
+
+    # ── CÓRREGO ITAQUERA (Zona Leste) ──────────────────────────────────────────
+    "Córrego Itaquera": [
+        (-23.555, -46.478), (-23.549, -46.470), (-23.543, -46.463),
+        (-23.537, -46.457), (-23.531, -46.452), (-23.525, -46.448),
+    ],
+
+    # ── CÓRREGO DO CARMO / IPIRANGA ────────────────────────────────────────────
+    "Córrego do Carmo": [
+        (-23.590, -46.608), (-23.585, -46.604), (-23.580, -46.601),
+        (-23.575, -46.598), (-23.570, -46.596),
+    ],
+
+    # ── CÓRREGO PACAEMBU ────────────────────────────────────────────────────────
+    "Córrego Pacaembu": [
+        (-23.546, -46.668), (-23.549, -46.663), (-23.551, -46.658),
+        (-23.553, -46.654), (-23.555, -46.650), (-23.557, -46.646),
+    ],
+}
+
+# Conjunto plano de todos os segmentos: list[(lat1,lon1,lat2,lon2,nome_rio)]
+# Pré-computado no carregamento do módulo para máxima performance em runtime.
+_ALL_SEGMENTS: list[tuple[float, float, float, float, str]] = []
+for _rname, _coords in RIVER_POLYLINES.items():
+    for _i in range(len(_coords) - 1):
+        _ALL_SEGMENTS.append((_coords[_i][0], _coords[_i][1],
+                               _coords[_i+1][0], _coords[_i+1][1],
+                               _rname))
+
+
+def _dist_to_segment_m(lat: float, lon: float,
+                        lat1: float, lon1: float,
+                        lat2: float, lon2: float) -> float:
+    """Distância ortogonal em metros de (lat, lon) ao segmento (lat1,lon1)-(lat2,lon2)."""
+    px = (lon - lon1) * 102000.0
+    py = (lat - lat1) * 111000.0
+    dx = (lon2 - lon1) * 102000.0
+    dy = (lat2 - lat1) * 111000.0
+    len_sq = dx * dx + dy * dy
+    param = ((px * dx + py * dy) / len_sq) if len_sq != 0 else -1.0
+    param = max(0.0, min(1.0, param))
+    proj_x = param * dx
+    proj_y = param * dy
+    return math.hypot(px - proj_x, py - proj_y)
+
+
+def _min_dist_to_river_polyline(lat: float, lon: float, river_name: str) -> float:
+    """Distância ortogonal mínima em metros até o traçado de um rio pelo nome."""
+    coords = RIVER_POLYLINES.get(river_name, [])
+    if len(coords) < 2:
+        return float("inf")
+    best = float("inf")
+    for i in range(len(coords) - 1):
+        d = _dist_to_segment_m(lat, lon, coords[i][0], coords[i][1],
+                                coords[i+1][0], coords[i+1][1])
+        if d < best:
+            best = d
+    return best
+
+
+def _min_dist_to_any_polyline(lat: float, lon: float) -> tuple[float, str]:
+    """
+    Percorre TODOS os segmentos de TODOS os rios/córregos e retorna
+    (distância_mínima_m, nome_do_rio_mais_próximo).
+    Usado como fallback universal para identificar o corpo d'água mais próximo.
+    """
+    best_dist = float("inf")
+    best_name = "Bacia Hidrográfica de SP"
+    for lat1, lon1, lat2, lon2, rname in _ALL_SEGMENTS:
+        d = _dist_to_segment_m(lat, lon, lat1, lon1, lat2, lon2)
+        if d < best_dist:
+            best_dist = d
+            best_name = rname
+
+    # Regra de Tolerância Zero (Snap-to-Water)
+    if best_dist <= 100.0:
+        best_dist = 0.0
+    else:
+        best_dist = float(round(best_dist))
+
+    return best_dist, best_name
+
+
+
 @router.get("/nearest")
 def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, scenario: Optional[str] = None):
     """
-    Retorna a estação mais próxima dentro do raio, com dados telemétricos
-    e cálculo de impacto sobre o risco de inundação.
-    Também retorna até 3 outras estações em estado de alerta/extravasamento.
+    Retorna a estação fluvial cujo *traçado longitudinal* está mais próximo do
+    ponto (lat, lon), calculando distância ortogonal mínima a cada segmento
+    do eixo do rio (não apenas ao ponto fixo da estação telemétrica).
+
+    Campos adicionais na resposta:
+      distancia_calha_m  — distância real até o corpo d'água mais próximo
+                           (varre TODA a rede hidrográfica, não só a do rio da estação)
+      calha_nome         — nome do rio/córrego mais próximo da calha
     """
+    # 1. Distância real ao traçado mais próximo de TODA a rede hidrográfica
+    dist_calha_real, nome_calha_real = _min_dist_to_any_polyline(lat, lon)
+
+    # 2. Para cada estação, calcula dist. ao traçado do respectivo rio → escolhe estação vencedora
     best_dist = float("inf")
     best_data = None
 
     all_data = []
     for st in RIVER_STATIONS:
-        dy = (lat - st["lat"]) * 111000.0
-        dx = (lon - st["lon"]) * 102000.0
-        dist = math.hypot(dx, dy)
         data = _get_station_data(st, scenario)
-        data["_distancia_calculo"] = dist
+
+        river_polyline_key = st["rio"]
+        if river_polyline_key in RIVER_POLYLINES:
+            dist_to_tracado = _min_dist_to_river_polyline(lat, lon, river_polyline_key)
+        else:
+            dy = (lat - st["lat"]) * 111000.0
+            dx = (lon - st["lon"]) * 102000.0
+            dist_to_tracado = math.hypot(dx, dy)
+
+        data["_distancia_calculo"] = dist_to_tracado
         all_data.append(data)
-        if dist < best_dist:
-            best_dist = dist
+
+        if dist_to_tracado < best_dist:
+            best_dist = dist_to_tracado
             best_data = data
 
-    # Estações em alerta dentro de 5km (contexto regional)
+    # Estações em alerta dentro de 5km — usa distância ao traçado
     alertas_regionais = [
         {
             "nome": d["nome"],
@@ -397,9 +652,10 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, 
                 f"⚠️ ATENÇÃO HÍDRICA: Nível do {rio_nome} em {pct_calha}% da calha — Cota de Atenção"
             )
         else:
-            mensagem = f"🟢 Nível Normal - {rio_nome}"
+            mensagem = f"🟢 Nível Normal — {rio_nome}"
 
     return {
+        # ── Campos de telemetria fluvial (estação vencedora) ──────────────────
         "dentro_raio": within_radius,
         "distancia_m": round(best_dist, 1) if best_data else None,
         "nome_estacao": best_data["nome"] if best_data else None,
@@ -427,4 +683,8 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, 
         "risco_minimo_forca": best_data["risco_minimo_forca"] if best_data else None,
         "alertas_regionais": alertas_regionais,
         "mensagem_alerta": mensagem,
+        # ── Distância real ao corpo d'água mais próximo (rede completa) ───────
+        # Use estes dois campos nos KPIs do frontend (#kpi-river-dist / #kpi-river-name)
+        "distancia_calha_m": round(dist_calha_real, 1),
+        "calha_nome": nome_calha_real,
     }

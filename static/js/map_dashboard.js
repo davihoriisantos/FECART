@@ -158,46 +158,270 @@ async function getElevation(lat, lon) {
 }
 
 // ─── CALHAS HIDROGRÁFICAS PRINCIPAIS DE SÃO PAULO ────────────────────────────
+// Traçados longitudinais completos dos principais rios. Cada segmento entre dois
+// vértices consecutivos é avaliado geometricamente (distância ortogonal mínima).
 const SP_RIVERS = [
     {
         nome: "Rio Tietê (Marginal Tietê)",
+        tipo: "principal",
+        // Traçado completo: Nascente (leste) → Barragem Edgard de Souza (oeste)
         coords: [
-            [-23.502, -46.480], [-23.508, -46.520], [-23.513, -46.570], 
-            [-23.518, -46.620], [-23.517, -46.655], [-23.522, -46.705], 
-            [-23.526, -46.740], [-23.535, -46.765]
+            // Zona Leste — Nascente a Tatuapé
+            [-23.536, -46.398], [-23.530, -46.415], [-23.526, -46.432],
+            [-23.522, -46.450], [-23.518, -46.468], [-23.513, -46.490],
+            // Tietê — Penha / Belém / Brás
+            [-23.516, -46.510], [-23.514, -46.528], [-23.512, -46.545],
+            [-23.511, -46.562], [-23.510, -46.580], [-23.510, -46.600],
+            // Tietê — Anhembi / Ponte das Bandeiras
+            [-23.510, -46.618], [-23.511, -46.634], [-23.512, -46.648],
+            [-23.513, -46.665], [-23.514, -46.682], [-23.515, -46.698],
+            // Tietê — Lapa / Perus / Limão / Freq. do Ó
+            [-23.516, -46.712], [-23.518, -46.725], [-23.521, -46.738],
+            [-23.525, -46.752], [-23.530, -46.768], [-23.534, -46.782],
+            [-23.539, -46.798], [-23.544, -46.814], [-23.548, -46.828]
         ]
     },
     {
         nome: "Rio Pinheiros (Marginal Pinheiros)",
+        tipo: "principal",
+        // Do reservatório Guarapiranga (sul) até a foz no Tietê (norte)
         coords: [
-            [-23.705, -46.700], [-23.660, -46.715], [-23.615, -46.698],
-            [-23.585, -46.690], [-23.560, -46.702], [-23.535, -46.732],
-            [-23.528, -46.745]
+            [-23.703, -46.698], [-23.680, -46.710], [-23.660, -46.715],
+            [-23.640, -46.714], [-23.622, -46.710], [-23.608, -46.706],
+            [-23.592, -46.700], [-23.575, -46.697], [-23.560, -46.698],
+            [-23.547, -46.703], [-23.538, -46.716], [-23.530, -46.728],
+            [-23.524, -46.742], [-23.520, -46.754]
         ]
     },
     {
-        nome: "Rio Tamanduateí / Av. do Estado / Glicério",
+        nome: "Rio Tamanduateí",
+        tipo: "principal",
+        // ABC → Ipiranga → Mooca → Av. do Estado → foz no Tietê
         coords: [
-            [-23.620, -46.575], [-23.595, -46.600], [-23.570, -46.618],
-            [-23.559, -46.628], [-23.545, -46.627], [-23.528, -46.624],
-            [-23.518, -46.622]
+            [-23.664, -46.570], [-23.645, -46.578], [-23.628, -46.583],
+            [-23.610, -46.588], [-23.595, -46.596], [-23.580, -46.605],
+            [-23.568, -46.614], [-23.558, -46.622], [-23.548, -46.626],
+            [-23.540, -46.625], [-23.528, -46.622], [-23.518, -46.620],
+            [-23.511, -46.618]
         ]
     },
     {
-        nome: "Rio / Córrego Aricanduva",
+        nome: "Rio Aricanduva",
+        tipo: "principal",
         coords: [
-            [-23.610, -46.485], [-23.575, -46.510], [-23.548, -46.535],
-            [-23.530, -46.555], [-23.518, -46.570]
+            [-23.610, -46.483], [-23.593, -46.500], [-23.577, -46.515],
+            [-23.562, -46.528], [-23.549, -46.538], [-23.538, -46.550],
+            [-23.527, -46.562], [-23.518, -46.572], [-23.512, -46.582]
         ]
     },
     {
-        nome: "Córrego Anhangabaú / 23 de Maio",
+        nome: "Córrego Anhangabaú",
+        tipo: "corrego",
         coords: [
-            [-23.570, -46.643], [-23.558, -46.640], [-23.548, -46.638],
-            [-23.542, -46.635]
+            [-23.570, -46.644], [-23.562, -46.641], [-23.554, -46.639],
+            [-23.548, -46.637], [-23.543, -46.635], [-23.537, -46.633]
+        ]
+    },
+    {
+        nome: "Córrego Lapa / Água Branca",
+        tipo: "corrego",
+        coords: [
+            [-23.533, -46.704], [-23.527, -46.710], [-23.522, -46.718],
+            [-23.517, -46.725]
+        ]
+    },
+    {
+        nome: "Córrego Ipiranga / Saúde",
+        tipo: "corrego",
+        coords: [
+            [-23.605, -46.608], [-23.598, -46.605], [-23.592, -46.601],
+            [-23.585, -46.597]
+        ]
+    },
+    {
+        nome: "Córrego Jaguaré",
+        tipo: "corrego",
+        coords: [
+            [-23.572, -46.746], [-23.565, -46.740], [-23.558, -46.736],
+            [-23.548, -46.732]
+        ]
+    },
+    {
+        nome: "Córrego Mandaqui",
+        tipo: "corrego",
+        coords: [
+            [-23.468, -46.625], [-23.474, -46.622], [-23.480, -46.620],
+            [-23.486, -46.619], [-23.492, -46.619], [-23.498, -46.620],
+            [-23.504, -46.621], [-23.509, -46.623]
+        ]
+    },
+    {
+        nome: "Córrego Pirajuçara",
+        tipo: "corrego",
+        coords: [
+            [-23.630, -46.745], [-23.622, -46.742], [-23.614, -46.739],
+            [-23.607, -46.737], [-23.600, -46.735], [-23.593, -46.733],
+            [-23.586, -46.732], [-23.579, -46.731]
+        ]
+    },
+    {
+        nome: "Córrego Cabuçu de Cima",
+        tipo: "corrego",
+        coords: [
+            [-23.462, -46.605], [-23.468, -46.608], [-23.473, -46.611],
+            [-23.479, -46.613], [-23.485, -46.615], [-23.491, -46.616],
+            [-23.497, -46.617]
+        ]
+    },
+    {
+        nome: "Córrego Saracura",
+        tipo: "corrego",
+        coords: [
+            [-23.566, -46.651], [-23.562, -46.648], [-23.558, -46.646],
+            [-23.554, -46.644], [-23.550, -46.642], [-23.546, -46.640]
+        ]
+    },
+    {
+        nome: "Córrego Zavuvus",
+        tipo: "corrego",
+        coords: [
+            [-23.575, -46.638], [-23.572, -46.635], [-23.568, -46.633],
+            [-23.564, -46.631], [-23.560, -46.630], [-23.556, -46.629]
+        ]
+    },
+    {
+        nome: "Córrego Guapira",
+        tipo: "corrego",
+        coords: [
+            [-23.448, -46.638], [-23.454, -46.635], [-23.460, -46.632],
+            [-23.466, -46.630], [-23.472, -46.629], [-23.478, -46.628],
+            [-23.484, -46.627]
+        ]
+    },
+    {
+        nome: "Córrego do Oratório",
+        tipo: "corrego",
+        coords: [
+            [-23.568, -46.598], [-23.564, -46.595], [-23.560, -46.593],
+            [-23.556, -46.591], [-23.552, -46.590], [-23.548, -46.589]
+        ]
+    },
+    {
+        nome: "Canal Ibirapuera",
+        tipo: "corrego",
+        coords: [
+            [-23.590, -46.660], [-23.587, -46.655], [-23.584, -46.650],
+            [-23.581, -46.645], [-23.578, -46.641]
+        ]
+    },
+    {
+        nome: "Córrego Itaquera",
+        tipo: "corrego",
+        coords: [
+            [-23.555, -46.478], [-23.549, -46.470], [-23.543, -46.463],
+            [-23.537, -46.457], [-23.531, -46.452], [-23.525, -46.448]
+        ]
+    },
+    {
+        nome: "Córrego do Carmo",
+        tipo: "corrego",
+        coords: [
+            [-23.590, -46.608], [-23.585, -46.604], [-23.580, -46.601],
+            [-23.575, -46.598], [-23.570, -46.596]
+        ]
+    },
+    {
+        nome: "Córrego Pacaembu",
+        tipo: "corrego",
+        coords: [
+            [-23.546, -46.668], [-23.549, -46.663], [-23.551, -46.658],
+            [-23.553, -46.654], [-23.555, -46.650], [-23.557, -46.646]
+        ]
+    },
+    {
+        nome: "Córrego Embu-Mirim",
+        tipo: "corrego",
+        coords: [
+            [-23.650, -46.760], [-23.643, -46.755], [-23.636, -46.750],
+            [-23.629, -46.746], [-23.622, -46.742], [-23.615, -46.739],
+            [-23.608, -46.736]
         ]
     }
 ];
+
+// ─── FALLBACK DE CÓRREGOS POR BACIA HIDROGRÁFICA ─────────────────────────────
+// Se o ponto estiver longe de todos os traçados, identifica o córrego urbano
+// mais provável pela localização geográfica dentro das sub-bacias de SP.
+const SP_URBAN_CREEKS_BY_ZONE = [
+    // Sub-bacia Anhangabaú / Centro
+    { nome: "Córrego Anhangabaú", lat: -23.5477, lon: -46.6368, raio: 1800 },
+    // Sub-bacia Lapa / Água Branca
+    { nome: "Córrego Lapa / Água Branca", lat: -23.5210, lon: -46.7120, raio: 1500 },
+    // Sub-bacia Jaguaré / Pinheiros
+    { nome: "Córrego Jaguaré", lat: -23.5631, lon: -46.7398, raio: 1800 },
+    // Sub-bacia Ipiranga / Saúde
+    { nome: "Córrego Ipiranga", lat: -23.5960, lon: -46.6050, raio: 2000 },
+    // Sub-bacia Aricanduva / Penha
+    { nome: "Córrego Aricanduva", lat: -23.5450, lon: -46.5052, raio: 2000 },
+    // Sub-bacia Mandaqui / Santana
+    { nome: "Córrego Mandaqui", lat: -23.4880, lon: -46.6210, raio: 1800 },
+    // Sub-bacia Pirajuçara / Butantã
+    { nome: "Córrego Pirajuçara", lat: -23.5870, lon: -46.7360, raio: 2000 },
+    // Sub-bacia Embu-Mirim / Santo Amaro
+    { nome: "Córrego Embu-Mirim", lat: -23.6350, lon: -46.7410, raio: 2500 },
+    // Sub-bacia Mooca / Brás
+    { nome: "Córrego Mooca / Bresser", lat: -23.5590, lon: -46.5950, raio: 1600 },
+    // Sub-bacia Campo Limpo / Itaquera (zona leste/sul genérica)
+    { nome: "Córrego Itaquera", lat: -23.5400, lon: -46.4580, raio: 2500 }
+];
+
+// ─── CÁLCULO DE DISTÂNCIA ATÉ O RIO MAIS PRÓXIMO ──────────────────────────────
+// Usa distância ortogonal mínima até qualquer segmento do traçado.
+// Se o ponto está sobre o Tietê, retorna 0–50m corretamente.
+function getMinDistanceToRivers(lat, lon) {
+    let minDistance = 999999;
+    let closestRiver = "Bacia Geral";
+
+    for (const river of SP_RIVERS) {
+        if (river.coords.length < 2) continue;
+        for (let i = 0; i < river.coords.length - 1; i++) {
+            const p1 = river.coords[i];
+            const p2 = river.coords[i + 1];
+            const dist = distanceToSegment(lat, lon, p1[0], p1[1], p2[0], p2[1]);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestRiver = river.nome;
+            }
+        }
+    }
+
+    // Fallback: se ainda estiver muito longe, identifica o córrego urbano da sub-bacia
+    if (minDistance > 3000) {
+        let bestCreek = null;
+        let bestCreekDist = 999999;
+        for (const creek of SP_URBAN_CREEKS_BY_ZONE) {
+            const dy = (lat - creek.lat) * 111000;
+            const dx = (lon - creek.lon) * 102000;
+            const d = Math.hypot(dx, dy);
+            if (d < creek.raio && d < bestCreekDist) {
+                bestCreekDist = d;
+                bestCreek = creek;
+            }
+        }
+        if (bestCreek) {
+            closestRiver = bestCreek.nome;
+        }
+    }
+
+    // Regra de Tolerância Zero (Snap-to-Water de 100 metros)
+    if (minDistance <= 100) {
+        minDistance = 0;
+    } else {
+        minDistance = Math.round(minDistance);
+    }
+
+    return { distance: minDistance, river: closestRiver };
+}
 
 // ─── PONTOS COM HISTÓRICO CRÔNICO DE ALAGAMENTO (DEFESA CIVIL / CGE) ─────────
 const CHRONIC_FLOOD_ZONES = [
@@ -841,16 +1065,25 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
     document.getElementById('kpi-soil-status').textContent = analysis.acc24h > 30 ? "⚠️ Solo Saturado" : "Solo Estável";
     document.getElementById('kpi-soil-status').style.color = analysis.acc24h > 30 ? "#F59E0B" : "#64748B";
 
-    // Distância do Rio
+    // Distância do Rio e Corpo Hídrico
     const elRiverDist = document.getElementById('kpi-river-dist');
     const elRiverName = document.getElementById('kpi-river-name');
+    
+    // Prioriza o cálculo da rede completa vindo do backend se disponível
+    const effectiveDistance = (currentRiverTelemetry && typeof currentRiverTelemetry.distancia_calha_m === 'number')
+        ? currentRiverTelemetry.distancia_calha_m
+        : riverInfo.distance;
+    const effectiveRiverName = (currentRiverTelemetry && currentRiverTelemetry.calha_nome)
+        ? currentRiverTelemetry.calha_nome
+        : riverInfo.river;
+
     if (elRiverDist) {
-        elRiverDist.textContent = riverInfo.distance < 1000 ? `${riverInfo.distance} m` : `${(riverInfo.distance / 1000).toFixed(1)} km`;
-        elRiverDist.style.color = riverInfo.distance < 500 ? "#EF4444" : (riverInfo.distance < 1200 ? "#F59E0B" : "#06B6D4");
+        elRiverDist.textContent = effectiveDistance < 1000 ? `${Math.round(effectiveDistance)} m` : `${(effectiveDistance / 1000).toFixed(1)} km`;
+        elRiverDist.style.color = effectiveDistance < 500 ? "#EF4444" : (effectiveDistance < 1200 ? "#F59E0B" : "#06B6D4");
     }
     if (elRiverName) {
-        elRiverName.textContent = riverInfo.river.split('(')[0].trim();
-        elRiverName.title = `${riverInfo.river} (${riverInfo.distance}m)`;
+        elRiverName.textContent = effectiveRiverName.split('(')[0].trim();
+        elRiverName.title = `${effectiveRiverName} (${Math.round(effectiveDistance)}m)`;
     }
 
     // Altitude Local
