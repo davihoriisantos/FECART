@@ -83,10 +83,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupSearchListeners();
     setupRouteAutocomplete();
 
-    // Força o Leaflet a recalcular as dimensões reais do container após o layout flex ser resolvido
+    // Força o Leaflet a recalcular as dimensões reais do container
     setTimeout(() => {
         if (map) map.invalidateSize();
     }, 200);
+
+    // Redimensionamento dinâmico do Leaflet ao alterar tamanho de tela ou girar celular
+    window.addEventListener('resize', () => {
+        if (map) {
+            map.invalidateSize();
+        }
+    });
+
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            if (map) map.invalidateSize();
+        }, 300);
+    });
 
     // Carrega dados iniciais da FECAP
     await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
@@ -1835,50 +1848,401 @@ function switchDashboardTab(tab) {
         // Remove imediatamente do mapa o círculo de raio (500m) e o marcador central pertencentes ao modo 'Explorar Bairro/Região'
         clearExplorationLayers();
     }
+
+    // Garante que o mapa do Leaflet redimensione adequadamente ao alternar abas
+    setTimeout(() => {
+        if (map) {
+            map.invalidateSize();
+        }
+    }, 150);
 }
 
-// ─── AUTOCOMPLETE DA ABA DE ROTAS ─────────────────────────────────────────────
+// ─── CONTROLE DO BOTTOM SHEET MOBILE (PAINEL DESLIZANTE) ─────────────────────
+function toggleMobileSheet() {
+    const sidebar = document.getElementById('dash-sidebar-panel');
+    const icon = document.getElementById('sheet-arrow-icon');
+    if (!sidebar) return;
+
+    if (sidebar.classList.contains('collapsed')) {
+        // Estava recolhido -> abre normal
+        sidebar.classList.remove('collapsed');
+        sidebar.classList.remove('expanded');
+        if (icon) icon.textContent = '▲';
+    } else if (sidebar.classList.contains('expanded')) {
+        // Estava expandido -> recolhe
+        sidebar.classList.remove('expanded');
+        sidebar.classList.add('collapsed');
+        if (icon) icon.textContent = '▲';
+    } else {
+        // Estava padrão -> expande para tela cheia
+        sidebar.classList.add('expanded');
+        if (icon) icon.textContent = '▼';
+    }
+
+    setTimeout(() => {
+        if (map) map.invalidateSize();
+    }, 320);
+}
+
+function setMobileSheetState(state) {
+    const sidebar = document.getElementById('dash-sidebar-panel');
+    const icon = document.getElementById('sheet-arrow-icon');
+    if (!sidebar) return;
+
+    sidebar.classList.remove('collapsed', 'expanded');
+    if (state === 'collapsed') {
+        sidebar.classList.add('collapsed');
+        if (icon) icon.textContent = '▲';
+    } else if (state === 'expanded') {
+        sidebar.classList.add('expanded');
+        if (icon) icon.textContent = '▼';
+    } else {
+        if (icon) icon.textContent = '▲';
+    }
+
+    setTimeout(() => {
+        if (map) map.invalidateSize();
+    }, 320);
+}
+
+// ─── AUTOCOMPLETE DA ABA DE ROTAS (UNIFICADO COM ABA EXPLORAR) ───────────────
+const routeSearchTimeouts = {};
+const routeSearchRequestIds = { 'route-origem': 0, 'route-destino': 0 };
+const routeSearchSuggestions = { 'route-origem': [], 'route-destino': [] };
+
 function setupRouteAutocomplete() {
-    const setupField = (inputId, dropdownId) => {
+    const setupField = (inputId, dropdownId, fieldType) => {
         const input = document.getElementById(inputId);
         const dd = document.getElementById(dropdownId);
         if (!input || !dd) return;
 
         input.addEventListener('input', () => {
             const val = input.value.trim();
-            if (val.length < 2) { dd.style.display = 'none'; return; }
-            const normVal = normalizeText(val);
-            let itemsHtml = '';
+            routeSearchRequestIds[inputId] = (routeSearchRequestIds[inputId] || 0) + 1;
+            const requestId = routeSearchRequestIds[inputId];
+            clearTimeout(routeSearchTimeouts[inputId]);
 
-            // Sugestão de Minha Localização se digitar termos correlatos
-            if (normVal.includes('minh') || normVal.includes('loca') || normVal.includes('gps') || normVal.includes('atual')) {
-                itemsHtml += `
-                    <div class="search-item" onclick="selectMyLocationForField('${inputId}', '${dropdownId}')">
-                        <span>🎯</span>
-                        <div style="font-size: 12px; color: #38BDF8; font-weight: 700;">Minha Localização Atual <small style="color:#94A3B8;">(GPS do Navegador)</small></div>
-                    </div>
-                `;
+            if (val.length < 2) {
+                dd.style.display = 'none';
+                dd.innerHTML = '';
+                routeSearchSuggestions[inputId] = [];
+                return;
             }
 
-            const results = filterLocalNeighborhoods(val).slice(0, 5);
-            itemsHtml += results.map(r => `
-                <div class="search-item" onclick="document.getElementById('${inputId}').value='${r.nome}'; document.getElementById('${dropdownId}').style.display='none';">
-                    <span>${r.icon || '📍'}</span>
-                    <div style="font-size: 12px; color: #fff;">${r.nome} <small style="color:#94A3B8;">(${r.bairro})</small></div>
-                </div>
-            `).join('');
+            const normVal = normalizeText(val);
 
-            if (itemsHtml) {
-                dd.innerHTML = itemsHtml;
-                dd.style.display = 'block';
+            // 1. Minha Localização se digitar termos correlatos
+            const hasGpsTrigger = normVal.includes('minh') || normVal.includes('loca') || normVal.includes('gps') || normVal.includes('atual');
+            const localResults = filterLocalNeighborhoods(val);
+
+            // Exibe feedback imediato com base local e loading da base global
+            if (localResults.length > 0 || hasGpsTrigger) {
+                renderRouteSearchDropdown(inputId, dropdownId, fieldType, {
+                    local: localResults,
+                    nominatim: [],
+                    loading: true,
+                    includeGps: hasGpsTrigger
+                });
             } else {
+                showRouteSearchLoading(dropdownId, val);
+            }
+
+            // 2. Debounce para consulta na base cartográfica global (Nominatim)
+            routeSearchTimeouts[inputId] = setTimeout(async () => {
+                const nominatimResults = await searchNominatim(val);
+                if (requestId !== routeSearchRequestIds[inputId] || input.value.trim() !== val) return;
+                renderRouteSearchDropdown(inputId, dropdownId, fieldType, {
+                    local: localResults,
+                    nominatim: nominatimResults,
+                    loading: false,
+                    includeGps: hasGpsTrigger
+                });
+            }, 350);
+        });
+
+        // Tecla Enter seleciona o primeiro item automaticamente
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const query = input.value.trim();
+                if (query.length < 2) return;
+
+                clearTimeout(routeSearchTimeouts[inputId]);
+                const requestId = ++routeSearchRequestIds[inputId];
+                showRouteSearchLoading(dropdownId, query);
+                const nominatimResults = await searchNominatim(query);
+                if (requestId !== routeSearchRequestIds[inputId] || input.value.trim() !== query) return;
+
+                const firstResult = nominatimResults[0] || filterLocalNeighborhoods(query)[0];
+                if (firstResult) {
+                    selectRouteItem(inputId, dropdownId, fieldType, firstResult);
+                } else {
+                    showRouteSearchEmpty(dropdownId);
+                }
+            } else if (e.key === 'Escape') {
                 dd.style.display = 'none';
+                input.blur();
             }
         });
     };
 
-    setupField('route-origem', 'route-origem-dropdown');
-    setupField('route-destino', 'route-destino-dropdown');
+    // Suporte aos IDs padrão e aliases
+    setupField('route-origem', 'route-origem-dropdown', 'origin');
+    setupField('route-destino', 'route-destino-dropdown', 'destination');
+
+    const originAlt = document.getElementById('route-origin');
+    if (originAlt) setupField('route-origin', 'route-origin-dropdown', 'origin');
+    const destAlt = document.getElementById('route-destination');
+    if (destAlt) setupField('route-destination', 'route-destination-dropdown', 'destination');
+
+    // Fechar ao clicar fora
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.route-field')) {
+            const ddOrigem = document.getElementById('route-origem-dropdown');
+            const ddDestino = document.getElementById('route-destino-dropdown');
+            if (ddOrigem) ddOrigem.style.display = 'none';
+            if (ddDestino) ddDestino.style.display = 'none';
+        }
+    });
+}
+
+function positionRouteDropdown(inputId, dropdownId) {
+    const input = document.getElementById(inputId);
+    const dropdown = document.getElementById(dropdownId);
+    if (!input || !dropdown) return;
+    const rect = input.getBoundingClientRect();
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.top = (rect.bottom + 6) + 'px';
+    dropdown.style.width = rect.width + 'px';
+}
+
+function showRouteSearchLoading(dropdownId, query) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+    dropdown.innerHTML = `
+        <div class="search-status-bar loading">
+            <div class="search-loading-dot"></div>
+            Buscando "${escapeHtml(query)}"...
+        </div>
+        <div class="search-empty">⏳ 🔵 BUSCANDO NA BASE GLOBAL...</div>
+    `;
+    // Mapear dropdownId -> inputId
+    const inputId = dropdownId.replace('-dropdown', '');
+    positionRouteDropdown(inputId, dropdownId);
+    dropdown.style.display = 'block';
+}
+
+function showRouteSearchEmpty(dropdownId) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+    dropdown.innerHTML = `
+        <div class="search-empty">
+            📍 Local não encontrado em SP.<br>
+            <span style="color:#38BDF8;">Tente digitar o nome da rua, número ou bairro.</span>
+        </div>
+    `;
+    dropdown.style.display = 'block';
+}
+
+function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [], nominatim = [], loading = false, includeGps = false }) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+
+    const hasLocal = local.length > 0;
+    const hasNominatim = nominatim.length > 0;
+
+    if (!hasLocal && !hasNominatim && !includeGps && !loading) {
+        showRouteSearchEmpty(dropdownId);
+        return;
+    }
+
+    let html = '';
+
+    // Status bar com indicador de carregamento
+    if (loading) {
+        html += `<div class="search-status-bar loading"><div class="search-loading-dot"></div>🔵 BUSCANDO NA BASE GLOBAL...</div>`;
+    } else if (hasNominatim || hasLocal) {
+        const total = local.length + nominatim.length;
+        html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
+    }
+
+    // Minha Localização
+    if (includeGps) {
+        html += `
+            <div class="search-item" data-action="gps">
+                <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">🎯</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 700; font-size: 13px; color: #38BDF8; line-height: 1.35;">
+                        Minha Localização Atual
+                    </div>
+                    <div style="font-size: 11px; color: #94A3B8; margin-top: 3px;">
+                        Coordenadas via GPS do navegador
+                    </div>
+                </div>
+                <span style="font-size: 10px; color: #38BDF8; font-weight: 700; flex-shrink: 0; background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.25); padding: 3px 8px; border-radius: 6px; margin-left: 8px;">USAR</span>
+            </div>
+        `;
+    }
+
+    // Resultados do Nominatim formatados no mesmo padrão
+    if (hasNominatim) {
+        html += `<div class="search-section-label">📍 Endereços e locais em São Paulo</div>`;
+        html += nominatim.map((item, index) => buildRouteSearchItemHtml(item, index, fieldType)).join('');
+    }
+
+    // Resultados locais
+    if (hasLocal) {
+        html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
+        html += local.map((item, index) => buildRouteSearchItemHtml(item, nominatim.length + index, fieldType)).join('');
+    }
+
+    routeSearchSuggestions[inputId] = [...nominatim, ...local];
+    dropdown.innerHTML = html;
+    positionRouteDropdown(inputId, dropdownId);
+    dropdown.style.display = 'block';
+
+    // Eventos de clique
+    dropdown.querySelectorAll('[data-action="gps"]').forEach(el => {
+        el.addEventListener('click', () => {
+            selectMyLocationForField(inputId, dropdownId);
+        });
+    });
+
+    dropdown.querySelectorAll('[data-route-index]').forEach(element => {
+        element.addEventListener('click', () => {
+            const item = routeSearchSuggestions[inputId][Number(element.dataset.routeIndex)];
+            if (item) selectRouteItem(inputId, dropdownId, fieldType, item);
+        });
+    });
+}
+
+function buildRouteSearchItemHtml(item, index, fieldType) {
+    const safeNome = escapeHtml(item.nome);
+    const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
+    const safeIcon = escapeHtml(item.icon || (fieldType === 'origin' ? '🚀' : '🏁'));
+    const actionLabel = fieldType === 'origin' ? 'PARTIDA' : 'DESTINO';
+    const actionColor = fieldType === 'origin' ? '#10B981' : '#EF4444';
+
+    return `
+    <div class="search-item" data-route-index="${index}" role="button" tabindex="0">
+        <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">${safeIcon}</span>
+        <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 700; font-size: 13px; color: #FFFFFF; line-height: 1.35; word-break: break-word;">
+                ${safeNome}
+            </div>
+            <div style="font-size: 11px; color: #94A3B8; margin-top: 3px; line-height: 1.3; word-break: break-word;">
+                ${safeDisplay}
+            </div>
+        </div>
+        <span style="font-size: 10px; color: ${actionColor}; font-weight: 700; flex-shrink: 0; background: ${actionColor}22; border: 1px solid ${actionColor}55; padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">
+            ${actionLabel}
+        </span>
+    </div>
+    `;
+}
+
+function selectRouteItem(inputId, dropdownId, fieldType, item) {
+    const input = document.getElementById(inputId);
+    if (input) {
+        input.value = item.nome;
+        input.blur();
+    }
+
+    const dropdown = document.getElementById(dropdownId);
+    if (dropdown) {
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+    }
+
+    const lat = Number(item.lat);
+    const lon = Number(item.lon ?? item.lng);
+
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    // ── Integração com o Mapa: Insere o marcador correspondente ─────────────
+    if (fieldType === 'origin') {
+        if (routeStartMarker && map) {
+            try { map.removeLayer(routeStartMarker); } catch (_) {}
+            routeStartMarker = null;
+        }
+
+        const originIcon = L.divIcon({
+            className: 'custom-route-marker marker-origin',
+            iconSize: [40, 50],
+            iconAnchor: [20, 50],
+            popupAnchor: [0, -48],
+            tooltipAnchor: [0, -48],
+            html: `
+                <div style="position: relative; width: 40px; height: 50px; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 4px 10px rgba(16, 185, 129, 0.65));">
+                    <div style="width: 38px; height: 38px; border-radius: 50% 50% 50% 0; background: linear-gradient(135deg, #10B981 0%, #059669 100%); transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2.5px solid #FFFFFF; box-shadow: 0 0 14px rgba(16, 185, 129, 0.85);">
+                        <span style="transform: rotate(45deg); font-size: 18px; line-height: 1; user-select: none;">🚀</span>
+                    </div>
+                    <div style="width: 12px; height: 5px; background: rgba(0, 0, 0, 0.4); border-radius: 50%; filter: blur(1.5px); margin-top: 5px;"></div>
+                </div>
+            `
+        });
+
+        routeStartMarker = L.marker([lat, lon], { icon: originIcon, zIndexOffset: 950 })
+            .addTo(map)
+            .bindTooltip("Origem / Ponto de Partida", { className: 'route-marker-tooltip', direction: 'top', offset: [0, -48], opacity: 1.0 })
+            .bindPopup(`
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; line-height: 1.4; min-width: 180px;">
+                    <div style="font-weight: 800; color: #10B981; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                        <span>🚀</span> Origem / Ponto de Partida
+                    </div>
+                    <div style="color: #334155; font-weight: 600;">${escapeHtml(item.nome)}</div>
+                </div>
+            `);
+
+        if (!routeLayers.includes(routeStartMarker)) {
+            routeLayers.push(routeStartMarker);
+        }
+    } else {
+        if (routeEndMarker && map) {
+            try { map.removeLayer(routeEndMarker); } catch (_) {}
+            routeEndMarker = null;
+        }
+
+        const destinationIcon = L.divIcon({
+            className: 'custom-route-marker marker-destination',
+            iconSize: [40, 50],
+            iconAnchor: [20, 50],
+            popupAnchor: [0, -48],
+            tooltipAnchor: [0, -48],
+            html: `
+                <div style="position: relative; width: 40px; height: 50px; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 4px 10px rgba(239, 68, 68, 0.65));">
+                    <div style="width: 38px; height: 38px; border-radius: 50% 50% 50% 0; background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2.5px solid #FFFFFF; box-shadow: 0 0 14px rgba(239, 68, 68, 0.85);">
+                        <span style="transform: rotate(45deg); font-size: 18px; line-height: 1; user-select: none;">🏁</span>
+                    </div>
+                    <div style="width: 12px; height: 5px; background: rgba(0, 0, 0, 0.4); border-radius: 50%; filter: blur(1.5px); margin-top: 5px;"></div>
+                </div>
+            `
+        });
+
+        routeEndMarker = L.marker([lat, lon], { icon: destinationIcon, zIndexOffset: 950 })
+            .addTo(map)
+            .bindTooltip("Destino / Chegada", { className: 'route-marker-tooltip', direction: 'top', offset: [0, -48], opacity: 1.0 })
+            .bindPopup(`
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; line-height: 1.4; min-width: 180px;">
+                    <div style="font-weight: 800; color: #EF4444; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                        <span>🏁</span> Destino / Chegada
+                    </div>
+                    <div style="color: #334155; font-weight: 600;">${escapeHtml(item.nome)}</div>
+                </div>
+            `);
+
+        if (!routeLayers.includes(routeEndMarker)) {
+            routeLayers.push(routeEndMarker);
+        }
+    }
+
+    // Se ambos os marcadores já foram colocados, ajusta os limites do mapa para enquadrar ambos
+    if (routeStartMarker && routeEndMarker) {
+        const bounds = L.latLngBounds([routeStartMarker.getLatLng(), routeEndMarker.getLatLng()]);
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    } else {
+        map.flyTo([lat, lon], 15, { duration: 1.0 });
+    }
 }
 
 function selectMyLocationForField(inputId, dropdownId) {
@@ -1889,6 +2253,9 @@ function selectMyLocationForField(inputId, dropdownId) {
 
 function useCurrentLocationForRoute(fieldId = 'route-origem') {
     const input = document.getElementById(fieldId);
+    const fieldType = (fieldId.includes('dest') || fieldId.includes('destination')) ? 'destination' : 'origin';
+    const dropdownId = `${fieldId}-dropdown`;
+
     if (!navigator.geolocation) {
         alert("Geolocalização não suportada neste navegador.");
         return;
@@ -1896,11 +2263,18 @@ function useCurrentLocationForRoute(fieldId = 'route-origem') {
 
     if (currentLocationCoords && currentLocationCoords.lat && (currentLocationCoords.lng || currentLocationCoords.lon)) {
         const lat = currentLocationCoords.lat;
-        const lng = currentLocationCoords.lng ?? currentLocationCoords.lon;
-        if (input) input.value = `Minha Localização (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-    } else {
-        if (input) input.value = "Minha Localização (Obtendo GPS...)";
+        const lon = currentLocationCoords.lng ?? currentLocationCoords.lon;
+        selectRouteItem(fieldId, dropdownId, fieldType, {
+            nome: `Minha Localização (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
+            lat,
+            lon,
+            display_name: 'Posição atual detectada via GPS do navegador',
+            icon: '🎯'
+        });
+        return;
     }
+
+    if (input) input.value = "Minha Localização (Obtendo GPS...)";
 
     navigator.geolocation.getCurrentPosition(
         pos => {
@@ -1909,9 +2283,13 @@ function useCurrentLocationForRoute(fieldId = 'route-origem') {
                 lng: pos.coords.longitude,
                 lon: pos.coords.longitude
             };
-            if (input) {
-                input.value = `Minha Localização (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
-            }
+            selectRouteItem(fieldId, dropdownId, fieldType, {
+                nome: `Minha Localização (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`,
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+                display_name: 'Posição atual detectada via GPS do navegador',
+                icon: '🎯'
+            });
         },
         err => {
             console.warn("Falha ao obter coordenadas GPS:", err);

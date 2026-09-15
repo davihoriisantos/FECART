@@ -44,6 +44,14 @@ if os.path.exists(static_dir):
 def serve_index():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
+@app.get("/login")
+def serve_login():
+    return FileResponse(os.path.join(static_dir, "login.html"))
+
+@app.get("/profile")
+def serve_profile():
+    return FileResponse(os.path.join(static_dir, "profile.html"))
+
 @app.get("/{filename:path}")
 def serve_static(filename: str):
     file_path = os.path.join(static_dir, filename)

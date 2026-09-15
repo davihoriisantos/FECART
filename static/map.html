@@ -106,14 +106,12 @@
             }
         }
 
-        @media (max-width: 900px) {
-            body { overflow-y: auto; height: auto; }
+        @media (max-width: 1024px) {
             .dash-main {
-                grid-template-columns: 1fr;
-                height: auto;
-                overflow: visible;
+                grid-template-columns: 380px 1fr;
+                padding: 10px;
+                gap: 10px;
             }
-            #map-container { height: 500px !important; }
         }
 
         /* ─── Coluna Esquerda: Painel de Controle ─── */
@@ -429,17 +427,15 @@
         }
 
         .search-dropdown {
-            position: absolute;
-            top: calc(100% + 6px);
-            left: 0;
-            right: 0;
+            position: fixed;
             background: rgba(11, 16, 30, 0.98);
             backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(56, 189, 248, 0.3);
             border-radius: 10px;
             max-height: 320px;
             overflow-y: auto;
-            z-index: 1000;
+            z-index: 99999;
             box-shadow: 0 15px 35px rgba(0,0,0,0.7);
             display: none;
         }
@@ -1021,9 +1017,277 @@
             box-shadow: 0 5px 14px rgba(37, 99, 235, 0.36);
         }
 
-        @media (max-width: 680px) {
-            .map-layer-toolbar { min-height: 50px; padding: 6px 10px; }
-            .map-layer-option { min-width: 78px; padding: 8px 10px; }
+        /* ─── Puxador do Bottom Sheet Mobile (Oculto em desktop) ─── */
+        .mobile-sheet-handle {
+            display: none;
+        }
+
+        /* ─── OTIMIZAÇÕES MOBILE (@media (max-width: 768px)) ─── */
+        @media (max-width: 768px) {
+            html, body {
+                height: 100%;
+                overflow: hidden;
+            }
+
+            .dash-header {
+                height: 52px;
+                padding: 0 12px;
+            }
+
+            .dash-header .ai-live-badge {
+                display: none; /* Oculta texto longo no mobile */
+            }
+
+            .dash-header .logo-text {
+                font-size: 16px;
+            }
+
+            /* Main em Container Relativo: Mapa em tela cheia por baixo + Bottom Sheet por cima */
+            .dash-main {
+                display: flex;
+                flex-direction: column;
+                position: relative;
+                height: calc(100vh - 52px);
+                padding: 0;
+                gap: 0;
+                overflow: hidden;
+            }
+
+            /* Mapa em destaque total (100% de largura e altura da viewport de conteúdo) */
+            #map-container {
+                position: absolute;
+                inset: 0;
+                width: 100% !important;
+                height: 100% !important;
+                border-radius: 0;
+                border: none;
+                z-index: 1;
+            }
+
+            #map {
+                width: 100%;
+                height: 100%;
+            }
+
+            /* Ajuste da toolbar de camadas do mapa no mobile */
+            .map-layer-toolbar {
+                min-height: 44px;
+                padding: 4px 8px;
+                background: rgba(11, 16, 30, 0.94);
+                backdrop-filter: blur(10px);
+            }
+
+            .map-layer-switcher {
+                padding: 3px;
+                border-radius: 10px;
+            }
+
+            .map-layer-option {
+                min-width: 68px;
+                padding: 6px 8px;
+                font-size: 11px;
+            }
+
+            /* Controles rápidos do mapa reposicionados para não colidir com o sheet */
+            .map-quick-controls {
+                top: 10px;
+                right: 10px;
+                gap: 4px;
+            }
+
+            .map-btn-icon {
+                padding: 6px 10px;
+                font-size: 11px;
+                border-radius: 8px;
+            }
+
+            /* Legenda flutuante mais compacta no mobile */
+            .map-floating-legend {
+                bottom: 110px;
+                right: 10px;
+                padding: 6px 10px;
+                font-size: 10px;
+                background: rgba(11, 16, 30, 0.94);
+            }
+
+            .map-floating-legend .legend-row {
+                gap: 5px;
+                margin-bottom: 2px;
+            }
+
+            /* ─── PAINEL DESLIZANTE / BOTTOM SHEET ─── */
+            .dash-sidebar {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                z-index: 100;
+                width: 100%;
+                max-width: 100%;
+                height: 58vh;
+                max-height: 85vh;
+                min-height: 90px;
+                border-radius: 20px 20px 0 0;
+                border-bottom: none;
+                border-left: none;
+                border-right: none;
+                box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.75);
+                transition: height 0.3s cubic-bezier(0.2, 0.9, 0.3, 1), transform 0.3s ease;
+                background: rgba(15, 23, 42, 0.95);
+                backdrop-filter: blur(28px);
+                -webkit-backdrop-filter: blur(28px);
+            }
+
+            /* Estado minimizado do Bottom Sheet (modo espiada do mapa) */
+            .dash-sidebar.collapsed {
+                height: 98px !important;
+            }
+
+            /* Estado totalmente expandido do Bottom Sheet */
+            .dash-sidebar.expanded {
+                height: 84vh !important;
+            }
+
+            /* Puxador Visível no Mobile */
+            .mobile-sheet-handle {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 8px 14px 4px 14px;
+                cursor: pointer;
+                user-select: none;
+                background: rgba(0, 0, 0, 0.25);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            }
+
+            .mobile-sheet-pill {
+                width: 44px;
+                height: 4px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.35);
+                margin-bottom: 6px;
+            }
+
+            .mobile-sheet-bar {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .mobile-sheet-title {
+                font-size: 11px;
+                font-weight: 800;
+                color: #38BDF8;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .mobile-sheet-btn {
+                background: rgba(56, 189, 248, 0.14);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                color: #38BDF8;
+                border-radius: 6px;
+                width: 28px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                cursor: pointer;
+            }
+
+            /* Abas adaptadas para mobile */
+            .dash-tabs {
+                background: rgba(0, 0, 0, 0.35);
+            }
+
+            .dash-tab {
+                padding: 12px 8px;
+                font-size: 12px;
+                min-height: 44px; /* Touch target amigável */
+            }
+
+            /* Conteúdo rolável do painel no mobile */
+            .dash-sidebar-content {
+                padding: 12px;
+                padding-bottom: 30px;
+                gap: 10px;
+            }
+
+            /* Cards Compactos e Otimizados */
+            .risk-hero-card {
+                padding: 12px;
+                border-radius: 12px;
+            }
+
+            .location-title {
+                font-size: 15px;
+            }
+
+            .location-pin-badge {
+                width: 28px;
+                height: 28px;
+                font-size: 14px;
+            }
+
+            .location-address-full {
+                padding: 6px 8px;
+                font-size: 10px;
+            }
+
+            .risk-big-value {
+                font-size: 30px;
+            }
+
+            /* Mini KPIs: 2 colunas compactas */
+            .kpi-grid {
+                gap: 8px;
+            }
+
+            .kpi-card {
+                padding: 8px 10px;
+                border-radius: 8px;
+            }
+
+            .kpi-label {
+                font-size: 10px;
+            }
+
+            .kpi-val {
+                font-size: 16px;
+            }
+
+            .kpi-sub {
+                font-size: 9px;
+            }
+
+            /* Botões principais com área de toque maior (Touch-Friendly) */
+            .btn-calc-route,
+            .btn-geolocate,
+            .search-input,
+            .route-input {
+                min-height: 44px; /* Recomendação Apple/Google Human Interface */
+            }
+
+            .btn-calc-route {
+                font-size: 14px;
+                padding: 12px;
+            }
+
+            /* Ocultar elementos secundários ou decorativos pesados em telas pequenas */
+            .ai-insight-box {
+                padding: 8px 10px;
+            }
+
+            .ai-insight-box #ai-insight-text {
+                font-size: 11px;
+                line-height: 1.4;
+            }
+
+            #probability-gauge {
+                display: none !important; /* Esconde canvas secundário em telas menores */
+            }
         }
     </style>
 </head>
@@ -1052,9 +1316,12 @@
             </div>
         </div>
 
-        <div class="header-right">
+        <div class="header-right" style="display: flex; gap: 8px; align-items: center;">
             <a href="/" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
                 🏠 Início
+            </a>
+            <a href="/profile" id="btn-header-profile" class="btn btn-primary" style="padding: 6px 14px; font-size: 13px; gap: 6px; display: inline-flex; align-items: center;">
+                👤 <span id="header-user-label">Perfil</span>
             </a>
         </div>
     </header>
@@ -1063,12 +1330,22 @@
     <main class="dash-main">
         
         <!-- ─── COLUNA ESQUERDA: PAINEL DE CONTROLE E MÉTRICAS ─── -->
-        <aside class="dash-sidebar" style="min-height:0; height:100%;">
+        <aside id="dash-sidebar-panel" class="dash-sidebar">
+            <!-- Puxador Mobile (Bottom Sheet Handle) -->
+            <div id="mobile-sheet-handle" class="mobile-sheet-handle" onclick="toggleMobileSheet()" aria-label="Expandir ou recolher painel de controle">
+                <div class="mobile-sheet-pill"></div>
+                <div class="mobile-sheet-bar">
+                    <span class="mobile-sheet-title">📊 Controles e Análise de Risco</span>
+                    <button type="button" class="mobile-sheet-btn" id="btn-toggle-sheet" title="Expandir/Minimizar">
+                        <span id="sheet-arrow-icon">▲</span>
+                    </button>
+                </div>
+            </div>
             
             <!-- Abas do Painel -->
             <div class="dash-tabs">
                 <div id="tab-btn-explorar" class="dash-tab active-explorar" onclick="switchDashboardTab('explorar')">
-                    <span>🔍</span> Explorar Bairro / Região
+                    <span>🔍</span> Explorar Bairro
                 </div>
                 <div id="tab-btn-rota" class="dash-tab" onclick="switchDashboardTab('rota')">
                     <span>🛣️</span> Checar Trajeto
@@ -1271,7 +1548,7 @@
                     <div class="route-field">
                         <span class="route-field-icon" style="color: #38BDF8;">🚀</span>
                         <input type="text" id="route-origem" class="route-input" placeholder="Ponto de Partida..." autocomplete="off">
-                        <button type="button" onclick="useCurrentLocationForRoute()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; font-size: 14px;" title="Usar GPS Atual">🧭</button>
+                        <button type="button" onclick="useCurrentLocationForRoute('route-origem')" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; font-size: 14px;" title="Usar GPS Atual">🧭</button>
                         <div id="route-origem-dropdown" class="search-dropdown"></div>
                     </div>
 
@@ -1375,8 +1652,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/static/js/api.js"></script>
-    <script src="/static/js/auth.js"></script>
-    <script src="/static/js/historico_defesa_civil.js?v=20260910-universal"></script>
-    <script src="/static/js/map_dashboard.js?v=20260910-universal"></script>
+    <script src="/static/js/historico_defesa_civil.js?v=20260915-route-unified"></script>
+    <script src="/static/js/map_dashboard.js?v=20260915-route-unified"></script>
 </body>
 </html>

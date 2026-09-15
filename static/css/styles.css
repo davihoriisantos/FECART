@@ -799,3 +799,11 @@ nav.main-nav {
   min-height: 20px;
   transition: all 0.2s ease;
 }
+
+/* Responsividade Mobile Global */
+@media (max-width: 768px) {
+  .sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.12); padding: 16px; }
+  .main-content { margin-left: 0; padding: 16px; }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; gap: 16px; }
+  .container { padding: 0 16px; }
+}

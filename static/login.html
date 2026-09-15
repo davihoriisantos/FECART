@@ -2,28 +2,28 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Acesso ao Sistema - FloodGuard AI</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <style>
+        /* ─── Layout Base ─── */
         .auth-container {
             width: 100%;
-            max-width: 460px;
+            max-width: 480px;
             padding: 36px 32px;
             position: relative;
         }
 
-        /* ─── Abas de Alternância (Entrar / Criar Conta) ─── */
+        /* ─── Abas ─── */
         .auth-tabs-nav {
             display: flex;
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(56, 189, 248, 0.2);
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(56,189,248,0.2);
             border-radius: 12px;
             padding: 4px;
             margin-bottom: 24px;
             gap: 4px;
         }
-
         .auth-tab-btn {
             flex: 1;
             padding: 10px 14px;
@@ -40,53 +40,35 @@
             justify-content: center;
             gap: 8px;
             font-family: 'Plus Jakarta Sans', sans-serif;
+            min-height: 44px;
         }
-
-        .auth-tab-btn:hover {
-            color: #FFFFFF;
-            background: rgba(255, 255, 255, 0.05);
-        }
-
+        .auth-tab-btn:hover  { color: #FFFFFF; background: rgba(255,255,255,0.05); }
         .auth-tab-btn.active {
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
+            background: linear-gradient(135deg, rgba(14,165,233,0.35), rgba(2,132,199,0.5));
             color: #38BDF8;
-            border: 1px solid rgba(56, 189, 248, 0.5);
-            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
+            border: 1px solid rgba(56,189,248,0.5);
+            box-shadow: 0 4px 15px rgba(56,189,248,0.25);
         }
 
-        /* Formulários */
-        .auth-form-panel {
-            display: none;
-            animation: fadeInTab 0.3s ease-in-out;
-        }
-
-        .auth-form-panel.active {
-            display: block;
-        }
-
+        /* ─── Painéis de formulário ─── */
+        .auth-form-panel { display: none; animation: fadeInTab 0.3s ease; }
+        .auth-form-panel.active { display: block; }
         @keyframes fadeInTab {
             from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
+            to   { opacity: 1; transform: translateY(0); }
         }
 
-        .form-group {
-            margin-bottom: 18px;
-            text-align: left;
-        }
+        /* ─── Campos ─── */
+        .form-group   { margin-bottom: 16px; text-align: left; }
+        .form-row     { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .form-label   { font-size: 13px; font-weight: 700; color: #CBD5E1; display: block; margin-bottom: 6px; }
 
-        .form-label {
-            font-size: 13px;
-            font-weight: 700;
-            color: #CBD5E1;
-            display: block;
-            margin-bottom: 6px;
-        }
-
+        .input-wrapper { position: relative; }
         .form-input {
             width: 100%;
             padding: 12px 16px;
-            background: rgba(0, 0, 0, 0.35);
-            border: 1px solid rgba(56, 189, 248, 0.25);
+            background: rgba(0,0,0,0.35);
+            border: 1px solid rgba(56,189,248,0.25);
             border-radius: 10px;
             color: #FFFFFF;
             font-size: 14px;
@@ -95,57 +77,90 @@
             transition: all 0.2s ease;
             box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
             font-family: 'Plus Jakarta Sans', sans-serif;
+            box-sizing: border-box;
         }
-
         .form-input:focus {
             border-color: #38BDF8;
-            background: rgba(0, 0, 0, 0.5);
-            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+            background: rgba(0,0,0,0.5);
+            box-shadow: 0 0 0 3px rgba(56,189,248,0.18);
+        }
+        .form-input.invalid  { border-color: #EF4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.15); }
+        .form-input.valid    { border-color: #10B981; }
+
+        /* Botão olho */
+        .btn-eye {
+            position: absolute; right: 12px; top: 50%;
+            transform: translateY(-50%);
+            background: none; border: none;
+            color: #64748B; cursor: pointer; font-size: 16px;
+            padding: 4px; transition: color 0.2s;
+        }
+        .btn-eye:hover { color: #38BDF8; }
+        .form-input.has-eye { padding-right: 42px; }
+
+        /* ─── Indicador de força de senha ─── */
+        .pw-strength { margin-top: 6px; }
+        .pw-strength-bar {
+            height: 3px; border-radius: 2px;
+            background: rgba(255,255,255,0.08);
+            overflow: hidden; margin-bottom: 4px;
+        }
+        .pw-strength-fill {
+            height: 100%; border-radius: 2px;
+            width: 0%; transition: width 0.3s ease, background 0.3s ease;
+        }
+        .pw-strength-label {
+            font-size: 11px; font-weight: 700;
+            color: #64748B; display: flex; align-items: center; gap: 4px;
         }
 
+        /* ─── Badge de info ─── */
         .db-storage-badge {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.3);
+            background: rgba(16,185,129,0.1);
+            border: 1px solid rgba(16,185,129,0.3);
             border-radius: 8px;
             padding: 8px 12px;
-            font-size: 12px;
-            color: #6EE7B7;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 18px;
-            text-align: left;
+            font-size: 12px; color: #6EE7B7;
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 18px; text-align: left;
         }
 
+        /* ─── Mensagens de feedback ─── */
         .msg-box {
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            text-align: center;
-            margin-top: 16px;
-            display: none;
+            padding: 10px 14px; border-radius: 8px;
+            font-size: 13px; font-weight: 600;
+            text-align: center; margin-top: 16px; display: none;
+        }
+        .msg-error   { background: rgba(239,68,68,0.15);  border: 1px solid rgba(239,68,68,0.4);  color: #FCA5A5; }
+        .msg-success { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #6EE7B7; }
+
+        /* ─── Validação inline ─── */
+        .field-error {
+            font-size: 11px; color: #FCA5A5;
+            margin-top: 4px; display: none;
         }
 
-        .msg-error {
-            background: rgba(239, 68, 68, 0.15);
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            color: #FCA5A5;
-        }
-
-        .msg-success {
-            background: rgba(16, 185, 129, 0.15);
-            border: 1px solid rgba(16, 185, 129, 0.4);
-            color: #6EE7B7;
+        /* ─── Mobile (@media max-width: 480px) ─── */
+        @media (max-width: 480px) {
+            body { padding: 0 !important; align-items: flex-end !important; }
+            .auth-container {
+                max-width: 100%;
+                border-radius: 20px 20px 0 0;
+                padding: 28px 20px 32px;
+                min-height: 60vh;
+            }
+            .form-row { grid-template-columns: 1fr; }
+            .form-input { font-size: 16px; padding: 13px 16px; } /* evita zoom no iOS */
+            .auth-tab-btn { font-size: 13px; }
         }
     </style>
 </head>
 <body class="flex-center" style="min-height: 100vh; padding: 20px;">
     <div class="card auth-container">
-        <!-- Logo e Título -->
+        <!-- Logo -->
         <div style="text-align: center; margin-bottom: 24px;">
             <a href="/" class="logo-brand" style="justify-content: center; margin-bottom: 12px; text-decoration: none;">
-                <div class="logo-icon" style="overflow: hidden; padding: 0; background: transparent; border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);">
+                <div class="logo-icon" style="overflow: hidden; padding: 0; background: transparent; border: 1.5px solid rgba(56,189,248,0.45); box-shadow: 0 0 16px rgba(56,189,248,0.35);">
                     <img src="/static/img/logo.jpg" alt="FloodGuard AI Logo" style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: var(--radius-md);">
                 </div>
                 <div class="logo-text">FloodGuard <span>AI</span></div>
@@ -156,9 +171,9 @@
             </div>
         </div>
 
-        <!-- ─── ABAS DE ESCOLHA: ENTRAR OU CRIAR CONTA ─── -->
+        <!-- Abas -->
         <div class="auth-tabs-nav">
-            <button id="tab-btn-login" class="auth-tab-btn active" onclick="switchAuthTab('login')">
+            <button id="tab-btn-login"    class="auth-tab-btn active" onclick="switchAuthTab('login')">
                 <span>🔐</span> Entrar
             </button>
             <button id="tab-btn-register" class="auth-tab-btn" onclick="switchAuthTab('register')">
@@ -166,77 +181,116 @@
             </button>
         </div>
 
-        <!-- ─── PAINEL 1: FORMULÁRIO DE LOGIN (ENTRAR) ─── -->
+        <!-- ─── PAINEL LOGIN ─── -->
         <div id="panel-login" class="auth-form-panel active">
-            <form id="loginForm">
+            <form id="loginForm" novalidate>
                 <div class="form-group">
                     <label class="form-label" for="login-email">E-mail Cadastrado</label>
-                    <input type="email" id="login-email" class="form-input" required placeholder="seu@email.com" value="admin@floodguard.ai">
+                    <input type="email" id="login-email" class="form-input" required
+                           placeholder="seu@email.com" autocomplete="email">
                 </div>
                 <div class="form-group" style="margin-bottom: 22px;">
                     <label class="form-label" for="login-senha">Senha</label>
-                    <input type="password" id="login-senha" class="form-input" required placeholder="••••••••" value="admin123">
+                    <div class="input-wrapper">
+                        <input type="password" id="login-senha" class="form-input has-eye"
+                               required placeholder="••••••••" autocomplete="current-password">
+                        <button type="button" class="btn-eye" onclick="toggleEye('login-senha', this)" aria-label="Mostrar senha">👁️</button>
+                    </div>
                 </div>
-                <button type="submit" id="btn-submit-login" class="btn btn-primary" style="width: 100%; padding: 13px; font-size: 15px; font-weight: 700;">
-                     Entrar no Sistema
+                <button type="submit" id="btn-submit-login" class="btn btn-primary"
+                        style="width: 100%; padding: 14px; font-size: 15px; font-weight: 700; min-height: 48px;">
+                    🔐 Entrar no Sistema
                 </button>
                 <div id="loginMsg" class="msg-box"></div>
             </form>
-
             <div style="margin-top: 18px; text-align: center;">
                 <span style="font-size: 13px; color: var(--text-muted);">Novo por aqui? </span>
-                <a href="javascript:void(0)" onclick="switchAuthTab('register')" style="color: var(--accent-cyan); font-size: 13px; font-weight: 700; text-decoration: none;">
+                <a href="javascript:void(0)" onclick="switchAuthTab('register')"
+                   style="color: var(--accent-cyan); font-size: 13px; font-weight: 700; text-decoration: none;">
                     Criar conta grátis →
                 </a>
             </div>
         </div>
 
-        <!-- ─── PAINEL 2: FORMULÁRIO DE CADASTRO (CRIAR CONTA) ─── -->
+        <!-- ─── PAINEL CADASTRO ─── -->
         <div id="panel-register" class="auth-form-panel">
             <div class="db-storage-badge">
                 <span>💾</span>
-                <span>Sua conta será gravada de forma persistente no <strong>Banco de Dados</strong> do sistema.</span>
+                <span>Sua conta será gravada de forma segura no <strong>Banco de Dados</strong> do sistema.</span>
             </div>
-
-            <form id="registerForm">
+            <form id="registerForm" novalidate>
                 <div class="form-group">
-                    <label class="form-label" for="reg-nome">Nome Completo</label>
-                    <input type="text" id="reg-nome" class="form-input" required placeholder="Ex: Gabriel Santos">
+                    <label class="form-label" for="reg-nome">Nome Completo *</label>
+                    <input type="text" id="reg-nome" class="form-input" required
+                           placeholder="Ex: Gabriel Santos" autocomplete="name">
+                    <div class="field-error" id="err-nome"></div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="reg-email">Seu Melhor E-mail</label>
-                    <input type="email" id="reg-email" class="form-input" required placeholder="seu@email.com">
+                    <label class="form-label" for="reg-email">E-mail *</label>
+                    <input type="email" id="reg-email" class="form-input" required
+                           placeholder="seu@email.com" autocomplete="email">
+                    <div class="field-error" id="err-email"></div>
                 </div>
-                <div class="form-group">
-                    <label class="form-label" for="reg-senha">Criar Senha</label>
-                    <input type="password" id="reg-senha" class="form-input" required placeholder="Mínimo 6 caracteres" minlength="6">
+                <div class="form-row">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" for="reg-celular">Celular</label>
+                        <input type="tel" id="reg-celular" class="form-input"
+                               placeholder="(11) 99999-9999" inputmode="numeric" maxlength="15" autocomplete="tel">
+                        <div class="field-error" id="err-celular"></div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" for="reg-nasc">Data de Nascimento</label>
+                        <input type="date" id="reg-nasc" class="form-input" autocomplete="bday">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 16px;">
+                    <label class="form-label" for="reg-senha">Criar Senha *</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="reg-senha" class="form-input has-eye" required
+                               placeholder="Mín. 8 chars com letra e número" autocomplete="new-password">
+                        <button type="button" class="btn-eye" onclick="toggleEye('reg-senha', this)" aria-label="Mostrar senha">👁️</button>
+                    </div>
+                    <!-- Indicador de força -->
+                    <div class="pw-strength" id="pw-strength-container" style="display:none;">
+                        <div class="pw-strength-bar">
+                            <div class="pw-strength-fill" id="pw-strength-fill"></div>
+                        </div>
+                        <div class="pw-strength-label" id="pw-strength-label"></div>
+                    </div>
+                    <div class="field-error" id="err-senha"></div>
                 </div>
                 <div class="form-group" style="margin-bottom: 22px;">
-                    <label class="form-label" for="reg-confirm-senha">Confirmar Senha</label>
-                    <input type="password" id="reg-confirm-senha" class="form-input" required placeholder="Repita a senha criada" minlength="6">
+                    <label class="form-label" for="reg-confirm">Confirmar Senha *</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="reg-confirm" class="form-input has-eye" required
+                               placeholder="Repita a senha" autocomplete="new-password">
+                        <button type="button" class="btn-eye" onclick="toggleEye('reg-confirm', this)" aria-label="Mostrar senha">👁️</button>
+                    </div>
+                    <div class="field-error" id="err-confirm"></div>
                 </div>
-                <button type="submit" id="btn-submit-reg" class="btn btn-primary" style="width: 100%; padding: 13px; font-size: 15px; font-weight: 700; background: linear-gradient(135deg, #10B981, #059669); border-color: #10B981;">
+                <button type="submit" id="btn-submit-reg" class="btn btn-primary"
+                        style="width: 100%; padding: 14px; font-size: 15px; font-weight: 700; min-height: 48px; background: linear-gradient(135deg, #10B981, #059669); border-color: #10B981;">
                     ✨ Criar Conta e Acessar
                 </button>
                 <div id="registerMsg" class="msg-box"></div>
             </form>
-
             <div style="margin-top: 18px; text-align: center;">
-                <span style="font-size: 13px; color: var(--text-muted);">Já possui uma conta? </span>
-                <a href="javascript:void(0)" onclick="switchAuthTab('login')" style="color: var(--accent-cyan); font-size: 13px; font-weight: 700; text-decoration: none;">
+                <span style="font-size: 13px; color: var(--text-muted);">Já possui conta? </span>
+                <a href="javascript:void(0)" onclick="switchAuthTab('login')"
+                   style="color: var(--accent-cyan); font-size: 13px; font-weight: 700; text-decoration: none;">
                     Fazer Login →
                 </a>
             </div>
         </div>
 
         <div style="margin-top: 24px; text-align: center; border-top: 1px solid var(--glass-border); padding-top: 18px;">
-            <a href="/" style="color: var(--text-muted); text-decoration: none; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s;">
+            <a href="/" style="color: var(--text-muted); text-decoration: none; font-size: 13px; font-weight: 600;">
                 ← Voltar para a página inicial
             </a>
         </div>
     </div>
 
     <script src="/static/js/api.js"></script>
-    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/auth_enhanced.js?v=20260915-v2"></script>
 </body>
 </html>

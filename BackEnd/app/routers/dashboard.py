@@ -47,3 +47,38 @@ def get_precipitation(hours: int = 24, db: Session = Depends(get_db)):
 def get_risk_summary(db: Session = Depends(get_db)):
     zones = db.query(RiskZone).all()
     return [{"zone_name": z.nome, "nivel_risco": z.nivel_risco, "probabilidade": z.probabilidade_enchente} for z in zones]
+
+import time
+import requests
+import urllib3
+urllib3.disable_warnings()
+
+_weather_cache = {"data": None, "expires_at": 0}
+
+@router.get("/weather")
+def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
+    """Proxy resiliente para a Open-Meteo API com cache de 5 minutos e bypass de SSL corporativo."""
+    global _weather_cache
+    now = time.time()
+    if _weather_cache["data"] and now < _weather_cache["expires_at"]:
+        return _weather_cache["data"]
+    
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+        "&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,wind_speed_10m"
+        "&daily=precipitation_sum,precipitation_probability_max,temperature_2m_max,temperature_2m_min"
+        "&hourly=precipitation,rain,showers,precipitation_probability,soil_moisture_0_to_1cm"
+        "&past_days=2&forecast_days=2&timezone=America%2FSao_Paulo"
+    )
+    try:
+        r = requests.get(url, verify=False, timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            _weather_cache = {"data": data, "expires_at": now + 300}
+            return data
+    except Exception as e:
+        pass
+    
+    if _weather_cache["data"]:
+        return _weather_cache["data"]
+    return {"error": "Não foi possível obter dados da Open-Meteo"}
