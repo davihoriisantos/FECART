@@ -363,10 +363,14 @@ function initRegisterForm() {
 // PÁGINA DE PERFIL — TABS
 // ══════════════════════════════════════════════════════════════════
 function switchProfileTab(tab) {
-    ['dados', 'seguranca', 'atividade'].forEach(t => {
+    ['dados', 'seguranca', 'atividade', 'historico'].forEach(t => {
         document.getElementById(`panel-${t}`)?.classList.toggle('active', t === tab);
         document.getElementById(`ptab-${t}`)?.classList.toggle('active', t === tab);
     });
+
+    if (tab === 'historico' && typeof renderProfileHistory === 'function') {
+        renderProfileHistory();
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════

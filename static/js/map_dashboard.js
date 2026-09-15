@@ -101,6 +101,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 300);
     });
 
+    // Verifica se veio de um clique no Histórico de Buscas do Perfil
+    try {
+        const targetSearch = JSON.parse(localStorage.getItem('fg_target_search') || 'null');
+        if (targetSearch && targetSearch.lat && targetSearch.lon) {
+            localStorage.removeItem('fg_target_search');
+            await analyzePoint(Number(targetSearch.lat), Number(targetSearch.lon), targetSearch.nome, targetSearch.bairro || 'São Paulo - SP');
+            if (map) map.flyTo([Number(targetSearch.lat), Number(targetSearch.lon)], 16, { duration: 1.0 });
+            return;
+        }
+    } catch (_) {}
+
     // Carrega dados iniciais da FECAP
     await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
 });
@@ -740,22 +751,45 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
     renderTrendChart(analysis.labels, analysis.historyRisks, analysis.forecastRisks, analysis.maxForecastRisk);
 }
 
-// ─── BUSCA DE CLIMA NA OPEN-METEO (48h PASSADO + 48h FUTURO) ─────────────────
+// ─── BUSCA DE CLIMA NA OPEN-METEO (API REAL EM TEMPO REAL) ───────────────────
 async function fetchWeatherData(lat, lon) {
     const key = `w_${lat.toFixed(3)}_${lon.toFixed(3)}`;
     if (geocodeCache[key]) return geocodeCache[key];
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=rain,precipitation_probability,soil_moisture_0_to_1cm&current_weather=true&past_days=2&forecast_days=2&timezone=America%2FSao_Paulo`;
-    
+    // API Open-Meteo Oficial: coordenadas exatas, precipitação em tempo real (current) e histórico horário (hourly)
+    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers&hourly=precipitation,precipitation_probability,soil_moisture_0_to_1cm&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo`;
+    const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
+
+    let data = null;
+
+    // 1. Chamada direta à API da Open-Meteo
     try {
-        const res = await fetch(url);
-        const data = await res.json();
+        const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
+        if (res.ok) {
+            data = await res.json();
+        }
+    } catch (e) {
+        console.warn("[FloodGuard] Chamada direta Open-Meteo falhou, tentando proxy interno...", e.message);
+    }
+
+    // 2. Fallback resiliente via backend interno
+    if (!data || !data.hourly) {
+        try {
+            const proxyRes = await fetch(proxyUrl);
+            if (proxyRes.ok) {
+                data = await proxyRes.json();
+            }
+        } catch (e) {
+            console.warn("[FloodGuard] Proxy meteorológico indisponível:", e.message);
+        }
+    }
+
+    if (data && data.hourly) {
         geocodeCache[key] = data;
         return data;
-    } catch (e) {
-        console.warn("Falha ao consultar Open-Meteo, usando fallback seguro.", e);
-        return null;
     }
+
+    return null;
 }
 
 // ─── PROCESSADOR DO MOTOR PREDITIVO DE RISCO (4 PILARES) ─────────────────────
@@ -764,26 +798,49 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         return getFallbackAnalysis();
     }
 
-    const times = data.hourly.time;
-    const rains = data.hourly.rain;
+    const times = data.hourly.time || [];
+    // Prioriza precipitação total (chuva contínua + pancadas + garoa)
+    const rains = data.hourly.precipitation || data.hourly.rain || [];
     const probs = data.hourly.precipitation_probability || [];
     const soilMoistures = data.hourly.soil_moisture_0_to_1cm || [];
-    const now = new Date();
 
-    // Encontra o índice da hora atual
-    let currentIdx = times.findIndex(t => {
-        const d = new Date(t);
-        return d.getDate() === now.getDate() && d.getHours() === now.getHours();
-    });
-    if (currentIdx === -1) currentIdx = times.length - 24;
+    // Localiza o índice da hora atual com base no timestamp retornado pela Open-Meteo
+    const currentTimeStr = (data.current && data.current.time) ? data.current.time : '';
+    let currentIdx = -1;
+    if (currentTimeStr) {
+        currentIdx = times.findIndex(t => t.startsWith(currentTimeStr.slice(0, 13)));
+    }
+    if (currentIdx === -1) {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const localHourStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
+        currentIdx = times.findIndex(t => t.startsWith(localHourStr));
+    }
+    if (currentIdx === -1) currentIdx = Math.max(0, times.length - 8);
 
-    const currentRain = rains[currentIdx] ?? 0;
+    // Chuva Atual (#kpi-rain-current): Volume exato de precipitação em mm/h referente ao horário atual
+    let currentRain = 0.0;
+    if (typeof data.current_rain_mm_h === 'number') {
+        currentRain = data.current_rain_mm_h;
+    } else if (data.current && typeof data.current.precipitation === 'number') {
+        currentRain = Number(data.current.precipitation);
+    } else if (data.current && typeof data.current.rain === 'number') {
+        currentRain = Number(data.current.rain) + Number(data.current.showers || 0);
+    } else if (currentIdx >= 0 && rains[currentIdx] !== null) {
+        currentRain = Number(rains[currentIdx]) || 0;
+    }
 
-    // Acumulado 24h passadas
-    let acc24h = 0;
-    for (let j = 0; j < 24; j++) {
-        const idx = currentIdx - j;
-        if (idx >= 0 && rains[idx] !== null) acc24h += rains[idx];
+    // Acumulado 24h (#kpi-rain-acc24): Soma real das últimas 24 horas de chuva para o ponto selecionado
+    let acc24h = 0.0;
+    if (typeof data.accumulated_24h_mm === 'number') {
+        acc24h = data.accumulated_24h_mm;
+    } else {
+        for (let j = 0; j < 24; j++) {
+            const idx = currentIdx - j;
+            if (idx >= 0 && rains[idx] !== null && !isNaN(rains[idx])) {
+                acc24h += Number(rains[idx]);
+            }
+        }
     }
 
     // Série das últimas 24h
@@ -1069,14 +1126,49 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         elRec.innerHTML = `🛡️ <strong>Sem risco iminente:</strong> Drenagem operando normalmente (${altInfo.tipo}).`;
     }
 
-    // Mini KPIs: 4 Pilares
-    document.getElementById('kpi-rain-current').textContent = `${analysis.currentRain.toFixed(1)} mm/h`;
-    const elForecastSub = document.getElementById('kpi-rain-forecast-sub');
-    if (elForecastSub) elForecastSub.textContent = `+${analysis.forecastRainTotal.toFixed(1)} mm prev. (+3h)`;
+    // ── Mini KPIs: Chuva Atual e Acumulado 24h com dados reais ────────────────
+    const elRainCurrent = document.getElementById('kpi-rain-current');
+    if (elRainCurrent) {
+        const rainNow = analysis.currentRain;
+        elRainCurrent.textContent = `${rainNow.toFixed(1)} mm/h`;
+        // Cor dinâmica conforme intensidade real (escala Defesa Civil)
+        if (rainNow >= 10) {
+            elRainCurrent.style.color = '#EF4444'; // Vermelho — Chuva Forte/Tempestade
+        } else if (rainNow >= 2.5) {
+            elRainCurrent.style.color = '#F59E0B'; // Amarelo — Chuva Moderada
+        } else if (rainNow > 0) {
+            elRainCurrent.style.color = '#38BDF8'; // Azul — Chuva Fraca/Garoa
+        } else {
+            elRainCurrent.style.color = '#10B981'; // Verde — Sem chuva no momento
+        }
+    }
 
-    document.getElementById('kpi-rain-acc24').textContent = `${analysis.acc24h.toFixed(1)} mm`;
-    document.getElementById('kpi-soil-status').textContent = analysis.acc24h > 30 ? "⚠️ Solo Saturado" : "Solo Estável";
-    document.getElementById('kpi-soil-status').style.color = analysis.acc24h > 30 ? "#F59E0B" : "#64748B";
+    const elForecastSub = document.getElementById('kpi-rain-forecast-sub');
+    if (elForecastSub) {
+        elForecastSub.textContent = analysis.forecastRainTotal > 0
+            ? `+${analysis.forecastRainTotal.toFixed(1)} mm prev. (+3h)`
+            : 'Sem chuva prevista (+3h)';
+    }
+
+    const elRainAcc = document.getElementById('kpi-rain-acc24');
+    if (elRainAcc) {
+        elRainAcc.textContent = `${analysis.acc24h.toFixed(1)} mm`;
+        elRainAcc.style.color = analysis.acc24h >= 50 ? '#EF4444' : (analysis.acc24h >= 20 ? '#F59E0B' : '#38BDF8');
+    }
+
+    const elSoil = document.getElementById('kpi-soil-status');
+    if (elSoil) {
+        if (analysis.acc24h > 50) {
+            elSoil.textContent = '🚨 Solo Saturado';
+            elSoil.style.color = '#EF4444';
+        } else if (analysis.acc24h > 20) {
+            elSoil.textContent = '⚠️ Solo Úmido';
+            elSoil.style.color = '#F59E0B';
+        } else {
+            elSoil.textContent = 'Solo Estável';
+            elSoil.style.color = '#64748B';
+        }
+    }
 
     // Distância do Rio e Corpo Hídrico
     const elRiverDist = document.getElementById('kpi-river-dist');
@@ -1371,6 +1463,13 @@ function setupSearchListeners() {
         }
     });
 
+    // Exibir buscas recentes ao focar no campo vazio
+    input.addEventListener('focus', () => {
+        if (input.value.trim().length === 0 && typeof showRecentSearches === 'function') {
+            showRecentSearches();
+        }
+    });
+
     // Fechar ao clicar fora
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-box-wrapper')) {
@@ -1659,6 +1758,17 @@ function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = nu
 
     // Aciona o motor de análise completo: clima + elevação + risco
     analyzePoint(lat, lon, nome, bairro, alt, fullAddress);
+
+    // ── Registra no Histórico de Buscas (se o usuário estiver logado) ──
+    if (typeof salvarBuscaHistorico === 'function') {
+        salvarBuscaHistorico({
+            nome,
+            lat,
+            lon,
+            bairro,
+            display_name: fullAddress || `${nome} — ${bairro}`
+        });
+    }
 }
 
 function clearSearchInput() {
@@ -2242,6 +2352,26 @@ function selectRouteItem(inputId, dropdownId, fieldType, item) {
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
     } else {
         map.flyTo([lat, lon], 15, { duration: 1.0 });
+    }
+
+    // ── Atualização Dinâmica: Busca dados do clima e força renderização dos cards de chuva instantaneamente ──
+    updateRouteWeatherCards(lat, lon, item.nome);
+}
+
+async function updateRouteWeatherCards(lat, lon, nome = '') {
+    try {
+        const weatherData = await fetchWeatherData(lat, lon);
+        if (weatherData) {
+            const analysis = processRiskAnalysis(weatherData, 745, lat, lon);
+            const elCurrent = document.getElementById('kpi-rain-current');
+            const elAcc24 = document.getElementById('kpi-rain-acc24');
+            const elForecast = document.getElementById('kpi-rain-forecast-sub');
+            if (elCurrent) elCurrent.textContent = `${analysis.currentRain.toFixed(1)} mm/h`;
+            if (elAcc24) elAcc24.textContent = `${analysis.acc24h.toFixed(1)} mm`;
+            if (elForecast && nome) elForecast.textContent = `Ponto: ${nome.slice(0, 18)}`;
+        }
+    } catch (e) {
+        console.warn("[FloodGuard] Erro ao atualizar cards de chuva da rota:", e);
     }
 }
 
