@@ -2128,6 +2128,11 @@ function clearCurrentRoute() {
         });
         routeLayers = [];
     }
+    // Limpar também a rota alternativa e resetar painel
+    clearAltRouteLayers();
+    altRouteData = null;
+    mainRouteVisible = true;
+    updateAltRoutePanel('hide');
 }
 
 function setRouteStatus(type, message) {
@@ -2179,6 +2184,251 @@ async function fetchOsrmRoute(origem, destino) {
 
     return data.routes[0];
 }
+
+/**
+ * Busca a rota principal + até 3 alternativas via OSRM.
+ * Retorna array de routes (a principal é [0]).
+ */
+async function fetchOsrmRouteWithAlternatives(origem, destino) {
+    const origLon = Number(origem.lon ?? origem.lng);
+    const origLat = Number(origem.lat);
+    const destLon = Number(destino.lon ?? destino.lng);
+    const destLat = Number(destino.lat);
+
+    const coordinates = `${origLon.toFixed(6)},${origLat.toFixed(6)};${destLon.toFixed(6)},${destLat.toFixed(6)}`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&alternatives=3`;
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (data.code !== 'Ok' || !data.routes?.length) return null;
+        return data.routes; // array com principal + alternativas
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Gera uma rota DIFERENTE forçando um waypoint perpendicular ao eixo origem-destino.
+ * Tenta os dois lados (esquerdo e direito) e retorna o que tiver melhor risco.
+ * offsetKm: distância do desvio lateral em km (padrão 0.6 km).
+ */
+async function fetchOsrmRouteViaOffset(origem, destino, offsetKm = 0.6) {
+    const origLon = Number(origem.lon ?? origem.lng);
+    const origLat = Number(origem.lat);
+    const destLon = Number(destino.lon ?? destino.lng);
+    const destLat = Number(destino.lat);
+
+    // Vetor direcional
+    const dLat = destLat - origLat;
+    const dLon = destLon - origLon;
+    const dist = Math.sqrt(dLat * dLat + dLon * dLon) || 0.001;
+
+    // Vetor perpendicular normalizado (ambos lados)
+    const perpLatN =  -dLon / dist;
+    const perpLonN =   dLat / dist;
+
+    // 1 grau ≈ 111 km; converter offsetKm para graus
+    const offsetDeg = offsetKm / 111;
+
+    // Ponto de desvio no terço do trajeto (não no meio exato — mais natural)
+    const fracLat = origLat + dLat * 0.40;
+    const fracLon = origLon + dLon * 0.40;
+
+    const routeResults = await Promise.all([+1, -1].map(async (side) => {
+        const wLat = fracLat + perpLatN * offsetDeg * side;
+        const wLon = fracLon + perpLonN * offsetDeg * side;
+        const coords = [
+            `${origLon.toFixed(6)},${origLat.toFixed(6)}`,
+            `${wLon.toFixed(6)},${wLat.toFixed(6)}`,
+            `${destLon.toFixed(6)},${destLat.toFixed(6)}`
+        ].join(';');
+        try {
+            const res = await fetch(
+                `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (data.code !== 'Ok' || !data.routes?.[0]) return null;
+            return data.routes[0];
+        } catch { return null; }
+    }));
+
+    // Retorna ambas (filtradas de nulas) para avaliação de risco posterior
+    return routeResults.filter(Boolean);
+}
+
+/**
+ * Avalia uma rota alternativa e retorna {maxRisk, avgRisk, avgElevation, samples, environments, elevations, sampleRisks}.
+ * Reutiliza as mesmas funções de análise da rota principal.
+ */
+async function scoreAltRoute(routeGeometry) {
+    const coordinates = routeGeometry.coordinates;
+    const samples = selectRouteSamples(coordinates);
+    if (!samples.length) return null;
+
+    try {
+        const environments = await fetchRouteEnvironment(samples);
+        if (environments.length !== samples.length) return null;
+
+        const elevations = environments.map(w =>
+            Number.isFinite(Number(w?.elevation)) ? Number(w.elevation) : 745
+        );
+        const terrainContexts = samples.map((_, i) => getRouteTerrainContext(samples, elevations, i));
+        const sampleRisks = samples.map((point, i) => {
+            const base = processRiskAnalysis(environments[i], elevations[i], point.lat, point.lon).maxForecastRisk;
+            return Math.round(clamp(base + terrainContexts[i].adjustment, 1, 100));
+        });
+
+        const maxRisk = Math.max(...sampleRisks);
+        const avgRisk = Math.round(sampleRisks.reduce((a, b) => a + b, 0) / sampleRisks.length);
+        const avgElevation = Math.round(elevations.reduce((a, b) => a + b, 0) / elevations.length);
+
+        return { maxRisk, avgRisk, avgElevation, samples, environments, elevations, sampleRisks, coordinates };
+    } catch {
+        return null;
+    }
+}
+
+// Estado global da rota alternativa
+let altRouteData = null;       // { coordinates, maxRisk, avgRisk, avgElevation, distanceKm, durationSec }
+let altRouteLayers = [];       // polylines desenhadas da rota alternativa
+let mainRouteVisible = true;   // controla comparação
+
+function clearAltRouteLayers() {
+    altRouteLayers.forEach(l => { try { map.removeLayer(l); } catch {} });
+    altRouteLayers = [];
+}
+
+/**
+ * Seleciona a melhor alternativa: menor maxRisk, desempate por maior altitudemédia.
+ */
+function pickBestAltRoute(scored) {
+    return scored
+        .filter(s => s !== null)
+        .sort((a, b) => {
+            if (a.maxRisk !== b.maxRisk) return a.maxRisk - b.maxRisk;
+            return b.avgElevation - a.avgElevation; // altitude maior = mais seguro
+        })[0] || null;
+}
+
+/**
+ * Atualiza o painel de rota alternativa segura no sidebar.
+ */
+function updateAltRoutePanel(state, data) {
+    const panel = document.getElementById('alt-route-panel');
+    const subtitle = document.getElementById('alt-route-subtitle');
+    const badge = document.getElementById('alt-route-badge');
+    const details = document.getElementById('alt-route-details');
+    const warning = document.getElementById('alt-route-warning');
+
+    if (!panel) return;
+
+    if (state === 'hide') {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+
+    if (state === 'loading') {
+        subtitle.textContent = 'Calculando rota alternativa segura...';
+        badge.textContent = '⏳';
+        details.textContent = 'Analisando riscos nas rotas alternativas disponíveis...';
+        warning.style.display = 'none';
+        return;
+    }
+
+    if (state === 'found') {
+        const { maxRisk, avgElevation, distanceKm, durationSec, mainMaxRisk, isFallback } = data;
+        const style = getRouteRiskStyle(maxRisk);
+        const savings = mainMaxRisk - maxRisk;
+        const durationMin = Math.max(1, Math.round((durationSec || 0) / 60));
+        subtitle.textContent = isFallback
+            ? `Rota estimada: risco reduzido de ${mainMaxRisk}% → ${maxRisk}% (${style.level})`
+            : `Risco reduzido de ${mainMaxRisk}% → ${maxRisk}% (${style.level})`;
+        badge.textContent = `${maxRisk}%`;
+        badge.style.color = style.color;
+        badge.style.background = `${style.color}22`;
+        details.innerHTML = `
+            <span style="display:block;">📏 <strong>Distância:</strong> ${distanceKm} km</span>
+            <span style="display:block;">⏱️ <strong>Tempo estimado:</strong> ~${durationMin} min</span>
+            <span style="display:block;">⛰️ <strong>Altitude média:</strong> ${avgElevation} m (terreno mais elevado)</span>
+            <span style="display:block; margin-top:4px; color:#34D399;">✅ Risco estimado reduzido em <strong>${savings}%</strong> vs. rota principal</span>
+            ${isFallback ? '<span style="display:block; margin-top:4px; font-size:10px; color:#94A3B8;">⚠ Rota baseada na geometria principal com cálculo de desvio estimado</span>' : ''}
+        `;
+        if (maxRisk > 50) {
+            warning.style.display = 'block';
+            warning.textContent = `⚠️ Mesmo a rota alternativa apresenta risco ${style.level.toLowerCase()} (${maxRisk}%). Considere aguardar a chuva passar.`;
+        } else {
+            warning.style.display = 'none';
+        }
+        return;
+    }
+
+    if (state === 'none') {
+        subtitle.textContent = 'Nenhuma alternativa segura encontrada';
+        badge.textContent = '⚠️';
+        badge.style.color = '#FCD34D';
+        badge.style.background = 'rgba(234,179,8,0.2)';
+        details.textContent = 'O OSRM não retornou alternativas para este percurso, ou todas apresentam risco similar. Considere aguardar ou usar transporte público.';
+        warning.style.display = 'none';
+    }
+}
+
+/**
+ * Desenha a rota alternativa no mapa (em verde/azul tracejado).
+ */
+function showAltRouteOnMap() {
+    if (!altRouteData) return;
+    clearAltRouteLayers();
+
+    const latlngs = altRouteData.coordinates.map(([lon, lat]) => [lat, lon]);
+
+    const outline = L.polyline(latlngs, {
+        color: '#0F172A', weight: 10, opacity: 0.7,
+        lineJoin: 'round', lineCap: 'round', dashArray: '1, 1'
+    }).addTo(map);
+
+    const line = L.polyline(latlngs, {
+        color: '#10B981', weight: 7, opacity: 0.95,
+        lineJoin: 'round', lineCap: 'round',
+        dashArray: '14, 8'
+    }).addTo(map).bindTooltip(
+        `🛡️ Rota Alternativa Segura — Risco Máx: ${altRouteData.maxRisk}%`,
+        { sticky: true }
+    );
+
+    altRouteLayers.push(outline, line);
+
+    // Ajusta o mapa para incluir ambas as rotas
+    if (currentRoutePolyline) {
+        const bounds = L.polyline([...latlngs]).getBounds();
+        map.fitBounds(bounds.extend(currentRoutePolyline.getBounds()), { padding: [50, 50] });
+    } else {
+        map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [50, 50] });
+    }
+}
+
+/**
+ * Alterna entre mostrar apenas a rota principal ou ambas (comparação).
+ */
+function compareRoutes() {
+    if (altRouteLayers.length === 0) {
+        showAltRouteOnMap();
+        return;
+    }
+    // Alterna visibilidade
+    mainRouteVisible = !mainRouteVisible;
+    routeLayers.forEach(l => {
+        try {
+            if (mainRouteVisible) map.addLayer(l); else map.removeLayer(l);
+        } catch {}
+    });
+}
+
+
 
 function routeDistanceMeters(a, b) {
     const earthRadius = 6371000;
@@ -2472,17 +2722,140 @@ async function processRouteTrajectory(origem, destino) {
         routeLayers.push(routeMaxRiskMarker);
 
         if (maxRisk < 30) {
+            // ─── RISCO BAIXO: trajeto seguro, sem alternativa ───────────────────
             setRouteStatus('safe', `<strong>Trajeto Limpo e Seguro.</strong> Nenhuma área de risco crítico identificada nos trechos analisados. <span style="display:block;color:#E2E8F0;margin-top:4px;"><strong>Risco Máximo: ${maxRisk}%</strong> em ${escapeHtml(locationLabel)} • ${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
-        } else if (maxRisk <= 50) {
-            setRouteStatus('moderate', `<strong>Atenção moderada.</strong> <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)}. Dirija com atenção. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            updateAltRoutePanel('hide');
         } else {
-            const trechoLabel = dangerousGroups.length === 1 ? '1 trecho' : `${dangerousGroups.length} trechos`;
-            setRouteStatus('danger', `<strong>Atenção:</strong> Seu trajeto passa por ${trechoLabel} com índice de risco elevado. <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)} (nível ${worstStyle.level}). Mantenha cautela ou altere seu trajeto. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            // ─── RISCO MODERADO / ALTO / CRÍTICO: sugerir rota alternativa ────────
+            if (maxRisk <= 50) {
+                setRouteStatus('moderate', `<strong>⚠️ Atenção moderada.</strong> <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)}. Dirija com atenção. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            } else {
+                const trechoLabel = dangerousGroups.length === 1 ? '1 trecho' : `${dangerousGroups.length} trechos`;
+                setRouteStatus('danger', `<strong>🚨 Perigo:</strong> Seu trajeto passa por ${trechoLabel} com risco elevado de alagamento. <strong>Risco Máximo: ${maxRisk}%</strong> em ${escapeHtml(locationLabel)} (${worstStyle.level}). <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            }
+
+            // Mostrar painel em modo "carregando"
+            altRouteData = null;
+            clearAltRouteLayers();
+            mainRouteVisible = true;
+            updateAltRoutePanel('loading');
+
+            (async () => {
+                if (requestId !== routeRequestId) return;
+                try {
+                    // 1ª tentativa: alternativas nativas do OSRM
+                    const allRoutes = await fetchOsrmRouteWithAlternatives(origem, destino);
+                    if (requestId !== routeRequestId) return;
+
+                    const altRoutes = allRoutes ? allRoutes.slice(1) : [];
+
+                    if (!altRoutes.length) {
+                        updateAltRoutePanel('none');
+                        return;
+                    }
+
+                    // Avaliar cada alternativa com o motor de risco completo
+                    const scored = await Promise.all(
+                        altRoutes.map(r => scoreAltRoute(r.geometry))
+                    );
+
+                    // Associar distância/duração de cada rota alternativa ao score
+                    scored.forEach((s, i) => {
+                        if (s && altRoutes[i]) {
+                            s.distanceKm = (altRoutes[i].distance / 1000).toFixed(1);
+                            s.durationSec = altRoutes[i].duration;
+                        }
+                    });
+
+                    if (requestId !== routeRequestId) return;
+
+                    const best = pickBestAltRoute(scored);
+
+                    // ── Se OSRM não retornou nada melhor, gerar rota via desvio perpendicular ──
+                    if (!best || best.maxRisk >= maxRisk) {
+                        if (requestId !== routeRequestId) return;
+                        setRouteStatus(maxRisk <= 50 ? 'moderate' : 'danger',
+                            document.getElementById('route-alert-box')?.querySelector('div')?.textContent || '');
+                        updateAltRoutePanel('loading');
+
+                        // Buscar rota via waypoint perpendicular (geometria diferente)
+                        const offsetRoutes = await fetchOsrmRouteViaOffset(origem, destino);
+                        if (requestId !== routeRequestId) return;
+
+                        if (!offsetRoutes.length) {
+                            updateAltRoutePanel('none');
+                            return;
+                        }
+
+                        // Avaliar as duas rotas offset (esquerda e direita)
+                        const offsetScored = await Promise.all(
+                            offsetRoutes.map(async r => {
+                                const s = await scoreAltRoute(r.geometry);
+                                if (s) {
+                                    s.distanceKm = (r.distance / 1000).toFixed(1);
+                                    s.durationSec = r.duration;
+                                }
+                                return s;
+                            })
+                        );
+                        if (requestId !== routeRequestId) return;
+
+                        const bestOffset = pickBestAltRoute(offsetScored);
+                        if (!bestOffset || bestOffset.maxRisk >= maxRisk) {
+                            updateAltRoutePanel('none');
+                            return;
+                        }
+
+                        altRouteData = {
+                            coordinates: bestOffset.coordinates,
+                            maxRisk: bestOffset.maxRisk,
+                            avgRisk: bestOffset.avgRisk,
+                            avgElevation: bestOffset.avgElevation,
+                            distanceKm: bestOffset.distanceKm,
+                            durationSec: bestOffset.durationSec
+                        };
+                        updateAltRoutePanel('found', {
+                            maxRisk: bestOffset.maxRisk,
+                            avgElevation: bestOffset.avgElevation,
+                            distanceKm: bestOffset.distanceKm,
+                            durationSec: bestOffset.durationSec,
+                            mainMaxRisk: maxRisk
+                        });
+                        showAltRouteOnMap();
+                        return;
+                    }
+
+                    // Salvar para uso pelos botões "Ver no Mapa" e "Comparar"
+                    altRouteData = {
+                        coordinates: best.coordinates,
+                        maxRisk: best.maxRisk,
+                        avgRisk: best.avgRisk,
+                        avgElevation: best.avgElevation,
+                        distanceKm: best.distanceKm,
+                        durationSec: best.durationSec
+                    };
+
+                    updateAltRoutePanel('found', {
+                        maxRisk: best.maxRisk,
+                        avgElevation: best.avgElevation,
+                        distanceKm: best.distanceKm,
+                        durationSec: best.durationSec,
+                        mainMaxRisk: maxRisk
+                    });
+
+                    // Desenhar automaticamente a alternativa no mapa sempre que for melhor
+                    showAltRouteOnMap();
+                } catch (altErr) {
+                    console.warn('[FloodGuard] Falha ao calcular rota alternativa:', altErr.message);
+                    updateAltRoutePanel('none');
+                }
+            })();
         }
     } catch (error) {
         if (requestId !== routeRequestId) return;
         console.error('Falha ao calcular rota real:', error);
         setRouteStatus('error', 'Não foi possível calcular a rota pelas ruas agora. Verifique sua conexão e tente novamente.');
+        updateAltRoutePanel('hide');
     }
 }
 
