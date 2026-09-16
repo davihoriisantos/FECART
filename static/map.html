@@ -259,6 +259,23 @@
             display: none;
         }
 
+        .saved-places-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+        .saved-place-control { display: flex; min-width: 0; border: 1px solid rgba(56,189,248,.22); border-radius: 10px; overflow: hidden; background: rgba(15,23,42,.72); }
+        .saved-place-btn, .saved-place-save { border: 0; color: #E2E8F0; cursor: pointer; transition: background .2s ease,color .2s ease; }
+        .saved-place-btn { flex: 1; min-width: 0; padding: 10px 8px; background: transparent; font-size: 12px; font-weight: 800; text-align: left; }
+        .saved-place-save { width: 34px; background: rgba(56,189,248,.09); border-left: 1px solid rgba(56,189,248,.18); font-size: 14px; }
+        .saved-place-btn:hover, .saved-place-save:hover { background: rgba(56,189,248,.16); color: #38BDF8; }
+        .auth-modal-backdrop { position: fixed; inset: 0; z-index: 5000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(2,6,23,.78); backdrop-filter: blur(8px); }
+        .auth-modal-backdrop.open { display: flex; }
+        .auth-modal-card { width: min(430px,100%); padding: 26px; border: 1px solid rgba(56,189,248,.3); border-radius: 18px; background: #0F172A; box-shadow: 0 24px 80px rgba(0,0,0,.55); text-align: center; }
+        .auth-modal-icon { font-size: 38px; margin-bottom: 10px; }
+        .auth-modal-card h2 { margin: 0 0 10px; font-size: 21px; }
+        .auth-modal-card p { margin: 0; color: #CBD5E1; font-size: 14px; line-height: 1.65; }
+        .auth-modal-actions { display: flex; gap: 10px; margin-top: 22px; }
+        .auth-modal-actions a, .auth-modal-actions button { flex: 1; padding: 11px 12px; border-radius: 9px; font-weight: 800; font-size: 13px; text-decoration: none; cursor: pointer; }
+        .auth-modal-login { border: 0; color: #06111D; background: #38BDF8; }
+        .auth-modal-close { border: 1px solid #334155; color: #CBD5E1; background: transparent; }
+
         /* Botão Minha Localização (GPS) */
         .btn-geolocate {
             display: inline-flex;
@@ -1304,7 +1321,7 @@
     <!-- ─── HEADER DO DASHBOARD ─── -->
     <header class="dash-header">
         <div class="header-left">
-            <a href="/" class="logo-brand" style="text-decoration: none;">
+            <a href="/?skipSplash=1" class="logo-brand" style="text-decoration: none;">
                 <div class="logo-icon" style="width: 36px; height: 36px; border-radius: 9px; overflow: hidden; padding: 0; background: transparent; border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);">
                     <img src="/static/img/logo.jpg" alt="FloodGuard AI Logo" style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 7px;">
                 </div>
@@ -1317,7 +1334,7 @@
         </div>
 
         <div class="header-right" style="display: flex; gap: 8px; align-items: center;">
-            <a href="/" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
+            <a href="/?skipSplash=1" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
                 🏠 Início
             </a>
             <a href="/profile" id="btn-header-profile" class="btn btn-primary" style="padding: 6px 14px; font-size: 13px; gap: 6px; display: inline-flex; align-items: center;">
@@ -1378,6 +1395,17 @@
                         </button>
                     </div>
                     <div id="universal-search-dropdown" class="search-dropdown"></div>
+                </div>
+
+                <div class="saved-places-row" aria-label="Locais salvos">
+                    <div class="saved-place-control">
+                        <button type="button" id="saved-place-home" class="saved-place-btn" onclick="openSavedPlace('home')" title="Abrir o local salvo como Casa">🏠 Casa</button>
+                        <button type="button" class="saved-place-save" onclick="saveCurrentPlace('home')" title="Salvar o local atual como Casa" aria-label="Salvar local atual como Casa">＋</button>
+                    </div>
+                    <div class="saved-place-control">
+                        <button type="button" id="saved-place-work" class="saved-place-btn" onclick="openSavedPlace('work')" title="Abrir o local salvo como Trabalho">💼 Trabalho</button>
+                        <button type="button" class="saved-place-save" onclick="saveCurrentPlace('work')" title="Salvar o local atual como Trabalho" aria-label="Salvar local atual como Trabalho">＋</button>
+                    </div>
                 </div>
 
                 <!-- Hero Card: Status de Risco Preditivo do Ponto Selecionado -->
@@ -1469,13 +1497,13 @@
                 <!-- Grid de Mini KPIs: 4 Pilares Geográficos e Meteorológicos -->
                 <div class="kpi-grid">
                     <div class="kpi-card">
-                        <div class="kpi-label">💧 Chuva Atual</div>
-                        <div id="kpi-rain-current" class="kpi-val" style="color: #38BDF8;">0.0 mm/h</div>
-                        <div id="kpi-rain-forecast-sub" class="kpi-sub">+0.0 mm prev. (+3h)</div>
+                        <div class="kpi-label">💧 Chuva Prevista Hoje</div>
+                        <div id="kpi-rain-current" class="kpi-val" style="color: #38BDF8;">0.0 mm</div>
+                        <div id="kpi-rain-forecast-sub" class="kpi-sub">Chance máxima hoje: 0%</div>
                     </div>
 
                     <div class="kpi-card">
-                        <div class="kpi-label">🌧️ Acumulado 24h</div>
+                        <div class="kpi-label">🌧️ Últimas 24 horas</div>
                         <div id="kpi-rain-acc24" class="kpi-val" style="color: #38BDF8;">0.0 mm</div>
                         <div id="kpi-soil-status" class="kpi-sub">Solo Estável</div>
                     </div>
@@ -1648,12 +1676,24 @@
 
     </main>
 
+    <div id="saved-place-auth-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="saved-place-modal-title" onclick="closeSavedPlaceAuthModal(event)">
+        <div class="auth-modal-card">
+            <div class="auth-modal-icon">🔒</div>
+            <h2 id="saved-place-modal-title">Entre para usar seus locais</h2>
+            <p>🔒 Recurso exclusivo para usuários cadastrados. Faça Login ou Crie uma Conta para salvar seus locais e receber alertas em tempo real!</p>
+            <div class="auth-modal-actions">
+                <button type="button" class="auth-modal-close" onclick="closeSavedPlaceAuthModal()">Agora não</button>
+                <a class="auth-modal-login" href="/login">Fazer Login / Criar Conta</a>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/static/js/api.js"></script>
+    <script src="/static/js/api.js?v=20260916-session-fix"></script>
     <script src="/static/js/historico_buscas.js?v=20260915-v1"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260915-route-unified"></script>
-    <script src="/static/js/map_dashboard.js?v=20260915-route-unified"></script>
+    <script src="/static/js/map_dashboard.js?v=20260916-daily-rain"></script>
 </body>
 </html>

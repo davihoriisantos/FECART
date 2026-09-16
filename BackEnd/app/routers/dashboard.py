@@ -74,23 +74,40 @@ def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
         f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
         "&current=precipitation,rain,showers,temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
         "&hourly=precipitation,rain,showers,precipitation_probability,soil_moisture_0_to_1cm"
+        "&daily=precipitation_sum,precipitation_probability_max"
         "&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo"
     )
     
     data = None
-    try:
-        r = requests.get(url, verify=False, timeout=6)
-        if r.status_code == 200:
-            data = r.json()
-    except Exception as e:
-        print(f"[Weather API] Erro ao consultar Open-Meteo para {lat},{lon}:", e)
+    errors = []
+    # Alguns ambientes Windows injetam proxy/certificado inválido. A segunda
+    # tentativa ignora variáveis de proxy do processo, sem inventar dados.
+    for trust_environment in (True, False):
+        try:
+            session = requests.Session()
+            session.trust_env = trust_environment
+            r = session.get(url, verify=False, timeout=8)
+            if r.status_code == 200:
+                candidate = r.json()
+                if candidate.get("hourly") and candidate.get("current"):
+                    data = candidate
+                    break
+            errors.append(f"HTTP {r.status_code}")
+        except Exception as e:
+            errors.append(str(e))
     
     # Se falhou e tem cache antigo, usa o cache
     if not data and cached_entry:
         return cached_entry["data"]
         
     if not data:
-        return {"error": "Serviço meteorológico temporariamente indisponível", "lat": lat, "lon": lon}
+        return {
+            "error": "Serviço meteorológico temporariamente indisponível",
+            "lat": lat,
+            "lon": lon,
+            "source": "unavailable",
+            "details": errors[-1] if errors else "sem resposta",
+        }
     
     current = data.get("current", {})
     hourly = data.get("hourly", {})
@@ -124,7 +141,9 @@ def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
         "accumulated_24h_mm": round(acc_24h, 1),
         "current": current,
         "hourly": hourly,
-        "daily": data.get("daily", {})
+        "daily": data.get("daily", {}),
+        "source": "open-meteo",
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
     
     _weather_cache_dict[coord_key] = {

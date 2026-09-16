@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initLeafletMap();
     setupSearchListeners();
     setupRouteAutocomplete();
+    refreshSavedPlaceButtons();
 
     // Força o Leaflet a recalcular as dimensões reais do container
     setTimeout(() => {
@@ -114,6 +115,121 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Carrega dados iniciais da FECAP
     await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
+});
+
+// ─── ATALHOS CASA / TRABALHO VINCULADOS À CONTA ─────────────────────────────
+function decodeJwtPayload(token) {
+    try {
+        const encodedPayload = token.split('.')[1];
+        if (!encodedPayload) return null;
+        const base64 = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+        const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+        const decoded = decodeURIComponent(Array.from(binary, char =>
+            `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''));
+        return JSON.parse(decoded);
+    } catch (_) {
+        return null;
+    }
+}
+
+function getAuthenticatedUserContext() {
+    // O fluxo atual de login usa fg_token; floodguard_token é mantido como legado.
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) return null;
+    const payload = decodeJwtPayload(token);
+    if (!payload || !payload.sub) {
+        // Sessões antigas podem ter os dados do usuário salvos sem JWT decodificável.
+        try {
+            const savedUser = JSON.parse(localStorage.getItem('fg_user') || 'null');
+            const savedId = savedUser?.email || savedUser?.id;
+            return savedId ? { id: String(savedId) } : null;
+        } catch (_) {
+            return null;
+        }
+    }
+    if (payload.exp && Date.now() >= Number(payload.exp) * 1000) return null;
+    return { id: String(payload.sub) };
+}
+
+function savedPlacesStorageKey(userId) {
+    return `floodguard_saved_places:${encodeURIComponent(userId)}`;
+}
+
+function readSavedPlaces(user) {
+    if (!user) return {};
+    try {
+        const places = JSON.parse(localStorage.getItem(savedPlacesStorageKey(user.id)) || '{}');
+        return places && typeof places === 'object' ? places : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function showSavedPlaceAuthModal() {
+    const modal = document.getElementById('saved-place-auth-modal');
+    if (modal) modal.classList.add('open');
+}
+
+function closeSavedPlaceAuthModal(event) {
+    const modal = document.getElementById('saved-place-auth-modal');
+    if (!modal || (event && event.target !== modal)) return;
+    modal.classList.remove('open');
+}
+
+function refreshSavedPlaceButtons() {
+    const user = getAuthenticatedUserContext();
+    const places = readSavedPlaces(user);
+    [['home', '🏠 Casa'], ['work', '💼 Trabalho']].forEach(([type, label]) => {
+        const button = document.getElementById(`saved-place-${type}`);
+        if (!button) return;
+        const place = places[type];
+        button.textContent = label;
+        button.title = place ? `Abrir ${place.nome || label}` : `${label} ainda não foi definido`;
+    });
+}
+
+function saveCurrentPlace(type) {
+    const user = getAuthenticatedUserContext();
+    if (!user) {
+        showSavedPlaceAuthModal();
+        return;
+    }
+    if (!currentSelectedPoint || !Number.isFinite(Number(currentSelectedPoint.lat)) || !Number.isFinite(Number(currentSelectedPoint.lon))) {
+        showGeoToast('Selecione um ponto no mapa antes de salvar.', 'error');
+        return;
+    }
+
+    const places = readSavedPlaces(user);
+    places[type] = {
+        lat: Number(currentSelectedPoint.lat),
+        lon: Number(currentSelectedPoint.lon),
+        nome: currentSelectedPoint.nome || (type === 'home' ? 'Casa' : 'Trabalho'),
+        bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+        alt: currentSelectedPoint.alt ?? null,
+        address: currentSelectedPoint.address || null
+    };
+    localStorage.setItem(savedPlacesStorageKey(user.id), JSON.stringify(places));
+    refreshSavedPlaceButtons();
+    showGeoToast(`${type === 'home' ? 'Casa' : 'Trabalho'} salvo para sua conta.`, 'success');
+}
+
+function openSavedPlace(type) {
+    const user = getAuthenticatedUserContext();
+    if (!user) {
+        showSavedPlaceAuthModal();
+        return;
+    }
+    const place = readSavedPlaces(user)[type];
+    if (!place) {
+        // Primeiro clique define o ponto atualmente analisado; os próximos abrem o local.
+        saveCurrentPlace(type);
+        return;
+    }
+    selectSearchResult(place.lat, place.lon, place.nome, place.bairro, place.alt, place.address, type === 'home' ? '🏠' : '💼');
+}
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeSavedPlaceAuthModal();
 });
 
 // ─── CONSULTA DE ALTITUDE EM TEMPO REAL (OPENTOPODATA / OPEN-ELEVATION) ────────
@@ -757,7 +873,7 @@ async function fetchWeatherData(lat, lon) {
     if (geocodeCache[key]) return geocodeCache[key];
 
     // API Open-Meteo Oficial: coordenadas exatas, precipitação em tempo real (current) e histórico horário (hourly)
-    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers&hourly=precipitation,precipitation_probability,soil_moisture_0_to_1cm&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo`;
+    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers&hourly=precipitation,precipitation_probability,soil_moisture_0_to_1cm&daily=precipitation_sum,precipitation_probability_max&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo`;
     const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
 
     let data = null;
@@ -818,7 +934,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
     }
     if (currentIdx === -1) currentIdx = Math.max(0, times.length - 8);
 
-    // Chuva Atual (#kpi-rain-current): Volume exato de precipitação em mm/h referente ao horário atual
+    // Chuva atual ainda alimenta o motor de risco, mas o card exibe a previsão diária.
     let currentRain = 0.0;
     if (typeof data.current_rain_mm_h === 'number') {
         currentRain = data.current_rain_mm_h;
@@ -842,6 +958,14 @@ function processRiskAnalysis(data, altitude, lat, lon) {
             }
         }
     }
+
+    // Total e maior probabilidade do dia civil atual, incluindo o restante do dia.
+    const daily = data.daily || {};
+    const today = data.current?.time?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+    let dailyIndex = Array.isArray(daily.time) ? daily.time.indexOf(today) : -1;
+    if (dailyIndex < 0) dailyIndex = 0;
+    const dailyRainTotal = Math.max(0, Number(daily.precipitation_sum?.[dailyIndex]) || 0);
+    const dailyRainChance = clamp(Number(daily.precipitation_probability_max?.[dailyIndex]) || 0, 0, 100);
 
     // Série das últimas 24h
     const labels = [];
@@ -873,6 +997,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 
     // Projeção futura (+1h, +2h, +3h)
     let forecastRainTotal = 0;
+    let maxForecastRain = 0;
     const fRisks = [];
 
     for (let f = 1; f <= 3; f++) {
@@ -896,6 +1021,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         }
 
         forecastRainTotal += rainVal;
+        maxForecastRain = Math.max(maxForecastRain, rainVal);
         const risk = calculateRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon, soilMoisture);
 
         labels.push(horaStr);
@@ -909,7 +1035,10 @@ function processRiskAnalysis(data, altitude, lat, lon) {
     return {
         currentRain,
         acc24h,
+        dailyRainTotal,
+        dailyRainChance,
         forecastRainTotal,
+        maxForecastRain,
         currentRisk,
         maxForecastRisk,
         labels,
@@ -918,8 +1047,30 @@ function processRiskAnalysis(data, altitude, lat, lon) {
     };
 }
 
-// ─── MOTOR PREDITIVO DE IA — OS 4 PILARES UNIVERSAIS (0 a 100%) ───────────────
-// Risco = (Peso_Topografia * Relevo) + (Peso_Proximidade * Rio) + (Peso_Chuva * Clima) + (Peso_Historico * Registro_CGE)
+// Retorna o teto hidrológico imposto pela chuva. A chuva é condição necessária:
+// relevo, histórico ou rio isoladamente nunca produzem alerta alto/crítico.
+function getRainRiskCap(rainMm, acc24h) {
+    const rain = Math.max(0, Number(rainMm) || 0);
+    const accumulated = Math.max(0, Number(acc24h) || 0);
+    const strongRain = rain > 15 || accumulated > 40;
+    if (strongRain) return 100;
+    if (rain === 0 && accumulated < 5) return 25;
+    // Sem precipitação atual, acumulados recentes moderados indicam atenção ao
+    // solo, mas não justificam alerta alto de enchente por si sós.
+    if (rain === 0 && accumulated <= 20) return 29;
+    if (rain === 0 && accumulated <= 20) return 0;
+    if (rain === 0) return 25;
+    if (rain >= 0.1 && rain <= 5) return 45;
+    // Chuva intermediária ou solo ainda carregado: permite risco alto, não crítico.
+    return 75;
+}
+
+function applyRainRiskCap(risk, rainMm, acc24h) {
+    return Math.min(risk, getRainRiskCap(rainMm, acc24h));
+}
+
+// ─── MOTOR PREDITIVO DE IA — HIERARQUIA HIDROLÓGICA (0 a 100%) ───────────────
+// Risco = (Chuva * 0.50) + (Rio * 0.30) + (Relevo_Histórico * 0.20)
 function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture = null) {
     const rain = Math.max(0, Number(rainMm) || 0);
     const accumulated = Math.max(0, Number(acc24h) || 0);
@@ -953,12 +1104,11 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     const Score_Proximidade_Rio = clamp(100 * Math.exp(-riverDist / 800), 2, 98);
 
     let riverMultiplier = 1.0;
-    let forceMinRisk = null;
-    if (currentRiverTelemetry && currentRiverTelemetry.dentro_raio) {
+    const riverSource = currentRiverTelemetry?.estacao?.fonte_dados || '';
+    const hasRealRiverTelemetry = currentRiverTelemetry && currentRiverTelemetry.dentro_raio &&
+        !currentRiverTelemetry.dados_simulados && riverSource !== 'mock';
+    if (hasRealRiverTelemetry) {
         riverMultiplier = currentRiverTelemetry.multiplicador;
-        if (currentRiverTelemetry.risco_minimo_forca) {
-            forceMinRisk = currentRiverTelemetry.risco_minimo_forca;
-        }
     }
     const Score_Nivel_Rio = clamp(Score_Proximidade_Rio * riverMultiplier, 2, 100);
 
@@ -973,18 +1123,16 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Score_Historico_CGE = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
     }
 
-    // ─── PESOS BALANCEADOS DO MOTOR PREDITIVO DE IA ───
-    // Fórmula solicitada: Risco_Final = (Relevo * 0.25) + (Chuva_Acumulada * 0.25) + (Histórico * 0.20) + (Nivel_Telemetrico_Rio * 0.30)
-    const Peso_Topografia = 0.25;
-    const Peso_Chuva = 0.25;
-    const Peso_Historico = 0.20;
+    // Histórico da Defesa Civil é prioritário dentro da faixa conjunta de 20%.
+    const Score_Relevo_Historico = (Score_Historico_CGE * 0.70) + (Score_Topografia * 0.30);
+    const Peso_Chuva = 0.50;
     const Peso_Rio = 0.30;
+    const Peso_Relevo_Historico = 0.20;
 
     let Risco_Multifatorial = (
-        (Peso_Topografia * Score_Topografia) +
         (Peso_Chuva * Score_Clima) +
-        (Peso_Historico * Score_Historico_CGE) +
-        (Peso_Rio * Score_Nivel_Rio)
+        (Peso_Rio * Score_Nivel_Rio) +
+        (Peso_Relevo_Historico * Score_Relevo_Historico)
     );
 
     // Atenuação por estruturas de macrodrenagem e piscinões
@@ -993,27 +1141,13 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Risco_Multifatorial *= (1 - drainageInfo.influence * 0.08);
     }
 
-    // Forçar Risco Crítico em caso de extravasamento iminente (raio < 800m)
-    if (forceMinRisk !== null) {
-        Risco_Multifatorial = Math.max(Risco_Multifatorial, forceMinRisk);
-    }
-
-    // Modulação física para tempo seco real:
-    // Evita falsos positivos de enchente quando o céu está limpo,
-    // MAS NÃO aplica o cap se houver alerta hídrico ativo (rio em extravasamento/alerta).
-    const riverAlerting = currentRiverTelemetry && currentRiverTelemetry.dentro_raio &&
-        ['alerta', 'extravasamento'].includes(currentRiverTelemetry.nivel);
-    if (rain < 0.1 && accumulated < 3.5 && probability < 25 && simulatedScenario === 'real' && !riverAlerting) {
-        Risco_Multifatorial = Math.min(Risco_Multifatorial, 8);
-    }
-
-
-    return Math.max(1, Math.min(100, Math.round(Risco_Multifatorial)));
+    Risco_Multifatorial = applyRainRiskCap(Risco_Multifatorial, rain, accumulated);
+    return Math.max(0, Math.min(100, Math.round(Risco_Multifatorial)));
 }
 
 // ─── ATUALIZAR UI COM DADOS CALCULADOS E 4 PILARES ───────────────────────────
 function updateUIWithAnalysis(analysis, alt, lat, lon) {
-    const risk = analysis.maxForecastRisk;
+    const risk = analysis.currentRisk;
     const color = getRiskColor(risk);
     const label = getRiskLabel(risk);
     const altInfo = getAltitudeClassification(alt);
@@ -1059,7 +1193,10 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         const pct   = rt.percentual_ocupacao || 0;
         const nomeEstacao = rt.estacao.nome || rt.estacao.rio;
         const fonte = rt.estacao.fonte_dados || 'mock dinâmico';
-        const fonteLabel = fonte.includes('tempo real') ? '🔴 AO VIVO — SAISP/CGE' : '🔵 Simulação FloodGuard AI';
+        const isSimulatedRiver = rt.dados_simulados || fonte === 'mock' || fonte.startsWith('Simulação');
+        const fonteLabel = fonte.includes('tempo real')
+            ? '🔴 AO VIVO — SAISP/CGE'
+            : (isSimulatedRiver ? '⚪ Telemetria real indisponível' : 'Fonte externa');
 
         // Cores por nível
         const lvlColors = {
@@ -1067,6 +1204,7 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
             alerta:         { border: '#F97316', bg: 'rgba(249,115,22,0.08)', text: '#F97316', light: '#FDBA74' },
             atencao:        { border: '#EAB308', bg: 'rgba(234,179,8,0.08)',  text: '#EAB308', light: '#FDE047' },
             normal:         { border: '#10B981', bg: 'rgba(16,185,129,0.08)', text: '#10B981', light: '#6EE7B7' },
+            indisponivel:   { border: '#64748B', bg: 'rgba(100,116,139,0.08)', text: '#94A3B8', light: '#CBD5E1' },
         };
         const lc = lvlColors[nivel] || lvlColors.normal;
 
@@ -1106,7 +1244,9 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
                 const okInfo  = document.getElementById('river-ok-info');
                 if (okEmoji) okEmoji.textContent = rt.emoji || '🟢';
                 if (okName)  okName.textContent = rt.estacao.rio;
-                if (okInfo)  okInfo.textContent = `${rt.label} — ${pct}% da calha • ${fonteLabel}`;
+                if (okInfo)  okInfo.textContent = isSimulatedRiver
+                    ? 'Dados simulados desconsiderados do risco • aguardando telemetria real'
+                    : `${rt.label} — ${pct}% da calha • ${fonteLabel}`;
             }
         }
     } else {
@@ -1126,28 +1266,25 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         elRec.innerHTML = `🛡️ <strong>Sem risco iminente:</strong> Drenagem operando normalmente (${altInfo.tipo}).`;
     }
 
-    // ── Mini KPIs: Chuva Atual e Acumulado 24h com dados reais ────────────────
+    // ── Mini KPIs: previsão total do dia e histórico das últimas 24h ──────────
     const elRainCurrent = document.getElementById('kpi-rain-current');
     if (elRainCurrent) {
-        const rainNow = analysis.currentRain;
-        elRainCurrent.textContent = `${rainNow.toFixed(1)} mm/h`;
-        // Cor dinâmica conforme intensidade real (escala Defesa Civil)
-        if (rainNow >= 10) {
+        const rainToday = analysis.dailyRainTotal;
+        elRainCurrent.textContent = `${rainToday.toFixed(1)} mm`;
+        if (rainToday >= 30) {
             elRainCurrent.style.color = '#EF4444'; // Vermelho — Chuva Forte/Tempestade
-        } else if (rainNow >= 2.5) {
+        } else if (rainToday >= 10) {
             elRainCurrent.style.color = '#F59E0B'; // Amarelo — Chuva Moderada
-        } else if (rainNow > 0) {
+        } else if (rainToday > 0) {
             elRainCurrent.style.color = '#38BDF8'; // Azul — Chuva Fraca/Garoa
         } else {
-            elRainCurrent.style.color = '#10B981'; // Verde — Sem chuva no momento
+            elRainCurrent.style.color = '#10B981'; // Verde — Sem chuva prevista
         }
     }
 
     const elForecastSub = document.getElementById('kpi-rain-forecast-sub');
     if (elForecastSub) {
-        elForecastSub.textContent = analysis.forecastRainTotal > 0
-            ? `+${analysis.forecastRainTotal.toFixed(1)} mm prev. (+3h)`
-            : 'Sem chuva prevista (+3h)';
+        elForecastSub.textContent = `Chance máxima hoje: ${Math.round(analysis.dailyRainChance)}%`;
     }
 
     const elRainAcc = document.getElementById('kpi-rain-acc24');
@@ -1237,7 +1374,7 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
     if (activeMarker) map.removeLayer(activeMarker);
     if (activeRiskCircle) map.removeLayer(activeRiskCircle);
 
-    const risk = analysis.maxForecastRisk;
+    const risk = analysis.currentRisk;
     const color = getRiskColor(risk);
     const altInfo = getAltitudeClassification(alt);
     const riverInfo = getMinDistanceToRivers(lat, lon);
@@ -2366,9 +2503,9 @@ async function updateRouteWeatherCards(lat, lon, nome = '') {
             const elCurrent = document.getElementById('kpi-rain-current');
             const elAcc24 = document.getElementById('kpi-rain-acc24');
             const elForecast = document.getElementById('kpi-rain-forecast-sub');
-            if (elCurrent) elCurrent.textContent = `${analysis.currentRain.toFixed(1)} mm/h`;
+            if (elCurrent) elCurrent.textContent = `${analysis.dailyRainTotal.toFixed(1)} mm`;
             if (elAcc24) elAcc24.textContent = `${analysis.acc24h.toFixed(1)} mm`;
-            if (elForecast && nome) elForecast.textContent = `Ponto: ${nome.slice(0, 18)}`;
+            if (elForecast) elForecast.textContent = `Chance máxima hoje: ${Math.round(analysis.dailyRainChance)}%`;
         }
     } catch (e) {
         console.warn("[FloodGuard] Erro ao atualizar cards de chuva da rota:", e);
@@ -2785,8 +2922,9 @@ async function scoreAltRoute(routeGeometry) {
         );
         const terrainContexts = samples.map((_, i) => getRouteTerrainContext(samples, elevations, i));
         const sampleRisks = samples.map((point, i) => {
-            const base = processRiskAnalysis(environments[i], elevations[i], point.lat, point.lon).maxForecastRisk;
-            return Math.round(clamp(base + terrainContexts[i].adjustment, 1, 100));
+            const analysis = processRiskAnalysis(environments[i], elevations[i], point.lat, point.lon);
+            const adjusted = baseRouteRiskWithTerrainCap(analysis, terrainContexts[i].adjustment);
+            return Math.round(clamp(adjusted, 0, 100));
         });
 
         const maxRisk = Math.max(...sampleRisks);
@@ -2797,6 +2935,12 @@ async function scoreAltRoute(routeGeometry) {
     } catch {
         return null;
     }
+}
+
+function baseRouteRiskWithTerrainCap(analysis, terrainAdjustment) {
+    const relevantRain = Math.max(analysis.currentRain || 0, analysis.maxForecastRain || 0);
+    const relevantAccumulated = (analysis.acc24h || 0) + (analysis.forecastRainTotal || 0);
+    return applyRainRiskCap(analysis.maxForecastRisk + terrainAdjustment, relevantRain, relevantAccumulated);
 }
 
 // Estado global da rota alternativa
@@ -3102,8 +3246,8 @@ async function processRouteTrajectory(origem, destino) {
         );
         const terrainContexts = samples.map((_, index) => getRouteTerrainContext(samples, elevations, index));
         const sampleRisks = samples.map((point, index) => {
-            const baseRisk = processRiskAnalysis(environments[index], elevations[index], point.lat, point.lon).maxForecastRisk;
-            return Math.round(clamp(baseRisk + terrainContexts[index].adjustment, 1, 100));
+            const analysis = processRiskAnalysis(environments[index], elevations[index], point.lat, point.lon);
+            return Math.round(clamp(baseRouteRiskWithTerrainCap(analysis, terrainContexts[index].adjustment), 0, 100));
         });
         const vertexRisks = interpolateRouteRisks(coordinates, samples, sampleRisks);
         const groups = groupRouteSegments(coordinates, vertexRisks);
@@ -3557,9 +3701,11 @@ function getFallbackAnalysis() {
     return {
         currentRain: 0.0,
         acc24h: 2.0,
+        dailyRainTotal: 0.0,
+        dailyRainChance: 0,
         forecastRainTotal: 0.0,
-        currentRisk: 12,
-        maxForecastRisk: 12,
+        currentRisk: 0,
+        maxForecastRisk: 0,
         labels: ["-24h", "-18h", "-12h", "-6h", "Agora", "+1h", "+2h", "+3h"],
         historyRisks: [8, 10, 12, 11, 12, null, null, null],
         forecastRisks: [null, null, null, null, 12, 12, 12, 12]

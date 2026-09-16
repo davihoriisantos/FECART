@@ -313,14 +313,14 @@
 <body>
     <!-- ─── Header ─── -->
     <header class="profile-header">
-        <a href="/" class="profile-header-brand">
+        <a href="/static/map.html" class="profile-header-brand" title="Voltar ao mapa">
             <div class="logo-icon">
                 <img src="/static/img/logo.jpg" alt="FloodGuard AI">
             </div>
             <span>FloodGuard <b>AI</b></span>
         </a>
         <div style="display:flex; align-items:center; gap: 10px;">
-            <a href="/map" style="color:#94A3B8; font-size:13px; font-weight:700; text-decoration:none;">
+            <a href="/static/map.html" style="color:#94A3B8; font-size:13px; font-weight:700; text-decoration:none;">
                 🗺️ Mapa
             </a>
             <button class="btn-logout" onclick="logout()">⏏️ Sair</button>
@@ -514,7 +514,7 @@
 
     <script src="/static/js/api.js"></script>
     <script src="/static/js/historico_buscas.js?v=20260915-v1"></script>
-    <script src="/static/js/auth_enhanced.js?v=20260915-v2"></script>
+    <script src="/static/js/auth_enhanced.js?v=20260916-session-fix2"></script>
     <script>
         // Inicializar página de perfil
         document.addEventListener('DOMContentLoaded', initProfilePage);

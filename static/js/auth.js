@@ -38,6 +38,8 @@ function hideMsg(el) {
 }
 
 function logout() {
+    localStorage.removeItem('fg_token');
+    localStorage.removeItem('fg_user');
     localStorage.removeItem('floodguard_token');
-    window.location.href = '/';
+    window.location.href = '/?skipSplash=1';
 }

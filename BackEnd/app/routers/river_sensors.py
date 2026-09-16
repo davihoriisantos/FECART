@@ -18,6 +18,9 @@ import urllib.request
 import urllib.error
 import json
 import hashlib
+from shapely.geometry import LineString, Point
+from shapely.ops import transform
+from pyproj import Transformer
 
 router = APIRouter(prefix="/api/rivers", tags=["rivers"])
 
@@ -287,6 +290,18 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
             cota = _get_mock_cota(st)
 
     classificacao = _classify_level(cota, st)
+    # Uma estimativa sintética nunca deve ser apresentada nem ponderada como
+    # alerta hidrológico real. Mantemos o valor apenas para demonstração visual.
+    if fonte == "mock":
+        classificacao = {
+            **classificacao,
+            "nivel": "indisponivel",
+            "cor": "cinza",
+            "emoji": "⚪",
+            "label": "Telemetria real indisponível",
+            "multiplicador": 1.0,
+            "risco_minimo_forca": None,
+        }
     result = {
         "id": st["id"],
         "nome": st["nome"],
@@ -298,6 +313,7 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
         "cota_atencao_m": st["cota_atencao_m"],
         "cota_alerta_m": st["cota_alerta_m"],
         "fonte_dados": fonte,
+        "dados_simulados": fonte == "mock" or fonte.startswith("Simulação"),
         "nome_estacao": st["nome"],
         "rio_nome": st["rio"],
         "altura_atual_m": round(cota, 2),
@@ -511,16 +527,55 @@ RIVER_POLYLINES: dict[str, list[tuple[float, float]]] = {
         (-23.546, -46.668), (-23.549, -46.663), (-23.551, -46.658),
         (-23.553, -46.654), (-23.555, -46.650), (-23.557, -46.646),
     ],
+
+    # ── CANAIS E CÓRREGOS COMPLEMENTARES DA MALHA MUNICIPAL ───────────────────
+    "Córrego da Lapa": [
+        (-23.548, -46.717), (-23.542, -46.716), (-23.536, -46.715),
+        (-23.530, -46.714), (-23.524, -46.713), (-23.518, -46.712),
+    ],
+    "Córrego Cabuçu de Baixo": [
+        (-23.471, -46.681), (-23.478, -46.677), (-23.485, -46.673),
+        (-23.492, -46.669), (-23.499, -46.665), (-23.506, -46.661),
+    ],
+    "Canal da Traição": [
+        (-23.607, -46.694), (-23.603, -46.687), (-23.600, -46.680),
+        (-23.597, -46.673), (-23.594, -46.666),
+    ],
+    "Córrego Morro do S": [
+        (-23.649, -46.748), (-23.643, -46.741), (-23.637, -46.735),
+        (-23.631, -46.729), (-23.625, -46.723),
+    ],
+    "Córrego do Sapateiro": [
+        (-23.604, -46.666), (-23.599, -46.663), (-23.594, -46.660),
+        (-23.589, -46.657), (-23.584, -46.653), (-23.579, -46.649),
+    ],
+    "Córrego Verde": [
+        (-23.575, -46.697), (-23.570, -46.692), (-23.565, -46.687),
+        (-23.560, -46.682), (-23.555, -46.677),
+    ],
+    "Córrego Tiquatira": [
+        (-23.529, -46.552), (-23.526, -46.545), (-23.523, -46.538),
+        (-23.520, -46.531), (-23.517, -46.524), (-23.514, -46.517),
+    ],
+    "Córrego Jacu": [
+        (-23.586, -46.466), (-23.578, -46.469), (-23.570, -46.472),
+        (-23.562, -46.475), (-23.554, -46.478), (-23.546, -46.481),
+    ],
 }
 
-# Conjunto plano de todos os segmentos: list[(lat1,lon1,lat2,lon2,nome_rio)]
-# Pré-computado no carregamento do módulo para máxima performance em runtime.
-_ALL_SEGMENTS: list[tuple[float, float, float, float, str]] = []
-for _rname, _coords in RIVER_POLYLINES.items():
-    for _i in range(len(_coords) - 1):
-        _ALL_SEGMENTS.append((_coords[_i][0], _coords[_i][1],
-                               _coords[_i+1][0], _coords[_i+1][1],
-                               _rname))
+# Índice espacial pré-computado. As geometrias chegam em WGS84 (lon, lat) e
+# são projetadas para SIRGAS 2000 / UTM 23S, permitindo buffer/distância em metros.
+RIVER_BUFFER_METERS = 100.0
+_TO_METRIC = Transformer.from_crs("EPSG:4326", "EPSG:31983", always_xy=True).transform
+_RIVER_SPATIAL_INDEX: dict[str, dict] = {}
+for _river_name, _lat_lon_coords in RIVER_POLYLINES.items():
+    _gps_line = LineString([(lon, lat) for lat, lon in _lat_lon_coords])
+    _metric_line = transform(_TO_METRIC, _gps_line)
+    _RIVER_SPATIAL_INDEX[_river_name] = {
+        "gps_line": _gps_line,
+        "metric_line": _metric_line,
+        "buffer_100m": _metric_line.buffer(RIVER_BUFFER_METERS),
+    }
 
 
 def _dist_to_segment_m(lat: float, lon: float,
@@ -540,17 +595,13 @@ def _dist_to_segment_m(lat: float, lon: float,
 
 
 def _min_dist_to_river_polyline(lat: float, lon: float, river_name: str) -> float:
-    """Distância ortogonal mínima em metros até o traçado de um rio pelo nome."""
-    coords = RIVER_POLYLINES.get(river_name, [])
-    if len(coords) < 2:
+    """Distância Shapely em metros até o eixo do curso d'água."""
+    river_geometry = _RIVER_SPATIAL_INDEX.get(river_name)
+    if not river_geometry:
         return float("inf")
-    best = float("inf")
-    for i in range(len(coords) - 1):
-        d = _dist_to_segment_m(lat, lon, coords[i][0], coords[i][1],
-                                coords[i+1][0], coords[i+1][1])
-        if d < best:
-            best = d
-    return best
+    gps_point = Point(lon, lat)
+    metric_point = transform(_TO_METRIC, gps_point)
+    return float(metric_point.distance(river_geometry["metric_line"]))
 
 
 def _min_dist_to_any_polyline(lat: float, lon: float) -> tuple[float, str]:
@@ -559,21 +610,26 @@ def _min_dist_to_any_polyline(lat: float, lon: float) -> tuple[float, str]:
     (distância_mínima_m, nome_do_rio_mais_próximo).
     Usado como fallback universal para identificar o corpo d'água mais próximo.
     """
-    best_dist = float("inf")
-    best_name = "Bacia Hidrográfica de SP"
-    for lat1, lon1, lat2, lon2, rname in _ALL_SEGMENTS:
-        d = _dist_to_segment_m(lat, lon, lat1, lon1, lat2, lon2)
-        if d < best_dist:
-            best_dist = d
-            best_name = rname
+    # Point(lon, lat): nenhuma informação de rua/geocoding participa da busca.
+    gps_point = Point(lon, lat)
+    metric_point = transform(_TO_METRIC, gps_point)
+    containing = []
+    nearest = (float("inf"), "Bacia Hidrográfica de SP")
 
-    # Regra de Tolerância Zero (Snap-to-Water)
-    if best_dist <= 100.0:
-        best_dist = 0.0
-    else:
-        best_dist = float(round(best_dist))
+    for river_name, geometry in _RIVER_SPATIAL_INDEX.items():
+        distance = float(metric_point.distance(geometry["metric_line"]))
+        buffer_polygon = geometry["buffer_100m"]
+        if metric_point.within(buffer_polygon) or buffer_polygon.covers(metric_point):
+            containing.append((distance, river_name))
+        if distance < nearest[0]:
+            nearest = (distance, river_name)
 
-    return best_dist, best_name
+    # Em buffers sobrepostos, identifica a linha efetivamente mais próxima.
+    if containing:
+        _, river_name = min(containing, key=lambda item: item[0])
+        return 0.0, river_name
+
+    return float(round(nearest[0], 1)), nearest[1]
 
 
 
@@ -659,7 +715,7 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, 
         "dentro_raio": within_radius,
         "distancia_m": round(best_dist, 1) if best_data else None,
         "nome_estacao": best_data["nome"] if best_data else None,
-        "rio_nome": best_data["rio"] if best_data else None,
+        "rio_nome": nome_calha_real,
         "porcentagem_calha": best_data["percentual_ocupacao"] if best_data else 0.0,
         "percentual_ocupacao": best_data["percentual_ocupacao"] if best_data else 0.0,
         "estacao": {
@@ -687,4 +743,8 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, 
         # Use estes dois campos nos KPIs do frontend (#kpi-river-dist / #kpi-river-name)
         "distancia_calha_m": round(dist_calha_real, 1),
         "calha_nome": nome_calha_real,
+        "dentro_buffer_100m": dist_calha_real == 0.0,
+        "metodo_espacial": "shapely_point_in_polygon_utm23s",
+        "buffer_metros": RIVER_BUFFER_METERS,
+        "total_corpos_agua_indexados": len(_RIVER_SPATIAL_INDEX),
     }

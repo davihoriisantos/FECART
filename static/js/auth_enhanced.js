@@ -14,7 +14,7 @@ const AUTH_CONFIG = {
     API_BASE:    '/api/auth',
     TOKEN_KEY:   'fg_token',
     USER_KEY:    'fg_user',
-    REDIRECT_AFTER_LOGIN:    '/map',
+    REDIRECT_AFTER_LOGIN:    '/static/map.html',
     REDIRECT_AFTER_LOGOUT:   '/login',
     REDIRECT_TO_LOGIN:       '/login',
 };
@@ -40,11 +40,14 @@ if (Device.isIOS)    document.documentElement.classList.add('is-ios');
 // ══════════════════════════════════════════════════════════════════
 function saveSession(token, user) {
     localStorage.setItem(AUTH_CONFIG.TOKEN_KEY, token);
+    // Mantém compatibilidade com módulos antigos que ainda usam esta chave.
+    localStorage.setItem('floodguard_token', token);
     localStorage.setItem(AUTH_CONFIG.USER_KEY,  JSON.stringify(user));
 }
 
 function clearSession() {
     localStorage.removeItem(AUTH_CONFIG.TOKEN_KEY);
+    localStorage.removeItem('floodguard_token');
     localStorage.removeItem(AUTH_CONFIG.USER_KEY);
 }
 

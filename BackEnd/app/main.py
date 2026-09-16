@@ -53,6 +53,10 @@ def serve_login():
 def serve_profile():
     return FileResponse(os.path.join(static_dir, "profile.html"))
 
+@app.get("/map")
+def serve_map():
+    return FileResponse(os.path.join(static_dir, "map.html"))
+
 @app.get("/{filename:path}")
 def serve_static(filename: str):
     file_path = os.path.join(static_dir, filename)
