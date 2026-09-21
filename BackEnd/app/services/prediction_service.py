@@ -13,17 +13,22 @@ def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
 
 
 def rain_risk_cap(current_rain_mm_h: float, accumulated_24h_mm: float) -> float:
-    """Teto eliminatório: sem chuva não existe alerta alto/crítico."""
+    """
+    Teto eliminatório (Gatekeeper Absoluto):
+    Se a Chuva Atual for 0.0 mm/h e o acumulado < 1.0 mm, o risco NÃO PODE
+    ultrapassar 20% (Status VERDE - Condição Segura / Risco Baixo).
+    Sem chuva no momento (0.0 mm/h), o teto é estritamente < 20%.
+    """
     rain = max(0.0, float(current_rain_mm_h or 0.0))
     accumulated = max(0.0, float(accumulated_24h_mm or 0.0))
+    if rain == 0.0 and accumulated < 1.0:
+        return 15.0  # Risco Baixo garantido (<20%)
+    if rain == 0.0 and accumulated <= 10.0:
+        return 18.0  # Risco Baixo garantido (<20%)
+    if rain == 0.0:
+        return 19.5  # Teto absoluto sem chuva atual (<20%)
     if rain > 15.0 or accumulated > 40.0:
         return 100.0
-    if rain == 0.0 and accumulated < 5.0:
-        return 0.0
-    if rain == 0.0 and accumulated <= 20.0:
-        return 0.0
-    if rain == 0.0:
-        return 25.0
     if 0.1 <= rain <= 5.0:
         return 45.0
     return 75.0
@@ -48,6 +53,12 @@ def calculate_predictive_risk(
     )
     cap = rain_risk_cap(current_rain_mm_h, accumulated_24h_mm)
     final_risk = round(min(raw_risk, cap), 1)
+
+    # Gatekeeper Absoluto: sem chuva no momento, obrigatoriamente Risco Baixo (<20%)
+    if current_rain_mm_h == 0.0 and accumulated_24h_mm < 1.0:
+        final_risk = min(final_risk, 15.0)
+    elif current_rain_mm_h == 0.0:
+        final_risk = min(final_risk, 18.0)
 
     if final_risk >= 80:
         level = "critico"

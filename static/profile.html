@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Meu Perfil - FloodGuard AI</title>
+    <title>Painel do Usuário - FloodGuard AI</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <style>
         /* ══════════════════════════════════════════════
            VARIÁVEIS E BASE
         ══════════════════════════════════════════════ */
         :root {
-            --profile-max: 720px;
+            --profile-max: 760px;
             --tab-h: 52px;
         }
 
@@ -101,93 +101,97 @@
         ══════════════════════════════════════════════ */
         .profile-tabs-nav {
             display: flex;
-            background: rgba(0,0,0,0.3);
+            background: rgba(11,16,30,0.85);
             border-bottom: 1px solid rgba(56,189,248,0.12);
+            padding: 0 20px;
+            overflow-x: auto;
+            scrollbar-width: none;
             position: sticky;
             top: 60px;
             z-index: 90;
-            backdrop-filter: blur(12px);
+            backdrop-filter: blur(16px);
         }
+        .profile-tabs-nav::-webkit-scrollbar { display: none; }
+
         .profile-tab-btn {
-            flex: 1;
-            height: var(--tab-h);
+            background: none;
             border: none;
-            background: transparent;
-            color: #64748B;
-            font-size: 13px; font-weight: 700;
-            cursor: pointer; transition: all 0.25s;
-            display: flex; align-items: center; justify-content: center;
-            gap: 6px;
             border-bottom: 2px solid transparent;
+            color: #64748B;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 16px 16px 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 7px;
             font-family: 'Plus Jakarta Sans', sans-serif;
         }
-        .profile-tab-btn:hover  { color: #CBD5E1; background: rgba(255,255,255,0.03); }
+        .profile-tab-btn:hover { color: #E2E8F0; }
         .profile-tab-btn.active {
             color: #38BDF8;
             border-bottom-color: #38BDF8;
-            background: rgba(56,189,248,0.05);
         }
+        .profile-tab-btn .tab-emoji { font-size: 15px; }
 
         /* ══════════════════════════════════════════════
-           PAINÉIS DE CONTEÚDO
+           CONTEÚDO DAS ABAS
         ══════════════════════════════════════════════ */
         .profile-content-area {
             max-width: var(--profile-max);
             margin: 0 auto;
-            padding: 28px 24px 48px;
+            padding: 28px 20px 60px;
         }
-        .profile-panel { display: none; animation: fadeIn 0.3s ease; }
+
+        .profile-panel { display: none; }
         .profile-panel.active { display: block; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
 
-        /* ══════════════════════════════════════════════
-           FORM STYLES
-        ══════════════════════════════════════════════ */
+        /* ─── Seções e Títulos ─── */
         .section-title {
-            font-size: 14px; font-weight: 800; color: #94A3B8;
-            text-transform: uppercase; letter-spacing: 0.8px;
-            margin-bottom: 16px; margin-top: 24px;
+            font-size: 16px; font-weight: 800; color: #F1F5F9;
+            margin-bottom: 18px;
             display: flex; align-items: center; gap: 8px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
         }
-        .section-title:first-child { margin-top: 0; }
 
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .form-grid .full { grid-column: 1 / -1; }
+        /* ─── Formulários ─── */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group.full { grid-column: 1 / -1; }
 
-        .form-group { margin-bottom: 0; }
         .form-label {
             font-size: 12px; font-weight: 700; color: #94A3B8;
             text-transform: uppercase; letter-spacing: 0.5px;
-            display: block; margin-bottom: 7px;
         }
+
         .form-input {
-            width: 100%;
-            padding: 12px 16px;
-            background: rgba(0,0,0,0.35);
-            border: 1px solid rgba(56,189,248,0.2);
+            background: rgba(15,23,42,0.8);
+            border: 1px solid rgba(255,255,255,0.1);
             border-radius: 10px;
+            padding: 12px 14px;
             color: #F1F5F9;
-            font-size: 14px; font-weight: 500;
-            outline: none;
-            transition: all 0.2s;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.25);
+            font-size: 14px;
             font-family: 'Plus Jakarta Sans', sans-serif;
+            transition: all 0.2s;
+            outline: none;
+            width: 100%;
             box-sizing: border-box;
         }
         .form-input:focus {
             border-color: #38BDF8;
-            background: rgba(0,0,0,0.5);
             box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
+            background: rgba(15,23,42,0.95);
         }
         .form-input:disabled {
             opacity: 0.5; cursor: not-allowed;
-            background: rgba(0,0,0,0.2);
+            background: rgba(15,23,42,0.4);
         }
-        .form-input.invalid { border-color: #EF4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.12); }
-        .form-input.valid   { border-color: #10B981; }
 
         .input-wrapper { position: relative; }
         .btn-eye {
@@ -198,18 +202,6 @@
         }
         .btn-eye:hover { color: #38BDF8; }
         .form-input.has-eye { padding-right: 42px; }
-
-        /* ─── Indicador força de senha ─── */
-        .pw-strength { margin-top: 8px; }
-        .pw-strength-bar {
-            height: 4px; border-radius: 2px;
-            background: rgba(255,255,255,0.08); overflow: hidden; margin-bottom: 5px;
-        }
-        .pw-strength-fill {
-            height: 100%; border-radius: 2px; width: 0%;
-            transition: width 0.35s ease, background 0.35s ease;
-        }
-        .pw-strength-label { font-size: 11px; font-weight: 700; color: #64748B; }
 
         /* ─── Botões ─── */
         .btn-save {
@@ -245,73 +237,74 @@
         .msg-success { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #6EE7B7; }
         .field-error { font-size: 11px; color: #FCA5A5; margin-top: 4px; display: none; }
 
-        /* ─── Cards de info (aba Atividade) ─── */
+        /* ─── Cards de info ─── */
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         .info-card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(56,189,248,0.12);
-            border-radius: 12px; padding: 16px;
+            background: rgba(15,23,42,0.6);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px;
+            padding: 16px 18px;
+            transition: border-color 0.2s;
         }
-        .info-card-label { font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
-        .info-card-value { font-size: 14px; font-weight: 700; color: #F1F5F9; }
-        .info-card-value.green { color: #34D399; }
-        .info-card-value.blue  { color: #38BDF8; }
-        .info-card-value.muted { color: #64748B; }
+        .info-card:hover { border-color: rgba(56,189,248,0.25); }
+        .info-card-label {
+            font-size: 11px; font-weight: 700; color: #64748B;
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+        }
+        .info-card-value {
+            font-size: 14px; font-weight: 700; color: #F1F5F9;
+        }
+        .info-card-value.blue { color: #38BDF8; }
 
-        .status-pill {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;
+        /* ─── Modo Visitante (Guest Login / Register) ─── */
+        .guest-auth-wrapper {
+            max-width: 460px;
+            margin: 40px auto;
+            background: rgba(15,23,42,0.85);
+            border: 1px solid rgba(56,189,248,0.2);
+            border-radius: 18px;
+            padding: 32px 28px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
-        .status-pill.ativo    { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.35); color: #34D399; }
-        .status-pill.inativo  { background: rgba(239,68,68,0.15);  border: 1px solid rgba(239,68,68,0.35);  color: #FCA5A5; }
-
-        /* ─── Zona de perigo ─── */
-        .danger-zone {
-            border: 1px solid rgba(239,68,68,0.25);
-            border-radius: 12px; padding: 20px;
-            background: rgba(239,68,68,0.05); margin-top: 24px;
+        .guest-tabs {
+            display: flex;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 4px;
+            margin-bottom: 24px;
         }
-        .danger-zone-title {
-            font-size: 13px; font-weight: 700; color: #FCA5A5;
-            margin-bottom: 6px;
+        .guest-tab-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            color: #94A3B8;
+            font-weight: 700;
+            font-size: 13px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Plus Jakarta Sans', sans-serif;
         }
-        .danger-zone-desc {
-            font-size: 12px; color: #64748B; margin-bottom: 14px;
-        }
-
-        /* ══════════════════════════════════════════════
-           MOBILE RESPONSIVE
-        ══════════════════════════════════════════════ */
-        @media (max-width: 768px) {
-            .profile-hero { padding: 20px 16px; gap: 14px; }
-            .avatar-circle { width: 56px; height: 56px; font-size: 22px; }
-            .profile-hero-name { font-size: 17px; }
-            .profile-tab-btn { font-size: 11px; gap: 4px; }
-            .profile-tab-btn span { display: none; } /* oculta texto, mostra só emoji no mobile */
-            .profile-content-area { padding: 20px 16px 40px; }
-            .form-grid { grid-template-columns: 1fr; }
-            .info-grid  { grid-template-columns: 1fr; }
-            .profile-header { padding: 0 16px; }
-            .btn-save { width: 100%; }
+        .guest-tab-btn.active {
+            background: #0EA5E9;
+            color: #FFFFFF;
         }
 
-        @media (max-width: 480px) {
-            .profile-tab-btn span.tab-emoji { display: inline; } /* mostrar emoji mesmo em mobile */
+        /* ─── Mobile ─── */
+        @media (max-width: 600px) {
+            .form-grid, .info-grid { grid-template-columns: 1fr; }
+            .profile-hero { flex-direction: column; text-align: center; }
+            .profile-hero-info { display: flex; flex-direction: column; align-items: center; }
+            .profile-tabs-nav { padding: 0 10px; }
+            .profile-tab-btn { padding: 14px 12px 12px; font-size: 12px; }
+            .guest-auth-wrapper { margin: 20px auto; padding: 24px 18px; }
         }
-
-        /* Skeleton loader */
-        .skeleton {
-            background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 6px;
-            height: 18px;
-        }
-        @keyframes shimmer { to { background-position: -200% 0; } }
     </style>
 </head>
 <body>
-    <!-- ─── Header ─── -->
+
+    <!-- ─── Header Geral ─── -->
     <header class="profile-header">
         <a href="/static/map.html" class="profile-header-brand" title="Voltar ao mapa">
             <div class="logo-icon">
@@ -320,204 +313,254 @@
             <span>FloodGuard <b>AI</b></span>
         </a>
         <div style="display:flex; align-items:center; gap: 10px;">
-            <a href="/static/map.html" style="color:#94A3B8; font-size:13px; font-weight:700; text-decoration:none;">
-                🗺️ Mapa
+            <a href="/static/map.html" style="color:#38BDF8; font-size:13px; font-weight:700; text-decoration:none; padding: 6px 12px; background: rgba(56,189,248,0.1); border-radius: 6px; border: 1px solid rgba(56,189,248,0.25);">
+                🗺️ Ir ao Mapa
             </a>
-            <button class="btn-logout" onclick="logout()">⏏️ Sair</button>
+            <button class="btn-logout" id="btn-header-logout" onclick="logout()" style="display:none;">⏏️ Sair</button>
         </div>
     </header>
 
-    <!-- ─── Hero do usuário ─── -->
-    <div class="profile-hero" id="profile-hero">
-        <div class="avatar-circle" id="hero-avatar">?</div>
-        <div class="profile-hero-info">
-            <div class="profile-hero-name" id="hero-name">
-                <div class="skeleton" style="width:200px;"></div>
+    <!-- ══════════════════════════════════════════════════════════
+         VISÃO 1: USUÁRIO LOGADO (Painel Completo de Usuário)
+    ══════════════════════════════════════════════════════════════ -->
+    <div id="profile-logged-view" style="display: none;">
+        <!-- Hero com avatar e identificação -->
+        <div class="profile-hero" id="profile-hero">
+            <div class="avatar-circle" id="hero-avatar">?</div>
+            <div class="profile-hero-info">
+                <div class="profile-hero-name" id="hero-name">Carregando perfil...</div>
+                <div class="profile-hero-email" id="hero-email">—</div>
+                <div id="hero-role"><span class="role-badge">🛡️ Cidadão</span></div>
             </div>
-            <div class="profile-hero-email" id="hero-email">
-                <div class="skeleton" style="width:160px; margin-top:6px;"></div>
+        </div>
+
+        <!-- Navegação por abas -->
+        <nav class="profile-tabs-nav">
+            <button class="profile-tab-btn active" onclick="switchProfileTab('dados')" id="ptab-dados">
+                <span class="tab-emoji">👤</span> <span>Meus Dados</span>
+            </button>
+            <button class="profile-tab-btn" onclick="switchProfileTab('locais')" id="ptab-locais">
+                <span class="tab-emoji">📍</span> <span>Locais Salvos</span>
+            </button>
+            <button class="profile-tab-btn" onclick="switchProfileTab('historico')" id="ptab-historico">
+                <span class="tab-emoji">🕒</span> <span>Histórico</span>
+            </button>
+            <button class="profile-tab-btn" onclick="switchProfileTab('atividade')" id="ptab-atividade">
+                <span class="tab-emoji">📊</span> <span>Atividade</span>
+            </button>
+
+        </nav>
+
+        <!-- Conteúdo das abas -->
+        <main class="profile-content-area">
+
+            <!-- ══ ABA 1: MEUS DADOS ══ -->
+            <div id="panel-dados" class="profile-panel active">
+                <div class="section-title">✏️ Informações Pessoais</div>
+                <form id="profileForm" novalidate autocomplete="off">
+                    <div class="form-grid">
+                        <div class="form-group full">
+                            <label class="form-label" for="pf-nome">Nome Completo</label>
+                            <input type="text" id="pf-nome" class="form-input" placeholder="Seu nome completo" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pf-email">E-mail</label>
+                            <input type="email" id="pf-email" class="form-input" disabled title="O e-mail não pode ser alterado">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pf-celular">Celular</label>
+                            <input type="tel" id="pf-celular" class="form-input" placeholder="(11) 99999-9999" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pf-nasc">Data de Nascimento</label>
+                            <input type="date" id="pf-nasc" class="form-input" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pf-role">Perfil de Acesso</label>
+                            <input type="text" id="pf-role" class="form-input" disabled>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
+                        <button type="submit" class="btn-save" id="btn-save-profile">
+                            💾 Salvar Alterações
+                        </button>
+                    </div>
+                    <div id="profileMsg" class="msg-box"></div>
+                </form>
             </div>
-            <div id="hero-role"></div>
+
+            <!-- ══ ABA 2: LOCAIS SALVOS ══ -->
+            <div id="panel-locais" class="profile-panel">
+                <div class="section-title">📍 Seus Locais Salvos (Monitoramento Contínuo)</div>
+                <div id="profile-saved-places-list" style="margin-top: 14px;">
+                    <!-- Carregado via JS -->
+                </div>
+            </div>
+
+            <!-- ══ ABA 3: HISTÓRICO DE BUSCAS ══ -->
+            <div id="panel-historico" class="profile-panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <div class="section-title" style="margin-bottom: 4px;">🕒 Regiões e Locais Consultados</div>
+                        <div style="font-size: 13px; color: #94A3B8;">Consultas de risco geográfico realizadas na sua conta.</div>
+                    </div>
+                    <button type="button" class="btn-danger" id="btn-clear-all-history" onclick="limparHistoricoPerfil()" style="padding: 8px 16px; font-size: 12px; min-height: 38px; display: none;">
+                        🗑️ Limpar Todo Histórico
+                    </button>
+                </div>
+
+                <div id="profile-history-list" style="display: flex; flex-direction: column; gap: 10px;">
+                    <!-- Carregado via historico_buscas.js -->
+                </div>
+            </div>
+
+            <!-- ══ ABA 4: ATIVIDADE ══ -->
+            <div id="panel-atividade" class="profile-panel">
+                <div class="section-title">📊 Informações da Conta</div>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <div class="info-card-label">🆔 ID do Usuário</div>
+                        <div class="info-card-value blue" id="act-id">—</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-label">✅ Status</div>
+                        <div id="act-status">—</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-label">📅 Membro desde</div>
+                        <div class="info-card-value" id="act-created">—</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-label">🕐 Último Acesso</div>
+                        <div class="info-card-value" id="act-last-login">—</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-label">🎂 Data de Nascimento</div>
+                        <div class="info-card-value" id="act-nasc">—</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-label">📱 Celular Cadastrado</div>
+                        <div class="info-card-value" id="act-celular">—</div>
+                    </div>
+                </div>
+
+                <div class="section-title" style="margin-top: 28px;">🛡️ Perfil de Acesso</div>
+                <div class="info-grid" style="grid-template-columns: 1fr;">
+                    <div class="info-card">
+                        <div class="info-card-label">Nível de Permissão</div>
+                        <div class="info-card-value blue" id="act-role" style="text-transform: capitalize;">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ ABA 5: SEGURANÇA ══ -->
+            <div id="panel-seguranca" class="profile-panel">
+                <div class="section-title">🔑 Alterar Senha</div>
+                <form id="pwForm" novalidate autocomplete="off" style="max-width: 420px;">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label" for="pw-atual">Senha Atual</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="pw-atual" class="form-input has-eye" placeholder="Sua senha atual" autocomplete="new-password">
+                            <button type="button" class="btn-eye" onclick="toggleEye('pw-atual', this)">👁️</button>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label" for="pw-nova">Nova Senha</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="pw-nova" class="form-input has-eye" placeholder="Mínimo 8 caracteres" autocomplete="new-password">
+                            <button type="button" class="btn-eye" onclick="toggleEye('pw-nova', this)">👁️</button>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label class="form-label" for="pw-confirm">Confirmar Nova Senha</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="pw-confirm" class="form-input has-eye" placeholder="Repita a nova senha" autocomplete="new-password">
+                            <button type="button" class="btn-eye" onclick="toggleEye('pw-confirm', this)">👁️</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-save" id="btn-save-pw">
+                        🔐 Alterar Senha
+                    </button>
+                    <div id="pwMsg" class="msg-box"></div>
+                </form>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         VISÃO 2: USUÁRIO NÃO LOGADO (Login / Cadastro Limpo)
+    ══════════════════════════════════════════════════════════════ -->
+    <div id="profile-guest-view" style="display: none; padding: 20px;">
+        <div class="guest-auth-wrapper">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
+                <div style="font-size: 18px; font-weight: 800; color: #F1F5F9;">Acesso ao FloodGuard AI</div>
+                <div style="font-size: 13px; color: #94A3B8; margin-top: 4px;">Entre com sua conta ou cadastre-se para sincronizar seus locais e histórico.</div>
+            </div>
+
+            <!-- Abas Login / Cadastro -->
+            <div class="guest-tabs">
+                <button type="button" class="guest-tab-btn active" id="guest-tab-login" onclick="switchGuestTab('login')">Entrar</button>
+                <button type="button" class="guest-tab-btn" id="guest-tab-register" onclick="switchGuestTab('register')">Criar Conta</button>
+            </div>
+
+            <!-- Painel Login -->
+            <div id="guest-panel-login">
+                <form id="guestLoginForm" novalidate autocomplete="off">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label" for="guest-login-email">E-mail</label>
+                        <input type="email" id="guest-login-email" class="form-input" placeholder="seu@email.com" autocomplete="off" value="">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 22px;">
+                        <label class="form-label" for="guest-login-senha">Senha</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="guest-login-senha" class="form-input has-eye" placeholder="••••••••" autocomplete="new-password" value="">
+                            <button type="button" class="btn-eye" onclick="toggleEye('guest-login-senha', this)">👁️</button>
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-guest-login" class="btn-save" style="width: 100%;">
+                        🔐 Entrar no Sistema
+                    </button>
+                    <div id="guestLoginMsg" class="msg-box"></div>
+                </form>
+            </div>
+
+            <!-- Painel Cadastro -->
+            <div id="guest-panel-register" style="display: none;">
+                <form id="guestRegisterForm" novalidate autocomplete="off">
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label class="form-label" for="guest-reg-nome">Nome Completo *</label>
+                        <input type="text" id="guest-reg-nome" class="form-input" placeholder="Ex: Gabriel Santos" autocomplete="off" value="">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label class="form-label" for="guest-reg-email">E-mail *</label>
+                        <input type="email" id="guest-reg-email" class="form-input" placeholder="seu@email.com" autocomplete="off" value="">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label class="form-label" for="guest-reg-celular">Celular</label>
+                        <input type="tel" id="guest-reg-celular" class="form-input" placeholder="(11) 99999-9999" autocomplete="off" value="">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 22px;">
+                        <label class="form-label" for="guest-reg-senha">Criar Senha *</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="guest-reg-senha" class="form-input has-eye" placeholder="Mínimo 8 caracteres" autocomplete="new-password" value="">
+                            <button type="button" class="btn-eye" onclick="toggleEye('guest-reg-senha', this)">👁️</button>
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-guest-reg" class="btn-save" style="width: 100%; background: linear-gradient(135deg, #10B981, #059669);">
+                        ✨ Criar Conta e Acessar
+                    </button>
+                    <div id="guestRegMsg" class="msg-box"></div>
+                </form>
+            </div>
         </div>
     </div>
 
-    <!-- ─── Navegação por abas ─── -->
-    <nav class="profile-tabs-nav">
-        <button class="profile-tab-btn active" onclick="switchProfileTab('dados')" id="ptab-dados">
-            <span class="tab-emoji">👤</span> <span>Meus Dados</span>
-        </button>
-        <button class="profile-tab-btn" onclick="switchProfileTab('seguranca')" id="ptab-seguranca">
-            <span class="tab-emoji">🔒</span> <span>Segurança</span>
-        </button>
-        <button class="profile-tab-btn" onclick="switchProfileTab('atividade')" id="ptab-atividade">
-            <span class="tab-emoji">📊</span> <span>Atividade</span>
-        </button>
-        <button class="profile-tab-btn" onclick="switchProfileTab('historico')" id="ptab-historico">
-            <span class="tab-emoji">🕒</span> <span>Histórico</span>
-        </button>
-    </nav>
-
-    <!-- ─── Conteúdo das abas ─── -->
-    <main class="profile-content-area">
-
-        <!-- ══ ABA: MEUS DADOS ══ -->
-        <div id="panel-dados" class="profile-panel active">
-            <div class="section-title">✏️ Informações Pessoais</div>
-            <form id="profileForm" novalidate>
-                <div class="form-grid">
-                    <div class="form-group full">
-                        <label class="form-label" for="pf-nome">Nome Completo</label>
-                        <input type="text" id="pf-nome" class="form-input" placeholder="Seu nome completo">
-                        <div class="field-error" id="err-pf-nome"></div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="pf-email">E-mail</label>
-                        <input type="email" id="pf-email" class="form-input" disabled title="O e-mail não pode ser alterado">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="pf-celular">Celular</label>
-                        <input type="tel" id="pf-celular" class="form-input"
-                               placeholder="(11) 99999-9999" inputmode="numeric" maxlength="15">
-                        <div class="field-error" id="err-pf-celular"></div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="pf-nasc">Data de Nascimento</label>
-                        <input type="date" id="pf-nasc" class="form-input">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="pf-role">Perfil de Acesso</label>
-                        <input type="text" id="pf-role" class="form-input" disabled>
-                    </div>
-                </div>
-
-                <div style="margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button type="submit" class="btn-save" id="btn-save-profile">
-                        💾 Salvar Alterações
-                    </button>
-                </div>
-                <div id="profileMsg" class="msg-box"></div>
-            </form>
-        </div>
-
-        <!-- ══ ABA: SEGURANÇA ══ -->
-        <div id="panel-seguranca" class="profile-panel">
-            <div class="section-title">🔑 Alterar Senha</div>
-            <form id="pwForm" novalidate style="max-width: 420px;">
-                <div class="form-group" style="margin-bottom: 16px;">
-                    <label class="form-label" for="pw-atual">Senha Atual</label>
-                    <div class="input-wrapper">
-                        <input type="password" id="pw-atual" class="form-input has-eye"
-                               placeholder="Sua senha atual" autocomplete="current-password">
-                        <button type="button" class="btn-eye" onclick="toggleEye('pw-atual', this)">👁️</button>
-                    </div>
-                    <div class="field-error" id="err-pw-atual"></div>
-                </div>
-                <div class="form-group" style="margin-bottom: 16px;">
-                    <label class="form-label" for="pw-nova">Nova Senha</label>
-                    <div class="input-wrapper">
-                        <input type="password" id="pw-nova" class="form-input has-eye"
-                               placeholder="Mín. 8 chars com letra e número" autocomplete="new-password">
-                        <button type="button" class="btn-eye" onclick="toggleEye('pw-nova', this)">👁️</button>
-                    </div>
-                    <!-- Força -->
-                    <div class="pw-strength" id="pw2-strength-container" style="display:none;">
-                        <div class="pw-strength-bar">
-                            <div class="pw-strength-fill" id="pw2-strength-fill"></div>
-                        </div>
-                        <div class="pw-strength-label" id="pw2-strength-label"></div>
-                    </div>
-                    <div class="field-error" id="err-pw-nova"></div>
-                </div>
-                <div class="form-group" style="margin-bottom: 24px;">
-                    <label class="form-label" for="pw-confirm">Confirmar Nova Senha</label>
-                    <div class="input-wrapper">
-                        <input type="password" id="pw-confirm" class="form-input has-eye"
-                               placeholder="Repita a nova senha" autocomplete="new-password">
-                        <button type="button" class="btn-eye" onclick="toggleEye('pw-confirm', this)">👁️</button>
-                    </div>
-                    <div class="field-error" id="err-pw-confirm"></div>
-                </div>
-                <button type="submit" class="btn-save" id="btn-save-pw">
-                    🔐 Alterar Senha
-                </button>
-                <div id="pwMsg" class="msg-box"></div>
-            </form>
-
-            <!-- Zona de perigo -->
-            <div class="danger-zone">
-                <div class="danger-zone-title">⚠️ Zona de Perigo</div>
-                <div class="danger-zone-desc">
-                    Ao desativar a conta, você perderá o acesso ao sistema. Seus dados serão preservados e a conta pode ser reativada por um administrador.
-                </div>
-                <button class="btn-danger" onclick="confirmDeactivate()">🗑️ Desativar Minha Conta</button>
-            </div>
-        </div>
-
-        <!-- ══ ABA: ATIVIDADE ══ -->
-        <div id="panel-atividade" class="profile-panel">
-            <div class="section-title">📊 Informações da Conta</div>
-            <div class="info-grid">
-                <div class="info-card">
-                    <div class="info-card-label">🆔 ID do Usuário</div>
-                    <div class="info-card-value blue" id="act-id">—</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-card-label">✅ Status</div>
-                    <div id="act-status">—</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-card-label">📅 Membro desde</div>
-                    <div class="info-card-value" id="act-created">—</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-card-label">🕐 Último Acesso</div>
-                    <div class="info-card-value" id="act-last-login">—</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-card-label">🎂 Data de Nascimento</div>
-                    <div class="info-card-value" id="act-nasc">—</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-card-label">📱 Celular Cadastrado</div>
-                    <div class="info-card-value" id="act-celular">—</div>
-                </div>
-            </div>
-
-            <div class="section-title" style="margin-top: 28px;">🛡️ Perfil de Acesso</div>
-            <div class="info-grid" style="grid-template-columns: 1fr;">
-                <div class="info-card">
-                    <div class="info-card-label">Nível de Permissão</div>
-                    <div class="info-card-value blue" id="act-role" style="text-transform: capitalize;">—</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ══ ABA: HISTÓRICO DE BUSCAS ══ -->
-        <div id="panel-historico" class="profile-panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-                <div>
-                    <div class="section-title" style="margin-bottom: 4px;">🕒 Regiões e Locais Consultados</div>
-                    <div style="font-size: 13px; color: #94A3B8;">Histórico das suas consultas de risco metro a metro na cidade de São Paulo.</div>
-                </div>
-                <button type="button" class="btn-danger" id="btn-clear-all-history" onclick="limparHistoricoPerfil()" style="padding: 8px 16px; font-size: 12px; min-height: 38px; display: none;">
-                    🗑️ Limpar Todo Histórico
-                </button>
-            </div>
-
-            <div id="profile-history-list" style="display: flex; flex-direction: column; gap: 10px;">
-                <div class="skeleton" style="height: 52px; border-radius: 10px;"></div>
-                <div class="skeleton" style="height: 52px; border-radius: 10px;"></div>
-            </div>
-        </div>
-
-    </main>
-
+    <!-- Scripts -->
     <script src="/static/js/api.js"></script>
-    <script src="/static/js/historico_buscas.js?v=20260915-v1"></script>
-    <script src="/static/js/auth_enhanced.js?v=20260916-session-fix2"></script>
-    <script>
-        // Inicializar página de perfil
-        document.addEventListener('DOMContentLoaded', initProfilePage);
-    </script>
+    <script src="/static/js/historico_buscas.js?v=20260921-v2"></script>
+    <script src="/static/js/auth.js?v=20260921-v2"></script>
 </body>
 </html>

@@ -77,8 +77,7 @@ async function authFetch(endpoint, options = {}) {
     };
     const res = await fetch(AUTH_CONFIG.API_BASE + endpoint, { ...options, headers });
     if (res.status === 401) {
-        clearSession();
-        window.location.href = AUTH_CONFIG.REDIRECT_TO_LOGIN;
+        // Preservação de Dados: Não desloga automaticamente até clique em Sair
         return null;
     }
     return res;
@@ -241,6 +240,14 @@ function initLoginForm() {
         window.location.href = AUTH_CONFIG.REDIRECT_AFTER_LOGIN;
         return;
     }
+
+    // Evita que o navegador preencha automaticamente o último email cadastrado na tela
+    setTimeout(() => {
+        const emailInput = document.getElementById('login-email');
+        const passInput = document.getElementById('login-senha');
+        if (emailInput && document.activeElement !== emailInput) emailInput.value = '';
+        if (passInput) passInput.value = '';
+    }, 50);
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();

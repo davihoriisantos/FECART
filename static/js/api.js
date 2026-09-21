@@ -12,10 +12,8 @@ const API = {
       const response = await fetch(`${this.baseUrl}${endpoint}`, { ...options, headers });
       
       if (response.status === 401) {
-        localStorage.removeItem('fg_token');
-        localStorage.removeItem('floodguard_token');
-        // Sistema aberto: sem redirecionamento para login
-        return;
+        // Preservação de dados: Não desloga o usuário automaticamente
+        return null;
       }
       
       if (!response.ok) {

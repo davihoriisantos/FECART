@@ -63,6 +63,7 @@ let currentSelectedPoint = {
 let activeMarker = null;
 let activeRiskCircle = null;
 let riskTrendChart = null;
+let hasActiveUserSelection = false;
 let simulatedScenario = 'real'; // 'real', 'tempestade', 'moderada'
 let currentRiverTelemetry = null; // Guardará o status do rio mais próximo
 let routeLayers = [];
@@ -76,6 +77,8 @@ let currentLocationCoords = null; // Coordenadas salvas do GPS do usuário { lat
 let searchTimeout = null;
 let searchRequestId = 0;
 let searchSuggestionResults = [];
+let activePredictiveAlertPlace = null;
+let predictiveAlertCheckInterval = null;
 
 // ─── INICIALIZAÇÃO GERAL ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -83,6 +86,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupSearchListeners();
     setupRouteAutocomplete();
     refreshSavedPlaceButtons();
+    // Atualiza nome do usuário logado no botão Perfil
+    try {
+        const rawUser = localStorage.getItem('fg_user');
+        if (rawUser) {
+            const u = JSON.parse(rawUser);
+            const labelEl = document.getElementById('header-user-label');
+            if (labelEl && u && u.nome) {
+                labelEl.textContent = u.nome.split(' ')[0];
+            }
+        }
+    } catch (_) {}
+
+    // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
+    setTimeout(() => {
+        checkAndPromptNotificationPermission();
+        checkSavedPlacesRiskAlerts();
+    }, 1500);
+
+    // Checagem periódica em background (a cada 5 minutos)
+    if (!predictiveAlertCheckInterval) {
+        predictiveAlertCheckInterval = setInterval(() => {
+            checkSavedPlacesRiskAlerts();
+        }, 5 * 60 * 1000);
+    }
 
     // Força o Leaflet a recalcular as dimensões reais do container
     setTimeout(() => {
@@ -132,104 +159,771 @@ function decodeJwtPayload(token) {
     }
 }
 
+let currentSimplePlaceType = null; // 'home' | 'work'
+let currentSimplePickedPoint = null;
+let simplePlaceSearchTimeout = null;
+
+// ─── ESTADO INICIAL OBRIGATÓRIO: NULL (SEM DADOS PRÉ-DEFINIDOS) ─────────────
+function getUserPlace(type) {
+    const key = `user_${type}`;
+    try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && parsed.lat && parsed.lon) {
+                return parsed;
+            }
+        }
+    } catch (_) {}
+
+    // Fallback para chave por usuário autenticado se existir
+    const user = getAuthenticatedUserContext();
+    const uid = user?.id || user?.email;
+    if (uid) {
+        try {
+            const storageKey = `floodguard_saved_places:${encodeURIComponent(uid)}`;
+            const places = JSON.parse(localStorage.getItem(storageKey) || '{}');
+            if (places && places[type] && places[type].lat && places[type].lon) {
+                return places[type];
+            }
+        } catch (_) {}
+    }
+
+    // Estritamente null por padrão (sem dados hardcoded)
+    return null;
+}
+
+function setUserPlace(type, placeData) {
+    const key = `user_${type}`;
+    if (!placeData) {
+        localStorage.removeItem(key);
+    } else {
+        localStorage.setItem(key, JSON.stringify(placeData));
+    }
+
+    const user = getAuthenticatedUserContext();
+    const uid = user?.id || user?.email || 'default_user';
+    try {
+        const storageKey = `floodguard_saved_places:${encodeURIComponent(uid)}`;
+        const places = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        if (!placeData) {
+            delete places[type];
+        } else {
+            places[type] = placeData;
+        }
+        localStorage.setItem(storageKey, JSON.stringify(places));
+    } catch (_) {}
+
+    refreshSavedPlaceButtons();
+    checkAndPromptNotificationPermission();
+    checkSavedPlacesRiskAlerts();
+}
+
 function getAuthenticatedUserContext() {
-    // O fluxo atual de login usa fg_token; floodguard_token é mantido como legado.
     const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
-    if (!token) return null;
+    if (!token) {
+        try {
+            const savedUser = JSON.parse(localStorage.getItem('fg_user') || 'null');
+            if (savedUser && (savedUser.id || savedUser.email)) {
+                return { id: String(savedUser.id || savedUser.email), email: savedUser.email, nome: savedUser.nome };
+            }
+        } catch (_) {}
+        return null;
+    }
     const payload = decodeJwtPayload(token);
     if (!payload || !payload.sub) {
-        // Sessões antigas podem ter os dados do usuário salvos sem JWT decodificável.
         try {
             const savedUser = JSON.parse(localStorage.getItem('fg_user') || 'null');
             const savedId = savedUser?.email || savedUser?.id;
-            return savedId ? { id: String(savedId) } : null;
+            return savedId ? { id: String(savedId), email: savedUser?.email, nome: savedUser?.nome } : null;
         } catch (_) {
             return null;
         }
     }
-    if (payload.exp && Date.now() >= Number(payload.exp) * 1000) return null;
     return { id: String(payload.sub) };
 }
 
-function savedPlacesStorageKey(userId) {
-    return `floodguard_saved_places:${encodeURIComponent(userId)}`;
-}
+// Retorna o local pesquisado / selecionado ativo no card lateral
+function getActiveLocationForSave() {
+    const searchInput = document.getElementById('universal-search-input');
+    const inputVal = searchInput ? searchInput.value.trim() : '';
 
-function readSavedPlaces(user) {
-    if (!user) return {};
-    try {
-        const places = JSON.parse(localStorage.getItem(savedPlacesStorageKey(user.id)) || '{}');
-        return places && typeof places === 'object' ? places : {};
-    } catch (_) {
-        return {};
+    if (inputVal && inputVal.length > 2 && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: inputVal,
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || inputVal
+        };
     }
+
+    if (hasActiveUserSelection && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: currentSelectedPoint.nome || 'Local Selecionado',
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || currentSelectedPoint.nome
+        };
+    }
+
+    const heroTitleEl = document.getElementById('hero-location-name');
+    const heroText = heroTitleEl ? heroTitleEl.innerText.trim() : '';
+    if (heroText && !heroText.includes('FECAP') && !heroText.includes('Localizando') && !heroText.includes('Carregando') && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: heroText,
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || heroText
+        };
+    }
+
+    return null;
 }
 
-function showSavedPlaceAuthModal() {
-    const modal = document.getElementById('saved-place-auth-modal');
-    if (modal) modal.classList.add('open');
-}
-
-function closeSavedPlaceAuthModal(event) {
-    const modal = document.getElementById('saved-place-auth-modal');
-    if (!modal || (event && event.target !== modal)) return;
-    modal.classList.remove('open');
-}
-
+// ─── FEEDBACK NOS BOTÕES ────────────────────────────────────────────────────
 function refreshSavedPlaceButtons() {
-    const user = getAuthenticatedUserContext();
-    const places = readSavedPlaces(user);
-    [['home', '🏠 Casa'], ['work', '💼 Trabalho']].forEach(([type, label]) => {
+    [['home', 'Casa', '🏠'], ['work', 'Trabalho', '💼']].forEach(([type, label, icon]) => {
         const button = document.getElementById(`saved-place-${type}`);
-        if (!button) return;
-        const place = places[type];
-        button.textContent = label;
-        button.title = place ? `Abrir ${place.nome || label}` : `${label} ainda não foi definido`;
+        const editBtn = document.getElementById(`saved-place-${type}-btn-edit`);
+        const place = getUserPlace(type);
+        const container = button ? button.closest('.saved-place-control') : null;
+
+        if (place) {
+            // Local configurado: muda cor e exibe check (✓)
+            if (button) {
+                button.innerHTML = `${icon} ${label} <span style="color: #10B981; font-weight: 800; margin-left: 3px;">✓</span>`;
+                button.title = `${label} cadastrada: ${place.nome}. Clique para ir.`;
+                button.style.color = '#38BDF8';
+                button.style.background = 'rgba(56, 189, 248, 0.10)';
+            }
+            if (container) {
+                container.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+                container.style.background = 'rgba(15, 23, 42, 0.90)';
+            }
+            if (editBtn) {
+                editBtn.innerHTML = '➕';
+                editBtn.title = `Clique para salvar o local ativo como ${label}`;
+                editBtn.style.color = '#38BDF8';
+                editBtn.style.background = 'rgba(56, 189, 248, 0.16)';
+            }
+        } else {
+            // Não configurado: estado neutro padrão
+            if (button) {
+                button.innerHTML = `${icon} ${label}`;
+                button.title = `Você ainda não cadastrou o seu endereço de ${label}. Clique no '+' para salvar.`;
+                button.style.color = '#94A3B8';
+                button.style.background = 'transparent';
+            }
+            if (container) {
+                container.style.borderColor = 'rgba(56, 189, 248, 0.22)';
+                container.style.background = 'rgba(15, 23, 42, 0.72)';
+            }
+            if (editBtn) {
+                editBtn.innerHTML = '➕';
+                editBtn.title = `Salvar local ativo como ${label}`;
+                editBtn.style.color = '#94A3B8';
+                editBtn.style.background = 'rgba(56, 189, 248, 0.09)';
+            }
+        }
     });
 }
 
-function saveCurrentPlace(type) {
-    const user = getAuthenticatedUserContext();
-    if (!user) {
-        showSavedPlaceAuthModal();
-        return;
-    }
-    if (!currentSelectedPoint || !Number.isFinite(Number(currentSelectedPoint.lat)) || !Number.isFinite(Number(currentSelectedPoint.lon))) {
-        showGeoToast('Selecione um ponto no mapa antes de salvar.', 'error');
+// ─── AÇÕES DOS BOTÕES DE ATALHO ─────────────────────────────────────────────
+function openSavedPlace(type) {
+    const place = getUserPlace(type);
+
+    if (!place) {
+        // Se null, aciona o fluxo inteligente de salvamento pelo botão +
+        handlePlacePlusClick(type);
         return;
     }
 
-    const places = readSavedPlaces(user);
-    places[type] = {
-        lat: Number(currentSelectedPoint.lat),
-        lon: Number(currentSelectedPoint.lon),
-        nome: currentSelectedPoint.nome || (type === 'home' ? 'Casa' : 'Trabalho'),
-        bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
-        alt: currentSelectedPoint.alt ?? null,
-        address: currentSelectedPoint.address || null
-    };
-    localStorage.setItem(savedPlacesStorageKey(user.id), JSON.stringify(places));
-    refreshSavedPlaceButtons();
-    showGeoToast(`${type === 'home' ? 'Casa' : 'Trabalho'} salvo para sua conta.`, 'success');
+    // Somente se já configurado: voa até o local e analisa o risco
+    if (map) {
+        map.flyTo([Number(place.lat), Number(place.lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+    }
+    analyzePoint(place.lat, place.lon, place.nome, place.bairro, place.alt, place.address, false);
 }
 
-function openSavedPlace(type) {
+// ─── SALVAMENTO DIRETO E INTELIGENTE PELO BOTÃO + ───────────────────────────
+function handlePlacePlusClick(type) {
+    const isHome = type === 'home';
+    const typeLabel = isHome ? 'Casa' : 'Trabalho';
+    const activeLoc = getActiveLocationForSave();
+
+    if (activeLoc && activeLoc.lat && activeLoc.lon) {
+        // Se já houver busca/local ativo no card lateral: salva imediatamente
+        const placeData = {
+            lat: Number(activeLoc.lat),
+            lon: Number(activeLoc.lon),
+            nome: activeLoc.nome || typeLabel,
+            bairro: activeLoc.bairro || 'São Paulo - SP',
+            alt: activeLoc.alt ?? null,
+            address: activeLoc.address || activeLoc.nome
+        };
+
+        setUserPlace(type, placeData);
+        showGeoToast('success', `📍 Endereço salvo como ${typeLabel} com sucesso!`);
+        return;
+    }
+
+    // Se NÃO houver local selecionado: abre o pequeno Modal limpo
+    openSimplePlaceModal(type);
+}
+
+function editSavedPlace(type) {
+    handlePlacePlusClick(type);
+}
+
+function openPlaceConfigModal(type) {
+    openSimplePlaceModal(type);
+}
+
+function closePlaceConfigModal() {
+    closeSimplePlaceModal();
+}
+
+// ─── MODAL SIMPLES E LIMPO (QUANDO NÃO HOUVER LOCAL SELECIONADO) ────────────
+function openSimplePlaceModal(type) {
+    currentSimplePlaceType = type;
+    currentSimplePickedPoint = null;
+
+    const modal = document.getElementById('simple-place-modal');
+    if (!modal) return;
+
+    const isHome = type === 'home';
+    const typeLabel = isHome ? 'Casa' : 'Trabalho';
+    const typeIcon = isHome ? '🏠' : '💼';
+
+    const titleEl = document.getElementById('simple-place-title');
+    const iconEl = document.getElementById('simple-place-icon');
+    const typeLabelEl = document.getElementById('simple-place-type-label');
+    const inputEl = document.getElementById('simple-place-input');
+    const dropdownEl = document.getElementById('simple-place-dropdown');
+
+    if (titleEl) titleEl.textContent = `Salvar ${typeLabel}`;
+    if (iconEl) iconEl.textContent = typeIcon;
+    if (typeLabelEl) typeLabelEl.textContent = typeLabel;
+    if (inputEl) {
+        inputEl.value = '';
+        inputEl.placeholder = isHome ? 'Ex: Rua Manoel Dutra, 536' : 'Ex: Av. Paulista, 1000';
+    }
+    if (dropdownEl) {
+        dropdownEl.style.display = 'none';
+        dropdownEl.innerHTML = '';
+    }
+
+    modal.classList.add('open');
+    setupSimplePlaceInputListeners();
+    setTimeout(() => {
+        if (inputEl) inputEl.focus();
+    }, 120);
+}
+
+function closeSimplePlaceModal(event) {
+    const modal = document.getElementById('simple-place-modal');
+    if (!modal) return;
+    if (event && event.target !== modal && !event.target.classList.contains('auth-modal-backdrop')) {
+        return;
+    }
+    modal.classList.remove('open');
+    const dropdownEl = document.getElementById('simple-place-dropdown');
+    if (dropdownEl) dropdownEl.style.display = 'none';
+}
+
+function setupSimplePlaceInputListeners() {
+    const input = document.getElementById('simple-place-input');
+    const dropdown = document.getElementById('simple-place-dropdown');
+    if (!input || !dropdown || input.dataset.hasSimpleListeners) return;
+    input.dataset.hasSimpleListeners = 'true';
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim();
+        clearTimeout(simplePlaceSearchTimeout);
+
+        if (query.length < 2) {
+            dropdown.style.display = 'none';
+            dropdown.innerHTML = '';
+            return;
+        }
+
+        const localMatches = filterLocalNeighborhoods(query);
+        if (localMatches.length > 0) {
+            renderSimplePlaceDropdown(localMatches, []);
+        }
+
+        simplePlaceSearchTimeout = setTimeout(async () => {
+            const nominatimResults = await searchNominatim(query);
+            renderSimplePlaceDropdown(localMatches, nominatimResults);
+        }, 300);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitSimplePlaceModal();
+        } else if (e.key === 'Escape') {
+            closeSimplePlaceModal();
+        }
+    });
+}
+
+function renderSimplePlaceDropdown(local, nominatim) {
+    const dropdown = document.getElementById('simple-place-dropdown');
+    if (!dropdown) return;
+
+    const all = [...nominatim, ...local];
+    if (all.length === 0) {
+        dropdown.innerHTML = '<div style="padding:10px 12px; font-size:12px; color:#94A3B8; text-align:center;">Nenhum endereço encontrado em SP.</div>';
+        dropdown.style.display = 'block';
+        return;
+    }
+
+    let html = '';
+    all.slice(0, 5).forEach((item, index) => {
+        const safeNome = escapeHtml(item.nome);
+        const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
+        html += `
+            <div class="search-item" data-simple-index="${index}" style="padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 15px;">📍</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 700; font-size: 12px; color: #FFFFFF; line-height: 1.3;">${safeNome}</div>
+                    <div style="font-size: 11px; color: #94A3B8; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeDisplay}</div>
+                </div>
+            </div>
+        `;
+    });
+
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+
+    dropdown.querySelectorAll('[data-simple-index]').forEach(el => {
+        el.addEventListener('click', () => {
+            const idx = Number(el.dataset.simpleIndex);
+            const picked = all[idx];
+            if (!picked) return;
+
+            currentSimplePickedPoint = {
+                lat: Number(picked.lat),
+                lon: Number(picked.lon),
+                nome: picked.nome,
+                bairro: picked.bairro || 'São Paulo - SP',
+                alt: picked.alt ?? null,
+                address: picked.display_name || picked.nome
+            };
+
+            const input = document.getElementById('simple-place-input');
+            if (input) input.value = picked.nome;
+            dropdown.style.display = 'none';
+        });
+    });
+}
+
+async function submitSimplePlaceModal() {
+    if (!currentSimplePlaceType) return;
+    const type = currentSimplePlaceType;
+    const isHome = type === 'home';
+    const typeLabel = isHome ? 'Casa' : 'Trabalho';
+
+    const input = document.getElementById('simple-place-input');
+    const query = input ? input.value.trim() : '';
+
+    if (!query) {
+        showGeoToast('warning', `Por favor, digite o endereço da sua ${typeLabel}.`);
+        return;
+    }
+
+    let target = currentSimplePickedPoint;
+
+    if (!target || target.nome !== query) {
+        const localMatches = filterLocalNeighborhoods(query);
+        const nomMatches = await searchNominatim(query);
+        const best = nomMatches[0] || localMatches[0];
+
+        if (!best || !best.lat || !best.lon) {
+            showGeoToast('error', 'Endereço não encontrado em São Paulo. Tente especificar rua e número.');
+            return;
+        }
+
+        target = {
+            lat: Number(best.lat),
+            lon: Number(best.lon),
+            nome: best.nome || query,
+            bairro: best.bairro || 'São Paulo - SP',
+            alt: best.alt ?? null,
+            address: best.display_name || query
+        };
+    }
+
+    setUserPlace(type, target);
+    closeSimplePlaceModal();
+    showGeoToast('success', `📍 Endereço salvo como ${typeLabel} com sucesso!`);
+}
+
+// ─── SISTEMA DE ALERTAS PREDITIVOS DE RISCO (CASA / TRABALHO) ───────────────
+
+/**
+ * Solicitação de Permissão de Notificação (Web Push API)
+ * Apenas para usuários autenticados com locais salvos.
+ */
+function checkAndPromptNotificationPermission() {
+    // 4. Proteção de Acesso: Usuários visitantes ou sem locais salvos não devem receber solicitações
+    const user = getAuthenticatedUserContext();
+    if (!user) return;
+
+    const homePlace = getUserPlace('home');
+    const workPlace = getUserPlace('work');
+    if (!homePlace && !workPlace) return;
+
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
+
+    if (sessionStorage.getItem('fg_notif_prompt_dismissed') === 'true') return;
+
+    const promptEl = document.getElementById('notification-permission-prompt');
+    if (promptEl) {
+        promptEl.style.display = 'block';
+    }
+}
+
+async function requestNotificationAlertsPermission() {
+    const promptEl = document.getElementById('notification-permission-prompt');
+    if (promptEl) promptEl.style.display = 'none';
+
+    if (!('Notification' in window)) {
+        showGeoToast('warning', 'Seu navegador não suporta notificações de sistema.');
+        return;
+    }
+
+    try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+            showGeoToast('success', '🔔 Alertas preventivos para Casa e Trabalho ativados!');
+            checkSavedPlacesRiskAlerts();
+        } else if (perm === 'denied') {
+            showGeoToast('info', 'Permissão de notificações não foi concedida.');
+        }
+    } catch (e) {
+        console.warn('[FloodGuard Alerta] Erro ao solicitar permissão de notificações:', e);
+    }
+}
+
+function dismissNotificationPrompt() {
+    sessionStorage.setItem('fg_notif_prompt_dismissed', 'true');
+    const promptEl = document.getElementById('notification-permission-prompt');
+    if (promptEl) {
+        promptEl.style.display = 'none';
+    }
+}
+
+/**
+ * Checagem Preditiva de Risco em Background para locais salvos
+ * Consulta dados meteorológicos (Open-Meteo) para user_home e user_work.
+ * Se a previsão indicar acúmulo severo ou Risco Crítico (>75%) nas próximas 1 a 3 horas:
+ * - Calcula o horário de pico (ex: "nas próximas 2 horas")
+ * - Emite Web Notification nativa (se autorizada)
+ * - Exibe Card/Banner de alerta em vermelho no topo da tela com contagem regressiva
+ */
+async function checkSavedPlacesRiskAlerts() {
+    // 4. Proteção de Acesso: visitantes ou usuários sem locais salvos não rodam a checagem
     const user = getAuthenticatedUserContext();
     if (!user) {
-        showSavedPlaceAuthModal();
+        dismissPredictiveAlertBanner();
         return;
     }
-    const place = readSavedPlaces(user)[type];
-    if (!place) {
-        // Primeiro clique define o ponto atualmente analisado; os próximos abrem o local.
-        saveCurrentPlace(type);
+
+    const homePlace = getUserPlace('home');
+    const workPlace = getUserPlace('work');
+
+    const targets = [];
+    if (homePlace && homePlace.lat && homePlace.lon) {
+        targets.push({ type: 'home', label: 'Casa', icon: '🏠', ...homePlace });
+    }
+    if (workPlace && workPlace.lat && workPlace.lon) {
+        targets.push({ type: 'work', label: 'Trabalho', icon: '💼', ...workPlace });
+    }
+
+    if (targets.length === 0) {
+        dismissPredictiveAlertBanner();
         return;
     }
-    selectSearchResult(place.lat, place.lon, place.nome, place.bairro, place.alt, place.address, type === 'home' ? '🏠' : '💼');
+
+    let highestRiskAlert = null;
+
+    for (const target of targets) {
+        const lat = Number(target.lat);
+        const lon = Number(target.lon);
+        if (isNaN(lat) || isNaN(lon)) continue;
+
+        let alt = target.alt;
+        if (alt === null || alt === undefined || isNaN(Number(alt))) {
+            try {
+                alt = await getElevation(lat, lon);
+            } catch (_) {
+                alt = 745;
+            }
+        }
+
+        let weatherData = null;
+        try {
+            weatherData = await fetchWeatherData(lat, lon);
+        } catch (e) {
+            console.warn('[FloodGuard Alerta] Erro ao consultar clima para', target.label, e);
+        }
+
+        if (!weatherData || !weatherData.hourly) continue;
+
+        const times = weatherData.hourly.time || [];
+        const rains = weatherData.hourly.precipitation || weatherData.hourly.rain || [];
+        const probs = weatherData.hourly.precipitation_probability || [];
+        const soilMoistures = weatherData.hourly.soil_moisture_0_to_1cm || [];
+
+        const currentTimeStr = (weatherData.current && weatherData.current.time) ? weatherData.current.time : '';
+        let currentIdx = -1;
+        if (currentTimeStr) {
+            currentIdx = times.findIndex(t => t.startsWith(currentTimeStr.slice(0, 13)));
+        }
+        if (currentIdx === -1) {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const localHourStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
+            currentIdx = times.findIndex(t => t.startsWith(localHourStr));
+        }
+        if (currentIdx === -1) currentIdx = Math.max(0, times.length - 8);
+
+        // Acumulado 24h
+        let acc24h = 0.0;
+        if (typeof weatherData.accumulated_24h_mm === 'number') {
+            acc24h = weatherData.accumulated_24h_mm;
+        } else {
+            for (let j = 0; j < 24; j++) {
+                const idx = currentIdx - j;
+                if (idx >= 0 && rains[idx] !== null && !isNaN(rains[idx])) {
+                    acc24h += Number(rains[idx]);
+                }
+            }
+        }
+
+        // Projeção futura (+1h, +2h, +3h)
+        let maxRiskInForecast = 0;
+        let peakForecastHour = 1;
+        let peakRain = 0;
+        let forecastRainAccum = 0;
+
+        for (let f = 1; f <= 3; f++) {
+            const idx = currentIdx + f;
+            let rainVal = (idx < rains.length && rains[idx] !== null) ? Number(rains[idx]) : 0;
+            let probVal = (idx < probs.length && probs[idx] !== null) ? Number(probs[idx]) : 0;
+            const soilMoisture = (idx < soilMoistures.length && soilMoistures[idx] !== null)
+                ? soilMoistures[idx]
+                : (soilMoistures[currentIdx] ?? null);
+
+            // Respeita cenários de simulação se ativos
+            if (simulatedScenario === 'tempestade') {
+                rainVal = f === 1 ? 18.0 : (f === 2 ? 38.0 : 20.0);
+                probVal = 98;
+            } else if (simulatedScenario === 'moderada') {
+                rainVal = f === 1 ? 4.0 : (f === 2 ? 5.5 : 3.0);
+                probVal = 70;
+            }
+
+            forecastRainAccum += rainVal;
+            const risk = calculateRiskFormula(rainVal, acc24h + forecastRainAccum, probVal, alt, lat, lon, soilMoisture);
+
+            if (risk > maxRiskInForecast) {
+                maxRiskInForecast = risk;
+                peakForecastHour = f;
+                peakRain = rainVal;
+            }
+        }
+
+        // Critério: Risco Crítico (>75%) ou acúmulo severo de chuva nas próximas 1 a 3h
+        const isCriticalRisk = maxRiskInForecast >= 75 || peakRain >= 18 || forecastRainAccum >= 35;
+
+        if (isCriticalRisk) {
+            const alertItem = {
+                target,
+                peakForecastHour,
+                maxRiskInForecast,
+                peakRain,
+                forecastRainAccum,
+                address: target.address || target.nome
+            };
+
+            if (!highestRiskAlert || alertItem.maxRiskInForecast > highestRiskAlert.maxRiskInForecast) {
+                highestRiskAlert = alertItem;
+            }
+
+            // Emissão de Notificação Nativa Web Push API (se concedida)
+            emitWebNotification(alertItem);
+        }
+    }
+
+    if (highestRiskAlert) {
+        showPredictiveAlertBanner(highestRiskAlert);
+    } else {
+        dismissPredictiveAlertBanner();
+    }
+}
+
+/**
+ * Emite Notificação do Sistema (Web Notification nativa)
+ */
+function emitWebNotification(alertItem) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const { target, peakForecastHour, address } = alertItem;
+    const hourLabel = peakForecastHour === 1 ? '1 hora' : `${peakForecastHour} horas`;
+    const notifKey = `fg_notif_sent_${target.type}_${peakForecastHour}_${new Date().getHours()}`;
+
+    // Evita duplicar notificações nativas no mesmo bloco de hora
+    if (sessionStorage.getItem(notifKey)) {
+        return;
+    }
+    sessionStorage.setItem(notifKey, 'true');
+
+    try {
+        const title = `🚨 ALERTA FLOODGUARD AI: Risco Crítico em ${target.label}`;
+        const body = `Atenção: A previsão indica alto risco de alagamento em ${address} em aproximadamente ${hourLabel}. Tome precauções!`;
+
+        const notif = new Notification(title, {
+            body: body,
+            icon: '/static/img/logo.jpg',
+            badge: '/static/img/logo.jpg',
+            tag: `floodguard-risk-${target.type}`,
+            renotify: true
+        });
+
+        notif.onclick = () => {
+            window.focus();
+            focusPredictiveAlertPlace(target);
+        };
+    } catch (err) {
+        console.warn('[FloodGuard Alerta] Falha ao disparar Notification nativa:', err);
+    }
+}
+
+/**
+ * Banner Interno na Interface: Card/banner de alerta em vermelho no topo da tela
+ */
+function showPredictiveAlertBanner(alertItem) {
+    const banner = document.getElementById('predictive-risk-alert-banner');
+    if (!banner) return;
+
+    const { target, peakForecastHour, address, maxRiskInForecast } = alertItem;
+    activePredictiveAlertPlace = target;
+
+    const badgeEl = document.getElementById('predictive-alert-place-badge');
+    const countdownEl = document.getElementById('predictive-alert-countdown');
+    const addressEl = document.getElementById('predictive-alert-address');
+
+    const hourLabel = peakForecastHour === 1 ? 'na próxima 1 hora' : `nas próximas ${peakForecastHour} horas`;
+
+    if (badgeEl) badgeEl.textContent = `${target.icon || '📍'} ${target.label}`;
+    if (countdownEl) countdownEl.textContent = `Pico: ${hourLabel} (${Math.round(maxRiskInForecast)}%)`;
+    if (addressEl) addressEl.textContent = address;
+
+    banner.style.display = 'block';
+}
+
+function dismissPredictiveAlertBanner() {
+    const banner = document.getElementById('predictive-risk-alert-banner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+    activePredictiveAlertPlace = null;
+}
+
+function focusPredictiveAlertPlace(specificTarget = null) {
+    const target = specificTarget || activePredictiveAlertPlace;
+    if (!target || !target.lat || !target.lon) return;
+
+    if (map) {
+        map.flyTo([Number(target.lat), Number(target.lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+    }
+    analyzePoint(target.lat, target.lon, target.nome, target.bairro, target.alt, target.address, false);
+}
+
+// ─── AUTOCOMPLETE INTELIGENTE NAS BUSCAS ─────────────────────────────────────
+function getPlaceSearchSuggestions(query) {
+    const norm = normalizeText(query);
+    if (!norm) return [];
+
+    const results = [];
+    const homePlace = getUserPlace('home');
+    const workPlace = getUserPlace('work');
+
+    const matchesHome = norm.includes('casa') || norm === 'minha casa';
+    const matchesWork = norm.includes('trabalh') || norm.includes('trampo') || norm.includes('servico') || norm === 'meu trabalho';
+
+    if (matchesHome) {
+        if (homePlace && homePlace.lat && homePlace.lon) {
+            results.push({
+                isSavedPlace: true,
+                placeType: 'home',
+                nome: `🏠 Sua Casa - ${homePlace.nome}`,
+                rawNome: homePlace.nome,
+                bairro: homePlace.bairro || 'Endereço Salvo',
+                display_name: homePlace.address || `${homePlace.nome} — ${homePlace.bairro || 'São Paulo'}`,
+                lat: Number(homePlace.lat),
+                lon: Number(homePlace.lon),
+                alt: homePlace.alt ?? null,
+                icon: '🏠'
+            });
+        } else {
+            results.push({
+                isPlaceConfigAction: true,
+                placeType: 'home',
+                nome: '➕ Cadastrar endereço de Casa',
+                bairro: 'Defina seu endereço residencial para busca rápida',
+                display_name: 'Clique para cadastrar o endereço de Casa',
+                icon: '🏠'
+            });
+        }
+    }
+
+    if (matchesWork) {
+        if (workPlace && workPlace.lat && workPlace.lon) {
+            results.push({
+                isSavedPlace: true,
+                placeType: 'work',
+                nome: `💼 Seu Trabalho - ${workPlace.nome}`,
+                rawNome: workPlace.nome,
+                bairro: workPlace.bairro || 'Endereço Salvo',
+                display_name: workPlace.address || `${workPlace.nome} — ${workPlace.bairro || 'São Paulo'}`,
+                lat: Number(workPlace.lat),
+                lon: Number(workPlace.lon),
+                alt: workPlace.alt ?? null,
+                icon: '💼'
+            });
+        } else {
+            results.push({
+                isPlaceConfigAction: true,
+                placeType: 'work',
+                nome: '➕ Cadastrar endereço de Trabalho',
+                bairro: 'Defina seu endereço profissional para rota e risco',
+                display_name: 'Clique para cadastrar o endereço de Trabalho',
+                icon: '💼'
+            });
+        }
+    }
+
+    return results;
 }
 
 document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') closeSavedPlaceAuthModal();
+    if (event.key === 'Escape') {
+        closeSavedPlaceAuthModal();
+        closeSimplePlaceModal();
+    }
 });
 
 // ─── CONSULTA DE ALTITUDE EM TEMPO REAL (OPENTOPODATA / OPEN-ELEVATION) ────────
@@ -768,6 +1462,7 @@ function initLeafletMap() {
 
     // Clique em qualquer parte do mapa -> Análise dinâmica instantânea
     map.on('click', async (e) => {
+        hasActiveUserSelection = true;
         const { lat, lng } = e.latlng;
         
         // Exibe loader instantâneo no card e limpa dados anteriores
@@ -870,7 +1565,10 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
 // ─── BUSCA DE CLIMA NA OPEN-METEO (API REAL EM TEMPO REAL) ───────────────────
 async function fetchWeatherData(lat, lon) {
     const key = `w_${lat.toFixed(3)}_${lon.toFixed(3)}`;
-    if (geocodeCache[key]) return geocodeCache[key];
+    const now = Date.now();
+    if (geocodeCache[key] && geocodeCache[key].expiresAt && now < geocodeCache[key].expiresAt) {
+        return geocodeCache[key].data;
+    }
 
     // API Open-Meteo Oficial: coordenadas exatas, precipitação em tempo real (current) e histórico horário (hourly)
     const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers&hourly=precipitation,precipitation_probability,soil_moisture_0_to_1cm&daily=precipitation_sum,precipitation_probability_max&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo`;
@@ -901,7 +1599,7 @@ async function fetchWeatherData(lat, lon) {
     }
 
     if (data && data.hourly) {
-        geocodeCache[key] = data;
+        geocodeCache[key] = { data, expiresAt: Date.now() + 120000 };
         return data;
     }
 
@@ -959,13 +1657,27 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         }
     }
 
-    // Total e maior probabilidade do dia civil atual, incluindo o restante do dia.
+    // Total e maior probabilidade do dia civil atual (fuso América/São Paulo)
     const daily = data.daily || {};
-    const today = data.current?.time?.slice(0, 10) || new Date().toISOString().slice(0, 10);
-    let dailyIndex = Array.isArray(daily.time) ? daily.time.indexOf(today) : -1;
-    if (dailyIndex < 0) dailyIndex = 0;
-    const dailyRainTotal = Math.max(0, Number(daily.precipitation_sum?.[dailyIndex]) || 0);
-    const dailyRainChance = clamp(Number(daily.precipitation_probability_max?.[dailyIndex]) || 0, 0, 100);
+    const spTodayStr = (data.current && data.current.time)
+        ? data.current.time.slice(0, 10)
+        : new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+
+    let dailyIndex = Array.isArray(daily.time) ? daily.time.indexOf(spTodayStr) : -1;
+    if (dailyIndex === -1 && Array.isArray(daily.time) && daily.time.length > 0) {
+        // Pega o último elemento (hoje/previsão), NUNCA o índice 0 (ontem)!
+        dailyIndex = daily.time.length - 1;
+    }
+
+    let dailyRainTotal = 0.0;
+    if (typeof data.today_rain_sum_mm === 'number') {
+        dailyRainTotal = data.today_rain_sum_mm;
+    } else if (dailyIndex >= 0 && Array.isArray(daily.precipitation_sum)) {
+        dailyRainTotal = Math.max(0, Number(daily.precipitation_sum[dailyIndex]) || 0);
+    }
+    const dailyRainChance = (dailyIndex >= 0 && Array.isArray(daily.precipitation_probability_max))
+        ? clamp(Number(daily.precipitation_probability_max[dailyIndex]) || 0, 0, 100)
+        : 0;
 
     // Série das últimas 24h
     const labels = [];
@@ -1054,12 +1766,23 @@ function getRainRiskCap(rainMm, acc24h) {
     const accumulated = Math.max(0, Number(acc24h) || 0);
     const strongRain = rain > 15 || accumulated > 40;
     if (strongRain) return 100;
-    if (rain === 0 && accumulated < 5) return 25;
-    // Sem precipitação atual, acumulados recentes moderados indicam atenção ao
-    // solo, mas não justificam alerta alto de enchente por si sós.
-    if (rain === 0 && accumulated <= 20) return 29;
-    if (rain === 0 && accumulated <= 20) return 0;
-    if (rain === 0) return 25;
+
+    // ─── 1. REGRA ABSOLUTA DO FATOR CHUVA (GATEKEEPER) ───
+    // Se a Chuva Atual for 0.0 mm/h e o acumulado for < 1.0 mm:
+    // O Risco Preditivo final NÃO PODE ultrapassar 20% (Status VERDE - Condição Segura / Risco Baixo)
+    // em NENHUM PONTO de São Paulo, independentemente da proximidade de córregos, topografia ou dados históricos antigos.
+    if (rain === 0.0 && accumulated < 1.0) {
+        return 15.0; // Estritamente Risco Baixo (<20%)
+    }
+    // Ao clicar em qualquer local sem chuva no momento (0.0 mm/h):
+    // Obrigatoriamente Risco Baixo (<20%) - Condição Segura
+    if (rain === 0.0) {
+        if (accumulated <= 10.0) {
+            return 18.0; // Risco Baixo (<20%)
+        }
+        return 19.5; // Teto absoluto sem chuva atual (<20%)
+    }
+
     if (rain >= 0.1 && rain <= 5) return 45;
     // Chuva intermediária ou solo ainda carregado: permite risco alto, não crítico.
     return 75;
@@ -1141,7 +1864,18 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Risco_Multifatorial *= (1 - drainageInfo.influence * 0.08);
     }
 
-    Risco_Multifatorial = applyRainRiskCap(Risco_Multifatorial, rain, accumulated);
+    // ─── REGRA ABSOLUTA DO FATOR CHUVA (GATEKEEPER) ───
+    // Se a Chuva Atual for 0.0 mm/h e o acumulado < 1.0 mm:
+    // O Risco Preditivo final NÃO PODE ultrapassar 20% (Status VERDE - Condição Segura / Risco Baixo)
+    // em NENHUM PONTO de São Paulo, independentemente de córregos, topografia ou histórico.
+    if (rain === 0.0 && accumulated < 1.0) {
+        Risco_Multifatorial = Math.min(Risco_Multifatorial * 0.15, 15);
+    } else if (rain === 0.0) {
+        Risco_Multifatorial = Math.min(Risco_Multifatorial * 0.25, 18);
+    } else {
+        Risco_Multifatorial = applyRainRiskCap(Risco_Multifatorial, rain, accumulated);
+    }
+
     return Math.max(0, Math.min(100, Math.round(Risco_Multifatorial)));
 }
 
@@ -1360,6 +2094,8 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         elInsight.innerHTML = `<strong>🚨 ALERTA MÁXIMO DA IA (${risk}%):</strong> Precipitação +${analysis.forecastRainTotal.toFixed(1)}mm • Relevo ${alt}m (${altInfo.factorTxt}) • Calha a ${riverInfo.distance}m (${riverFactorTxt}).${telemetriaTxt} ${chronicTxt}`;
     } else if (risk >= 50) {
         elInsight.innerHTML = `<strong>⚠️ ATENÇÃO ELEVADA (${risk}%):</strong> Chuva +${analysis.forecastRainTotal.toFixed(1)}mm • Topografia ${alt}m (${altInfo.tipo}) • ${riverInfo.distance}m de corpo hídrico.${telemetriaTxt} ${chronicTxt}`;
+    } else if (analysis.currentRain === 0 && risk <= 20) {
+        elInsight.innerHTML = `<strong>🟢 CONDIÇÃO SEGURA (${risk}%):</strong> Sem chuva no momento (0.0 mm/h). Condição segura e estável para a região • Relevo ${alt}m (${altInfo.tipo}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt}`;
     } else {
         elInsight.innerHTML = `<strong>🔍 ANÁLISE PREDITIVA (${risk}%):</strong> Relevo ${alt}m (${altInfo.tipo}, ${altInfo.factorTxt}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt} ${chronicTxt}`;
     }
@@ -1555,10 +2291,12 @@ function setupSearchListeners() {
             return;
         }
 
-        // Mostra resultados locais imediatamente (rápido)
+        // Atalhos de Casa e Trabalho + Base Local
+        const placeResults = getPlaceSearchSuggestions(val);
         const localResults = filterLocalNeighborhoods(val);
-        if (localResults.length > 0) {
-            renderSearchDropdown({ local: localResults, nominatim: [], loading: true });
+
+        if (placeResults.length > 0 || localResults.length > 0) {
+            renderSearchDropdown({ local: localResults, nominatim: [], places: placeResults, loading: true });
         } else {
             showSearchLoading(val);
         }
@@ -1570,6 +2308,7 @@ function setupSearchListeners() {
             renderSearchDropdown({
                 local: localResults,
                 nominatim: nominatimResults,
+                places: placeResults,
                 loading: false
             });
         }, 350);
@@ -1587,9 +2326,17 @@ function setupSearchListeners() {
             const nominatimResults = await searchNominatim(query);
             if (requestId !== searchRequestId || input.value.trim() !== query) return;
 
-            const firstResult = nominatimResults[0] || filterLocalNeighborhoods(query)[0];
-            if (firstResult) selectSearchSuggestion(firstResult);
-            else showSearchEmpty();
+            const placeResults = getPlaceSearchSuggestions(query);
+            const firstResult = placeResults[0] || nominatimResults[0] || filterLocalNeighborhoods(query)[0];
+            if (firstResult) {
+                if (firstResult.isPlaceConfigAction) {
+                    openPlaceConfigModal(firstResult.placeType);
+                } else {
+                    selectSearchSuggestion(firstResult);
+                }
+            } else {
+                showSearchEmpty();
+            }
         } else if (e.key === 'Escape') {
             dropdown.style.display = 'none';
             input.blur();
@@ -1805,14 +2552,15 @@ function showSearchEmpty() {
 }
 
 // ─── RENDERIZAR DROPDOWN UNIFICADO COM SEÇÕES ─────────────────────────────────
-function renderSearchDropdown({ local = [], nominatim = [], loading = false }) {
+function renderSearchDropdown({ local = [], nominatim = [], places = [], loading = false }) {
     const dropdown = document.getElementById('universal-search-dropdown');
     if (!dropdown) return;
 
+    const hasPlaces = places.length > 0;
     const hasLocal = local.length > 0;
     const hasNominatim = nominatim.length > 0;
 
-    if (!hasLocal && !hasNominatim && !loading) {
+    if (!hasPlaces && !hasLocal && !hasNominatim && !loading) {
         showSearchEmpty();
         return;
     }
@@ -1822,29 +2570,42 @@ function renderSearchDropdown({ local = [], nominatim = [], loading = false }) {
     // Status bar
     if (loading) {
         html += `<div class="search-status-bar loading"><div class="search-loading-dot"></div>Buscando na base global...</div>`;
-    } else if (hasNominatim || hasLocal) {
-        const total = local.length + nominatim.length;
+    } else if (hasNominatim || hasLocal || hasPlaces) {
+        const total = places.length + local.length + nominatim.length;
         html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
     }
 
-    // Resultados precisos do Nominatim aparecem primeiro e são priorizados no Enter.
+    // 1. Atalhos de Casa / Trabalho
+    if (hasPlaces) {
+        html += `<div class="search-section-label">🏠 Atalhos de Locais</div>`;
+        html += places.map((item, index) => buildSearchItemHtml(item, index)).join('');
+    }
+
+    // 2. Resultados do Nominatim
     if (hasNominatim) {
         html += `<div class="search-section-label">📍 Endereços e locais em São Paulo</div>`;
-        html += nominatim.map((item, index) => buildSearchItemHtml(item, index)).join('');
+        html += nominatim.map((item, index) => buildSearchItemHtml(item, places.length + index)).join('');
     }
 
+    // 3. Resultados locais
     if (hasLocal) {
         html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
-        html += local.map((item, index) => buildSearchItemHtml(item, nominatim.length + index)).join('');
+        html += local.map((item, index) => buildSearchItemHtml(item, places.length + nominatim.length + index)).join('');
     }
 
-    searchSuggestionResults = [...nominatim, ...local];
+    searchSuggestionResults = [...places, ...nominatim, ...local];
     dropdown.innerHTML = html;
     dropdown.style.display = 'block';
     dropdown.querySelectorAll('[data-search-index]').forEach(element => {
         element.addEventListener('click', () => {
             const item = searchSuggestionResults[Number(element.dataset.searchIndex)];
-            if (item) selectSearchSuggestion(item);
+            if (!item) return;
+            if (item.isPlaceConfigAction) {
+                dropdown.style.display = 'none';
+                openPlaceConfigModal(item.placeType);
+            } else {
+                selectSearchSuggestion(item);
+            }
         });
     });
 }
@@ -1866,7 +2627,7 @@ function buildSearchItemHtml(item, index) {
                 ${safeDisplay}
             </div>
         </div>
-        <span style="font-size: 10px; color: #38BDF8; font-weight: 700; flex-shrink: 0; background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.25); padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">IR</span>
+        <span style="font-size: 10px; color: ${item.isPlaceConfigAction ? '#F59E0B' : '#38BDF8'}; font-weight: 700; flex-shrink: 0; background: ${item.isPlaceConfigAction ? 'rgba(245,158,11,0.12)' : 'rgba(56,189,248,0.10)'}; border: 1px solid ${item.isPlaceConfigAction ? 'rgba(245,158,11,0.3)' : 'rgba(56,189,248,0.25)'}; padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">${item.isPlaceConfigAction ? 'CADASTRAR' : 'IR'}</span>
     </div>
     `;
 }
@@ -1877,6 +2638,7 @@ function selectSearchSuggestion(item) {
 
 // ─── SELECIONAR RESULTADO E ANALISAR RISCO DO LOCAL ───────────────────────────
 function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = null, icon = '📍') {
+    hasActiveUserSelection = true;
     const input = document.getElementById('universal-search-input');
     if (input) {
         input.value = nome;
@@ -2156,6 +2918,12 @@ function setMobileSheetState(state) {
 const routeSearchTimeouts = {};
 const routeSearchRequestIds = { 'route-origem': 0, 'route-destino': 0 };
 const routeSearchSuggestions = { 'route-origem': [], 'route-destino': [] };
+const selectedRoutePoints = {
+    'route-origem': null,
+    'route-destino': null,
+    'route-origin': null,
+    'route-destination': null
+};
 
 function setupRouteAutocomplete() {
     const setupField = (inputId, dropdownId, fieldType) => {
@@ -2165,6 +2933,16 @@ function setupRouteAutocomplete() {
 
         input.addEventListener('input', () => {
             const val = input.value.trim();
+            // Se o usuário editou manualmente o campo após selecionar um atalho/endereço, limpa o cache e dataset
+            if (input.dataset.selectedNome && input.value !== input.dataset.selectedNome) {
+                delete input.dataset.lat;
+                delete input.dataset.lon;
+                delete input.dataset.lng;
+                delete input.dataset.cleanAddress;
+                delete input.dataset.placeType;
+                delete input.dataset.selectedNome;
+                selectedRoutePoints[inputId] = null;
+            }
             routeSearchRequestIds[inputId] = (routeSearchRequestIds[inputId] || 0) + 1;
             const requestId = routeSearchRequestIds[inputId];
             clearTimeout(routeSearchTimeouts[inputId]);
@@ -2178,15 +2956,17 @@ function setupRouteAutocomplete() {
 
             const normVal = normalizeText(val);
 
-            // 1. Minha Localização se digitar termos correlatos
+            // 1. Atalhos de Casa e Trabalho + Minha Localização
+            const placeResults = getPlaceSearchSuggestions(val);
             const hasGpsTrigger = normVal.includes('minh') || normVal.includes('loca') || normVal.includes('gps') || normVal.includes('atual');
             const localResults = filterLocalNeighborhoods(val);
 
-            // Exibe feedback imediato com base local e loading da base global
-            if (localResults.length > 0 || hasGpsTrigger) {
+            // Exibe feedback imediato com atalhos, base local e loading da base global
+            if (placeResults.length > 0 || localResults.length > 0 || hasGpsTrigger) {
                 renderRouteSearchDropdown(inputId, dropdownId, fieldType, {
                     local: localResults,
                     nominatim: [],
+                    places: placeResults,
                     loading: true,
                     includeGps: hasGpsTrigger
                 });
@@ -2201,6 +2981,7 @@ function setupRouteAutocomplete() {
                 renderRouteSearchDropdown(inputId, dropdownId, fieldType, {
                     local: localResults,
                     nominatim: nominatimResults,
+                    places: placeResults,
                     loading: false,
                     includeGps: hasGpsTrigger
                 });
@@ -2220,9 +3001,14 @@ function setupRouteAutocomplete() {
                 const nominatimResults = await searchNominatim(query);
                 if (requestId !== routeSearchRequestIds[inputId] || input.value.trim() !== query) return;
 
-                const firstResult = nominatimResults[0] || filterLocalNeighborhoods(query)[0];
+                const placeResults = getPlaceSearchSuggestions(query);
+                const firstResult = placeResults[0] || nominatimResults[0] || filterLocalNeighborhoods(query)[0];
                 if (firstResult) {
-                    selectRouteItem(inputId, dropdownId, fieldType, firstResult);
+                    if (firstResult.isPlaceConfigAction) {
+                        openPlaceConfigModal(firstResult.placeType);
+                    } else {
+                        selectRouteItem(inputId, dropdownId, fieldType, firstResult);
+                    }
                 } else {
                     showRouteSearchEmpty(dropdownId);
                 }
@@ -2291,14 +3077,15 @@ function showRouteSearchEmpty(dropdownId) {
     dropdown.style.display = 'block';
 }
 
-function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [], nominatim = [], loading = false, includeGps = false }) {
+function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [], nominatim = [], places = [], loading = false, includeGps = false }) {
     const dropdown = document.getElementById(dropdownId);
     if (!dropdown) return;
 
+    const hasPlaces = places.length > 0;
     const hasLocal = local.length > 0;
     const hasNominatim = nominatim.length > 0;
 
-    if (!hasLocal && !hasNominatim && !includeGps && !loading) {
+    if (!hasPlaces && !hasLocal && !hasNominatim && !includeGps && !loading) {
         showRouteSearchEmpty(dropdownId);
         return;
     }
@@ -2311,6 +3098,12 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
     } else if (hasNominatim || hasLocal) {
         const total = local.length + nominatim.length;
         html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
+    }
+
+    // Atalhos de Casa e Trabalho no Trajeto
+    if (hasPlaces) {
+        html += `<div class="search-section-label">🏠 Atalhos de Locais</div>`;
+        html += places.map((item, index) => buildRouteSearchItemHtml(item, index, fieldType)).join('');
     }
 
     // Minha Localização
@@ -2343,7 +3136,7 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
         html += local.map((item, index) => buildRouteSearchItemHtml(item, nominatim.length + index, fieldType)).join('');
     }
 
-    routeSearchSuggestions[inputId] = [...nominatim, ...local];
+    routeSearchSuggestions[inputId] = [...places, ...nominatim, ...local];
     dropdown.innerHTML = html;
     positionRouteDropdown(inputId, dropdownId);
     dropdown.style.display = 'block';
@@ -2358,7 +3151,13 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
     dropdown.querySelectorAll('[data-route-index]').forEach(element => {
         element.addEventListener('click', () => {
             const item = routeSearchSuggestions[inputId][Number(element.dataset.routeIndex)];
-            if (item) selectRouteItem(inputId, dropdownId, fieldType, item);
+            if (!item) return;
+            if (item.isPlaceConfigAction) {
+                dropdown.style.display = 'none';
+                openPlaceConfigModal(item.placeType);
+            } else {
+                selectRouteItem(inputId, dropdownId, fieldType, item);
+            }
         });
     });
 }
@@ -2367,8 +3166,8 @@ function buildRouteSearchItemHtml(item, index, fieldType) {
     const safeNome = escapeHtml(item.nome);
     const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
     const safeIcon = escapeHtml(item.icon || (fieldType === 'origin' ? '🚀' : '🏁'));
-    const actionLabel = fieldType === 'origin' ? 'PARTIDA' : 'DESTINO';
-    const actionColor = fieldType === 'origin' ? '#10B981' : '#EF4444';
+    const actionLabel = item.isPlaceConfigAction ? 'CADASTRAR' : (fieldType === 'origin' ? 'PARTIDA' : 'DESTINO');
+    const actionColor = item.isPlaceConfigAction ? '#F59E0B' : (fieldType === 'origin' ? '#10B981' : '#EF4444');
 
     return `
     <div class="search-item" data-route-index="${index}" role="button" tabindex="0">
@@ -2390,9 +3189,40 @@ function buildRouteSearchItemHtml(item, index, fieldType) {
 
 function selectRouteItem(inputId, dropdownId, fieldType, item) {
     const input = document.getElementById(inputId);
+    const lat = Number(item.lat);
+    const lon = Number(item.lon ?? item.lng);
+    const cleanAddress = (
+        item.cleanAddress ||
+        item.rawNome ||
+        (item.display_name ? item.display_name.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '').trim() : '') ||
+        item.nome ||
+        ''
+    ).replace(/^(sua\s+casa|seu\s+trabalho|casa|trabalho)\s*[-–—:]\s*/i, '').trim();
+
     if (input) {
+        // Mantém a formatação amigável no input visível (ex: "🏠 Sua Casa - ...")
         input.value = item.nome;
+        if (!isNaN(lat) && !isNaN(lon)) {
+            input.dataset.lat = String(lat);
+            input.dataset.lon = String(lon);
+            input.dataset.lng = String(lon);
+            input.dataset.cleanAddress = cleanAddress;
+            input.dataset.placeType = item.placeType || '';
+            input.dataset.selectedNome = item.nome;
+        }
         input.blur();
+    }
+
+    if (!isNaN(lat) && !isNaN(lon)) {
+        selectedRoutePoints[inputId] = {
+            lat,
+            lon,
+            lng: lon,
+            nome: item.nome,
+            cleanAddress: cleanAddress,
+            placeType: item.placeType || null,
+            isSavedPlace: !!item.isSavedPlace
+        };
     }
 
     const dropdown = document.getElementById(dropdownId);
@@ -2400,9 +3230,6 @@ function selectRouteItem(inputId, dropdownId, fieldType, item) {
         dropdown.style.display = 'none';
         dropdown.innerHTML = '';
     }
-
-    const lat = Number(item.lat);
-    const lon = Number(item.lon ?? item.lng);
 
     if (isNaN(lat) || isNaN(lon)) return;
 
@@ -2604,8 +3431,10 @@ function isMyLocationText(str) {
 
 // ─── CÁLCULO DE RISCO DE ROTA ──────────────────────────────────────────────────
 async function calculateRouteRisk() {
-    const origemVal = (document.getElementById('route-origem')?.value || '').trim();
-    const destinoVal = (document.getElementById('route-destino')?.value || '').trim();
+    const originInput = document.getElementById('route-origem') || document.getElementById('route-origin');
+    const destInput = document.getElementById('route-destino') || document.getElementById('route-destination');
+    const origemVal = (originInput?.value || '').trim();
+    const destinoVal = (destInput?.value || '').trim();
 
     if (!origemVal || !destinoVal) {
         alert("Preencha ponto de partida e destino!");
@@ -2618,8 +3447,8 @@ async function calculateRouteRisk() {
     setRouteStatus('loading', 'Calculando a rota pelas ruas e analisando os riscos...');
 
     const [origem, destino] = await Promise.all([
-        resolveLocation(origemVal),
-        resolveLocation(destinoVal)
+        resolveLocation(origemVal, originInput?.id || 'route-origem'),
+        resolveLocation(destinoVal, destInput?.id || 'route-destino')
     ]);
 
     if (!origem || !destino) {
@@ -2644,48 +3473,150 @@ async function calculateRouteRisk() {
 
 async function runFecapDemoRoute() {
     switchDashboardTab('rota');
-    document.getElementById('route-origem').value = "FECAP — Campus Liberdade";
-    document.getElementById('route-destino').value = "Viaduto do Chá / Anhangabaú";
+    const originInput = document.getElementById('route-origem') || document.getElementById('route-origin');
+    const destInput = document.getElementById('route-destino') || document.getElementById('route-destination');
+    if (originInput) originInput.value = "FECAP — Campus Liberdade";
+    if (destInput) destInput.value = "Viaduto do Chá / Anhangabaú";
 
     const origem = { lat: -23.5574, lon: -46.6367, lng: -46.6367, nome: "FECAP — Campus Liberdade" };
     const destino = { lat: -23.5475, lon: -46.6378, lng: -46.6378, nome: "Viaduto do Chá / Anhangabaú" };
+    if (originInput) selectedRoutePoints[originInput.id] = origem;
+    if (destInput) selectedRoutePoints[destInput.id] = destino;
+
     clearExplorationLayers();
     clearCurrentRoute();
     setRouteStatus('loading', 'Calculando a rota de demonstração pelas ruas...');
     await processRouteTrajectory(origem, destino);
 }
 
-async function resolveLocation(query) {
+async function resolveLocation(query, fieldId = null) {
     if (!query || typeof query !== 'string') return null;
     const trimmed = query.trim();
     if (!trimmed) return null;
 
-    const normalizedQuery = normalizeText(trimmed);
-    const isMinhaLoc = isMyLocationText(trimmed);
+    // Helper: remove emojis e símbolos de qualquer string
+    const stripEmojis = (str) => {
+        return String(str || '')
+            .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
 
-    // 1. Validação Inteligente: Verifica se contém padrão de coordenadas explícito (lat, lng)
-    // Exemplos: (-23.5384, -46.5895), -23.5384, -46.5895, Lat: -23.5384, Lng: -46.5895
+    // 1. PRIORIDADE MÁXIMA: Coordenadas salvas no objeto cacheado ou dataset do campo
+    if (fieldId) {
+        const cached = selectedRoutePoints[fieldId];
+        const inputEl = document.getElementById(fieldId);
+        if (cached && !isNaN(Number(cached.lat)) && !isNaN(Number(cached.lon))) {
+            const cleanName = cached.cleanAddress || stripEmojis(cached.nome) || trimmed;
+            return {
+                lat: Number(cached.lat),
+                lon: Number(cached.lon),
+                lng: Number(cached.lon),
+                nome: cleanName,
+                rawNome: cleanName
+            };
+        }
+        if (inputEl && inputEl.dataset.lat && inputEl.dataset.lon) {
+            const lat = parseFloat(inputEl.dataset.lat);
+            const lon = parseFloat(inputEl.dataset.lon);
+            if (!isNaN(lat) && !isNaN(lon)) {
+                const cleanName = inputEl.dataset.cleanAddress || stripEmojis(inputEl.dataset.selectedNome) || trimmed;
+                return {
+                    lat,
+                    lon,
+                    lng: lon,
+                    nome: cleanName,
+                    rawNome: cleanName
+                };
+            }
+        }
+    }
+
+    // Se fieldId não foi fornecido ou não encontrou, verifica se algum input de rota coincide com o texto
+    const candidateInputIds = ['route-origem', 'route-destino', 'route-origin', 'route-destination'];
+    for (const cid of candidateInputIds) {
+        const inputEl = document.getElementById(cid);
+        if (inputEl && inputEl.value.trim() === trimmed) {
+            const cached = selectedRoutePoints[cid];
+            if (cached && !isNaN(Number(cached.lat)) && !isNaN(Number(cached.lon))) {
+                const cleanName = cached.cleanAddress || stripEmojis(cached.nome) || trimmed;
+                return {
+                    lat: Number(cached.lat),
+                    lon: Number(cached.lon),
+                    lng: Number(cached.lon),
+                    nome: cleanName,
+                    rawNome: cleanName
+                };
+            }
+            if (inputEl.dataset.lat && inputEl.dataset.lon) {
+                const lat = parseFloat(inputEl.dataset.lat);
+                const lon = parseFloat(inputEl.dataset.lon);
+                if (!isNaN(lat) && !isNaN(lon)) {
+                    const cleanName = inputEl.dataset.cleanAddress || stripEmojis(inputEl.dataset.selectedNome) || trimmed;
+                    return {
+                        lat,
+                        lon,
+                        lng: lon,
+                        nome: cleanName,
+                        rawNome: cleanName
+                    };
+                }
+            }
+        }
+    }
+
+    // 2. ATALHOS DE CASA E TRABALHO: Extração direta das coordenadas do perfil (getUserPlace)
+    // Evita refazer geocoding e resolve instantaneamente se o usuário digitou ou selecionou Casa/Trabalho
+    const normalizedQuery = normalizeText(trimmed);
+    const hasHomeKeyword = normalizedQuery.includes('casa') || trimmed.includes('🏠');
+    const hasWorkKeyword = normalizedQuery.includes('trabalh') || normalizedQuery.includes('trampo') || normalizedQuery.includes('servico') || trimmed.includes('💼');
+
+    if (hasHomeKeyword) {
+        const home = typeof getUserPlace === 'function' ? getUserPlace('home') : null;
+        if (home && !isNaN(Number(home.lat)) && !isNaN(Number(home.lon))) {
+            const cleanName = home.address || home.nome || 'Casa';
+            return {
+                lat: Number(home.lat),
+                lon: Number(home.lon),
+                lng: Number(home.lon),
+                nome: cleanName,
+                rawNome: cleanName
+            };
+        }
+    }
+
+    if (hasWorkKeyword) {
+        const work = typeof getUserPlace === 'function' ? getUserPlace('work') : null;
+        if (work && !isNaN(Number(work.lat)) && !isNaN(Number(work.lon))) {
+            const cleanName = work.address || work.nome || 'Trabalho';
+            return {
+                lat: Number(work.lat),
+                lon: Number(work.lon),
+                lng: Number(work.lon),
+                nome: cleanName,
+                rawNome: cleanName
+            };
+        }
+    }
+
+    // 3. Validação Inteligente: Verifica se contém padrão de coordenadas explícito (lat, lng)
     const coordPattern = /(-?\d{1,2}\.\d+)[,\s/]+(-?\d{1,3}\.\d+)/;
     const coordMatch = trimmed.match(coordPattern);
     if (coordMatch) {
         const parsedLat = parseFloat(coordMatch[1]);
         const parsedLng = parseFloat(coordMatch[2]);
         if (!isNaN(parsedLat) && !isNaN(parsedLng) && Math.abs(parsedLat) <= 90 && Math.abs(parsedLng) <= 180) {
-            if (isMinhaLoc) {
-                currentLocationCoords = { lat: parsedLat, lng: parsedLng, lon: parsedLng };
-            }
             return {
                 lat: parsedLat,
                 lng: parsedLng,
                 lon: parsedLng,
-                nome: isMinhaLoc ? 'Minha Localização' : `Coordenadas (${parsedLat.toFixed(4)}, ${parsedLng.toFixed(4)})`
+                nome: `Coordenadas (${parsedLat.toFixed(4)}, ${parsedLng.toFixed(4)})`
             };
         }
     }
 
-    // 2. Se for identificada a opção 'Minha Localização':
-    // NÃO envie o texto para a API de busca de endereços (Photon/Nominatim).
-    // Utilize diretamente o objeto de coordenadas salvas no GPS do navegador (currentLocationCoords).
+    // 4. Opção 'Minha Localização' (GPS do navegador)
+    const isMinhaLoc = isMyLocationText(trimmed);
     if (isMinhaLoc) {
         if (currentLocationCoords && currentLocationCoords.lat && (currentLocationCoords.lng || currentLocationCoords.lon)) {
             const lng = currentLocationCoords.lng ?? currentLocationCoords.lon;
@@ -2697,7 +3628,6 @@ async function resolveLocation(query) {
             };
         }
 
-        // Tenta obter do GPS do navegador se ainda não foi salvo
         const gpsCoords = await getBrowserLocation();
         if (gpsCoords && gpsCoords.lat && (gpsCoords.lng || gpsCoords.lon)) {
             const lng = gpsCoords.lng ?? gpsCoords.lon;
@@ -2709,12 +3639,16 @@ async function resolveLocation(query) {
             };
         }
 
-        // Se o usuário não concedeu permissão ou o GPS falhou
         return null;
     }
 
-    // 3. Busca na base local de bairros e pontos conhecidos de SP
-    const local = SP_NEIGHBORHOODS.find(n => normalizeText(n.nome).includes(normalizedQuery));
+    // 5. Busca na base local de bairros e pontos conhecidos de SP (com query limpa)
+    const cleanSearchText = stripEmojis(trimmed)
+        .replace(/^(sua\s+casa|seu\s+trabalho|casa|trabalho)\s*[-–—:]\s*/i, '')
+        .trim();
+    const cleanNormalized = normalizeText(cleanSearchText || trimmed);
+
+    const local = SP_NEIGHBORHOODS.find(n => normalizeText(n.nome).includes(cleanNormalized) || cleanNormalized.includes(normalizeText(n.nome)));
     if (local) {
         return {
             lat: local.lat,
@@ -2725,9 +3659,14 @@ async function resolveLocation(query) {
         };
     }
 
-    // 4. Se for um endereço comum (ex: 'FECAP — Campus Liberdade'), aí sim envia para a API de busca (Nominatim)
+    // 6. Geocoding no Nominatim sem emojis e com endereço real limpo
+    if (!cleanSearchText || cleanSearchText.length < 2) {
+        return null;
+    }
+
     try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedQuery + ', Sao Paulo, SP, Brasil')}&bounded=1&viewbox=-46.826,-23.383,-46.365,-23.723&limit=1&countrycodes=br`;
+        const queryTerm = `${cleanSearchText}, Sao Paulo, SP, Brasil`;
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryTerm)}&bounded=1&viewbox=-46.826,-23.383,-46.365,-23.723&limit=1&countrycodes=br`;
         const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
         const data = await res.json();
         if (data && data.length > 0) {
@@ -2737,7 +3676,7 @@ async function resolveLocation(query) {
                 lat: lat,
                 lng: lon,
                 lon: lon,
-                nome: data[0].display_name.split(',')[0] || trimmed
+                nome: data[0].display_name.split(',')[0] || cleanSearchText
             };
         }
     } catch (err) {
@@ -3569,6 +4508,7 @@ async function triggerUserGeolocation() {
             const lon = position.coords.longitude;
             const accuracy = Math.round(position.coords.accuracy || 0);
             currentLocationCoords = { lat: lat, lng: lon, lon: lon };
+            hasActiveUserSelection = true;
 
             showGeoToast('success', `📍 Localização GPS obtida! (Precisão: ±${accuracy}m)`);
 

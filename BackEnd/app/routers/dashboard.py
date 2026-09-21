@@ -128,24 +128,44 @@ def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
         current_idx = len(hourly_times) - 8
         
     acc_24h = 0.0
+    acc_recent_3h = 0.0
     if current_idx >= 0 and hourly_precip:
         for j in range(24):
             idx = current_idx - j
             if 0 <= idx < len(hourly_precip) and hourly_precip[idx] is not None:
                 acc_24h += float(hourly_precip[idx])
-                
+        for j in range(3):
+            idx = current_idx - j
+            if 0 <= idx < len(hourly_precip) and hourly_precip[idx] is not None:
+                acc_recent_3h += float(hourly_precip[idx])
+
+    # Previsão total do dia atual em São Paulo
+    today_str = current_time_str[:10] if current_time_str else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    daily_obj = data.get("daily", {})
+    daily_times = daily_obj.get("time", [])
+    daily_sums = daily_obj.get("precipitation_sum", [])
+    today_rain_sum = 0.0
+    if today_str in daily_times:
+        d_idx = daily_times.index(today_str)
+        if d_idx < len(daily_sums) and daily_sums[d_idx] is not None:
+            today_rain_sum = float(daily_sums[d_idx])
+    elif daily_sums:
+        today_rain_sum = float(daily_sums[-1] or 0.0)
+
     response_payload = {
         "lat": lat,
         "lon": lon,
         "current_rain_mm_h": round(current_rain, 1),
         "accumulated_24h_mm": round(acc_24h, 1),
+        "accumulated_recent_3h_mm": round(acc_recent_3h, 1),
+        "today_rain_sum_mm": round(today_rain_sum, 1),
+        "is_raining_now": current_rain > 0.0,
         "current": current,
         "hourly": hourly,
         "daily": data.get("daily", {}),
         "source": "open-meteo",
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
-    
     _weather_cache_dict[coord_key] = {
         "data": response_payload,
         "expires_at": now + 180  # 3 minutos de TTL

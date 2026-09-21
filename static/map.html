@@ -1306,6 +1306,245 @@
                 display: none !important; /* Esconde canvas secundário em telas menores */
             }
         }
+
+        /* ─── BANNER DE ALERTA PREDITIVO CRÍTICO (LOCAIS SALVOS) ─── */
+        .predictive-alert-banner {
+            position: fixed;
+            top: 72px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(940px, calc(100% - 32px));
+            z-index: 4000;
+            background: linear-gradient(135deg, rgba(220, 38, 38, 0.96) 0%, rgba(153, 27, 27, 0.98) 100%);
+            border: 1px solid rgba(248, 113, 113, 0.7);
+            border-radius: 14px;
+            box-shadow: 0 12px 36px rgba(220, 38, 38, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            animation: alertBannerSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes alertBannerSlideDown {
+            from { opacity: 0; transform: translate(-50%, -20px); }
+            to { opacity: 1; transform: translate(-50%, 0); }
+        }
+
+        .predictive-alert-content {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 18px;
+            color: #FFFFFF;
+        }
+
+        .predictive-alert-icon-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .predictive-alert-pulse {
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            border: 2px solid #FCA5A5;
+            animation: pulse-ring 1.8s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.9); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .predictive-alert-icon {
+            font-size: 20px;
+        }
+
+        .predictive-alert-text-wrap {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .predictive-alert-title {
+            font-size: 13px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            color: #FFFFFF;
+        }
+
+        .predictive-place-badge {
+            background: rgba(0, 0, 0, 0.35);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            color: #FEF08A;
+            border: 1px solid rgba(254, 240, 138, 0.3);
+        }
+
+        .predictive-countdown-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 12px;
+            color: #FFFFFF;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .predictive-alert-body {
+            font-size: 12px;
+            color: #FEE2E2;
+            margin-top: 3px;
+            line-height: 1.4;
+        }
+
+        .predictive-alert-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .btn-predictive-action {
+            background: #FFFFFF;
+            color: #991B1B;
+            border: none;
+            border-radius: 8px;
+            padding: 7px 13px;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .btn-predictive-action:hover {
+            background: #FEE2E2;
+            transform: translateY(-1px);
+        }
+
+        .btn-predictive-close {
+            background: rgba(0, 0, 0, 0.25);
+            color: #FCA5A5;
+            border: none;
+            border-radius: 8px;
+            width: 30px;
+            height: 30px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .btn-predictive-close:hover {
+            background: rgba(0, 0, 0, 0.45);
+            color: #FFFFFF;
+        }
+
+        /* ─── BANNER DISCRETO DE PERMISSÃO DE NOTIFICAÇÃO ─── */
+        .notification-prompt-banner {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 4500;
+            animation: promptSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes promptSlideUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .notif-prompt-card {
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            border-radius: 14px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.15);
+            backdrop-filter: blur(20px);
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            max-width: 460px;
+        }
+
+        .notif-prompt-icon {
+            font-size: 26px;
+            flex-shrink: 0;
+        }
+
+        .notif-prompt-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .notif-prompt-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: #38BDF8;
+            margin-bottom: 2px;
+        }
+
+        .notif-prompt-desc {
+            font-size: 12px;
+            color: #CBD5E1;
+            line-height: 1.4;
+        }
+
+        .notif-prompt-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .btn-notif-activate {
+            background: #0EA5E9;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 8px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .btn-notif-activate:hover {
+            background: #38BDF8;
+        }
+
+        .btn-notif-dismiss {
+            background: transparent;
+            border: 1px solid #334155;
+            color: #94A3B8;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .btn-notif-dismiss:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #E2E8F0;
+        }
     </style>
 </head>
 <body>
@@ -1342,6 +1581,53 @@
             </a>
         </div>
     </header>
+
+    <!-- ─── BANNER DE ALERTA PREDITIVO CRÍTICO (LOCAIS SALVOS) ─── -->
+    <div id="predictive-risk-alert-banner" class="predictive-alert-banner" style="display: none;" role="alert" aria-live="assertive">
+        <div class="predictive-alert-content">
+            <div class="predictive-alert-icon-wrap">
+                <span class="predictive-alert-pulse"></span>
+                <span class="predictive-alert-icon">🚨</span>
+            </div>
+            <div class="predictive-alert-text-wrap">
+                <div class="predictive-alert-title">
+                    <span>ALERTA FLOODGUARD AI: Risco Crítico em</span>
+                    <span id="predictive-alert-place-badge" class="predictive-place-badge">Casa</span>
+                    <span id="predictive-alert-countdown" class="predictive-countdown-badge">nas próximas 2 horas</span>
+                </div>
+                <div id="predictive-alert-body" class="predictive-alert-body">
+                    Atenção: A previsão indica alto risco de alagamento em <strong id="predictive-alert-address">--</strong>. Tome precauções!
+                </div>
+            </div>
+            <div class="predictive-alert-actions">
+                <button type="button" id="btn-predictive-view-map" class="btn-predictive-action" onclick="focusPredictiveAlertPlace()">
+                    🗺️ Ver no Mapa
+                </button>
+                <button type="button" class="btn-predictive-close" onclick="dismissPredictiveAlertBanner()" title="Fechar alerta" aria-label="Fechar alerta">
+                    ✕
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── BANNER DISCRETO DE PERMISSÃO DE NOTIFICAÇÃO (WEB PUSH API) ─── -->
+    <div id="notification-permission-prompt" class="notification-prompt-banner" style="display: none;" role="dialog" aria-modal="false" aria-labelledby="notif-prompt-title">
+        <div class="notif-prompt-card">
+            <div class="notif-prompt-icon">🔔</div>
+            <div class="notif-prompt-info">
+                <div id="notif-prompt-title" class="notif-prompt-title">Alertas Preventivos FloodGuard AI</div>
+                <div class="notif-prompt-desc">Deseja ativar os alertas preventivos de enchente para sua Casa e Trabalho?</div>
+            </div>
+            <div class="notif-prompt-actions">
+                <button type="button" id="btn-activate-notifications" class="btn-notif-activate" onclick="requestNotificationAlertsPermission()">
+                    Ativar Alertas
+                </button>
+                <button type="button" class="btn-notif-dismiss" onclick="dismissNotificationPrompt()" title="Agora não">
+                    Agora não
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- ─── CORPO PRINCIPAL (SPLIT SCREEN) ─── -->
     <main class="dash-main">
@@ -1397,14 +1683,14 @@
                     <div id="universal-search-dropdown" class="search-dropdown"></div>
                 </div>
 
-                <div class="saved-places-row" aria-label="Locais salvos">
+                                                <div class="saved-places-row" aria-label="Locais salvos">
                     <div class="saved-place-control">
                         <button type="button" id="saved-place-home" class="saved-place-btn" onclick="openSavedPlace('home')" title="Abrir o local salvo como Casa">🏠 Casa</button>
-                        <button type="button" class="saved-place-save" onclick="saveCurrentPlace('home')" title="Salvar o local atual como Casa" aria-label="Salvar local atual como Casa">＋</button>
+                        <button type="button" id="saved-place-home-btn-edit" class="saved-place-save" onclick="editSavedPlace('home')" title="Definir ou alterar local de Casa" aria-label="Alterar Casa">➕</button>
                     </div>
                     <div class="saved-place-control">
                         <button type="button" id="saved-place-work" class="saved-place-btn" onclick="openSavedPlace('work')" title="Abrir o local salvo como Trabalho">💼 Trabalho</button>
-                        <button type="button" class="saved-place-save" onclick="saveCurrentPlace('work')" title="Salvar o local atual como Trabalho" aria-label="Salvar local atual como Trabalho">＋</button>
+                        <button type="button" id="saved-place-work-btn-edit" class="saved-place-save" onclick="editSavedPlace('work')" title="Definir ou alterar local de Trabalho" aria-label="Alterar Trabalho">➕</button>
                     </div>
                 </div>
 
@@ -1695,5 +1981,36 @@
     <script src="/static/js/historico_buscas.js?v=20260915-v1"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260915-route-unified"></script>
     <script src="/static/js/map_dashboard.js?v=20260916-daily-rain"></script>
+        <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
+    <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
+        <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="simple-place-icon" style="font-size: 22px;">🏠</span>
+                    <h3 id="simple-place-title" style="margin: 0; font-size: 16px; font-weight: 700; color: #F1F5F9;">Salvar Casa</h3>
+                </div>
+                <button type="button" onclick="closeSimplePlaceModal()" style="background: transparent; border: none; color: #94A3B8; font-size: 20px; cursor: pointer; padding: 2px 6px;" aria-label="Fechar">✕</button>
+            </div>
+
+            <p id="simple-place-question" style="color: #CBD5E1; font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Digite o endereço da sua <strong id="simple-place-type-label" style="color: #38BDF8;">Casa</strong>:
+            </p>
+
+            <div style="position: relative; margin-bottom: 18px;">
+                <input type="text" id="simple-place-input" placeholder="Ex: Rua Manoel Dutra, 536" autocomplete="off" style="width: 100%; box-sizing: border-box; padding: 10px 12px; background: rgba(15,23,42,0.95); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; color: #FFFFFF; font-size: 13px; outline: none; transition: border-color .2s ease;">
+                <div id="simple-place-dropdown" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 9999; max-height: 190px; overflow-y: auto; background: #0B101E; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7);"></div>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="closeSimplePlaceModal()" style="padding: 9px 16px; border: 1px solid #334155; background: transparent; color: #94A3B8; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; transition: background .15s ease;">
+                    Cancelar
+                </button>
+                <button type="button" id="btn-simple-place-save" onclick="submitSimplePlaceModal()" style="padding: 9px 20px; border: none; background: #0EA5E9; color: #FFFFFF; font-size: 13px; font-weight: 800; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background .15s ease;">
+                    Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
