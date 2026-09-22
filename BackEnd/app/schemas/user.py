@@ -6,17 +6,17 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-_PHONE_RE  = re.compile(r'^\(\d{2}\) \d{4,5}-\d{4}$')
-_STRONG_PW = re.compile(r'^(?=.*[A-Za-z])(?=.*\d).{8,}$')
+_PHONE_RE  = re.compile(r'^\d{10,11}$')
+_STRONG_PW = re.compile(r'^(?=.*[A-Za-z])(?=.*\d)[\s\S]{8,}$')
 
 
 def _validate_phone(v: Optional[str]) -> Optional[str]:
-    """Aceita None ou formato (XX) XXXXX-XXXX."""
+    """Aceita celular com/sem máscara e normaliza para 10 ou 11 dígitos."""
     if v is None or v.strip() == '':
         return None
-    cleaned = v.strip()
+    cleaned = re.sub(r'\D', '', v)
     if not _PHONE_RE.match(cleaned):
-        raise ValueError('Celular inválido. Use o formato (XX) XXXXX-XXXX')
+        raise ValueError('Celular inválido. Informe 10 ou 11 dígitos.')
     return cleaned
 
 

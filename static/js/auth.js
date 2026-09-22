@@ -34,6 +34,24 @@ function isLoggedIn() {
     return !!getToken();
 }
 
+function extractApiError(data, fallback = 'Não foi possível concluir a operação.') {
+    if (!data) return fallback;
+    if (typeof data === 'string') return data;
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail) && data.detail.length > 0) {
+        return data.detail.map(error => {
+            if (typeof error === 'string') return error;
+            const location = Array.isArray(error?.loc) && error.loc.length
+                ? error.loc[error.loc.length - 1]
+                : 'campo';
+            return `${location}: ${error?.msg || 'valor inválido'}`;
+        }).join(' | ');
+    }
+    if (data.detail && typeof data.detail.msg === 'string') return data.detail.msg;
+    if (typeof data.message === 'string') return data.message;
+    return fallback;
+}
+
 function saveSession(token, user) {
     if (token) {
         localStorage.setItem(AUTH_KEYS.TOKEN, token);
@@ -357,7 +375,7 @@ function setupGuestLoginForm() {
 
             if (!res.ok) {
                 if (msgEl) {
-                    msgEl.textContent = '❌ ' + (data.detail || 'E-mail ou senha incorretos.');
+                    msgEl.textContent = '❌ ' + extractApiError(data, 'E-mail ou senha incorretos.');
                     msgEl.className = 'msg-box msg-error';
                     msgEl.style.display = 'block';
                 }
@@ -419,7 +437,7 @@ function setupGuestRegisterForm() {
 
             if (!res.ok) {
                 if (msgEl) {
-                    msgEl.textContent = '❌ ' + (data.detail || 'Erro ao registrar conta.');
+                    msgEl.textContent = '❌ ' + extractApiError(data, 'Erro ao registrar conta.');
                     msgEl.className = 'msg-box msg-error';
                     msgEl.style.display = 'block';
                 }
@@ -571,7 +589,7 @@ function setupPasswordChangeForm() {
             } else {
                 const data = await res.json();
                 if (msg) {
-                    msg.textContent = '❌ ' + (data.detail || 'Senha atual incorreta.');
+                    msg.textContent = '❌ ' + extractApiError(data, 'Senha atual incorreta.');
                     msg.className = 'msg-box msg-error';
                     msg.style.display = 'block';
                 }

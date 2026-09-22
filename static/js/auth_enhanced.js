@@ -63,6 +63,24 @@ function isLoggedIn() {
     return !!getToken();
 }
 
+function extractApiError(data, fallback = 'Não foi possível concluir a operação.') {
+    if (!data) return fallback;
+    if (typeof data === 'string') return data;
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail) && data.detail.length > 0) {
+        return data.detail.map(error => {
+            if (typeof error === 'string') return error;
+            const location = Array.isArray(error?.loc) && error.loc.length
+                ? error.loc[error.loc.length - 1]
+                : 'campo';
+            return `${location}: ${error?.msg || 'valor inválido'}`;
+        }).join(' | ');
+    }
+    if (data.detail && typeof data.detail.msg === 'string') return data.detail.msg;
+    if (typeof data.message === 'string') return data.message;
+    return fallback;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // REQUISIÇÕES AUTENTICADAS
 // ══════════════════════════════════════════════════════════════════
@@ -84,12 +102,12 @@ async function authFetch(endpoint, options = {}) {
 // ══════════════════════════════════════════════════════════════════
 // VALIDAÇÕES CLIENT-SIDE
 // ══════════════════════════════════════════════════════════════════
-const PHONE_RE  = /^\(\d{2}\) \d{4,5}-\d{4}$/;
-const STRONG_PW = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+const PHONE_RE  = /^\d{10,11}$/;
+const STRONG_PW = /^(?=.*[A-Za-z])(?=.*\d)[\s\S]{8,}$/;
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateEmail(v)    { return EMAIL_RE.test((v || '').trim()); }
-function validatePhone(v)    { return !v || v.trim() === '' || PHONE_RE.test(v.trim()); }
+function validatePhone(v)    { return !v || v.trim() === '' || PHONE_RE.test(v.replace(/\D/g, '')); }
 function validatePassword(v) { return STRONG_PW.test(v || ''); }
 
 function showFieldError(id, msg) {
@@ -267,7 +285,7 @@ function initLoginForm() {
             });
             const data = await res.json();
             if (!res.ok) {
-                showMsg('loginMsg', '❌ ' + (data.detail || 'Erro ao fazer login.'));
+                showMsg('loginMsg', '❌ ' + extractApiError(data, 'Erro ao fazer login.'));
                 return;
             }
             saveSession(data.access_token, data.user);
@@ -341,7 +359,7 @@ function initRegisterForm() {
             });
             const data = await res.json();
             if (!res.ok) {
-                showMsg('registerMsg', '❌ ' + (data.detail || 'Erro ao criar conta.'));
+                showMsg('registerMsg', '❌ ' + extractApiError(data, 'Erro ao criar conta.'));
                 return;
             }
             // Auto-login após cadastro
@@ -513,7 +531,7 @@ function initProfileForm() {
             if (!res) return;
             const data = await res.json();
             if (!res.ok) {
-                showMsg('profileMsg', '❌ ' + (data.detail || 'Erro ao salvar.'));
+                showMsg('profileMsg', '❌ ' + extractApiError(data, 'Erro ao salvar.'));
                 return;
             }
             saveSession(getToken(), data);
@@ -567,7 +585,7 @@ function initPasswordForm() {
             if (!res) return;
             const data = await res.json();
             if (!res.ok) {
-                showMsg('pwMsg', '❌ ' + (data.detail || 'Erro ao alterar senha.'));
+                showMsg('pwMsg', '❌ ' + extractApiError(data, 'Erro ao alterar senha.'));
                 return;
             }
             showMsg('pwMsg', '✅ Senha alterada! Faça login novamente.', 'success');

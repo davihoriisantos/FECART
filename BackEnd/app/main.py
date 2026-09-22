@@ -29,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(auth.compat_router)
 app.include_router(sensors.router)
 app.include_router(zones.router)
 app.include_router(alerts.router)

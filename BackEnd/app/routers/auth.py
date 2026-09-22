@@ -13,9 +13,11 @@ from ..services.auth_service import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+compat_router = APIRouter(tags=["auth"])
 
 
 # ─── POST /register ──────────────────────────────────────────────────────────
+@compat_router.post("/api/register", response_model=UserProfile, status_code=status.HTTP_201_CREATED)
 @router.post("/register", response_model=UserProfile, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
     """Criar nova conta de usuário."""
