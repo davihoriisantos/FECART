@@ -1059,6 +1059,12 @@
                 font-size: 16px;
             }
 
+            .header-left { min-width: 0; }
+            .header-left .logo-brand { min-width: 0; }
+            .header-left .logo-text { white-space: nowrap; }
+            .header-right { gap: 5px !important; }
+            .header-right .btn { padding: 6px 8px !important; font-size: 11px !important; white-space: nowrap; }
+
             /* Main em Container Relativo: Mapa em tela cheia por baixo + Bottom Sheet por cima */
             .dash-main {
                 display: flex;
@@ -1110,12 +1116,19 @@
                 top: 10px;
                 right: 10px;
                 gap: 4px;
+                max-width: calc(100% - 20px);
+                flex-wrap: wrap;
+                justify-content: flex-end;
             }
 
             .map-btn-icon {
                 padding: 6px 10px;
                 font-size: 11px;
                 border-radius: 8px;
+                max-width: 48vw;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             /* Legenda flutuante mais compacta no mobile */
@@ -1668,17 +1681,7 @@
                                 autocomplete="off">
                             <button id="btn-search-clear" class="search-btn-clear" onclick="clearSearchInput()" title="Limpar busca">✕</button>
                         </div>
-                        <button id="btn-geolocate" class="btn-geolocate" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
-                            <svg class="gps-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="7"></circle>
-                                <line x1="12" y1="1" x2="12" y2="5"></line>
-                                <line x1="12" y1="19" x2="12" y2="23"></line>
-                                <line x1="1" y1="12" x2="5" y2="12"></line>
-                                <line x1="19" y1="12" x2="23" y2="12"></line>
-                                <circle cx="12" cy="12" r="2.5" fill="currentColor"></circle>
-                            </svg>
-                            <span class="gps-btn-label">GPS</span>
-                        </button>
+
                     </div>
                     <div id="universal-search-dropdown" class="search-dropdown"></div>
                 </div>
@@ -1920,9 +1923,7 @@
             <div class="map-stage">
             <!-- Controles Rápidos no Mapa -->
             <div class="map-quick-controls">
-                <button id="btn-map-gps" class="map-btn-icon map-btn-gps" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
-                    🎯 Minha Localização
-                </button>
+
                 <button class="map-btn-icon" onclick="flyToSaoPauloCenter()" title="Centralizar Mapa em SP">
                     🌆 Centralizar SP
                 </button>

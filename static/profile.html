@@ -293,12 +293,21 @@
 
         /* ─── Mobile ─── */
         @media (max-width: 600px) {
+            body { overflow-x: hidden; }
+            .profile-header { height: auto; min-height: 58px; padding: 10px 14px; gap: 8px; }
+            .profile-header-brand span { font-size: 13px; }
+            .profile-header > div { gap: 6px !important; }
+            .profile-header > div a { font-size: 11px !important; }
+            .btn-logout { padding: 6px 8px; font-size: 11px; }
             .form-grid, .info-grid { grid-template-columns: 1fr; }
             .profile-hero { flex-direction: column; text-align: center; }
             .profile-hero-info { display: flex; flex-direction: column; align-items: center; }
             .profile-tabs-nav { padding: 0 10px; }
             .profile-tab-btn { padding: 14px 12px 12px; font-size: 12px; }
             .guest-auth-wrapper { margin: 20px auto; padding: 24px 18px; }
+            .profile-content-area { padding: 20px 14px; }
+            .profile-tabs-nav { overflow-x: auto; justify-content: flex-start; }
+            .profile-tab-btn { flex: 0 0 auto; min-width: 104px; }
         }
     </style>
 </head>
