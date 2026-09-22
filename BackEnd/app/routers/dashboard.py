@@ -50,8 +50,6 @@ def get_risk_summary(db: Session = Depends(get_db)):
 
 import time
 import requests
-import urllib3
-urllib3.disable_warnings()
 
 # Cache em memória indexado por coordenadas aproximadas (raio ~1km) com TTL de 3 minutos
 _weather_cache_dict = {}
@@ -86,7 +84,7 @@ def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
         try:
             session = requests.Session()
             session.trust_env = trust_environment
-            r = session.get(url, verify=False, timeout=8)
+            r = session.get(url, timeout=8)
             if r.status_code == 200:
                 candidate = r.json()
                 if candidate.get("hourly") and candidate.get("current"):

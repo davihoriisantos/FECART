@@ -82,6 +82,28 @@ def calculate_predictive_risk(
     }
 
 
+def calculate_forecast_risk(
+    *, forecast_rain_mm_h: float, forecast_accumulated_mm: float,
+    rain_factor: float, river_factor: float, terrain_factor: float,
+    historical_factor: float,
+) -> dict:
+    """Risco de +1h a +3h usando somente a chuva prevista para o período.
+
+    O céu limpo no instante atual não participa desta função. A trava de chuva
+    continua existindo, mas é aplicada ao volume futuro informado pela previsão.
+    """
+    result = calculate_predictive_risk(
+        rain_factor=rain_factor,
+        river_factor=river_factor,
+        terrain_factor=terrain_factor,
+        historical_factor=historical_factor,
+        current_rain_mm_h=max(0.0, float(forecast_rain_mm_h or 0.0)),
+        accumulated_24h_mm=max(0.0, float(forecast_accumulated_mm or 0.0)),
+    )
+    result["modo"] = "projecao_futura"
+    return result
+
+
 def calculate_flood_risk(
     zone: RiskZone, db: Session, *, current_rain_mm_h: float = 0.0,
     accumulated_24h_mm: float = 0.0, rain_factor: float = 0.0,

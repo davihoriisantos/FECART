@@ -18,12 +18,17 @@ import urllib.request
 import urllib.error
 import json
 import hashlib
+import logging
+import re
+import unicodedata
 from pathlib import Path
+import requests
 from shapely.geometry import LineString, Point
 from shapely.ops import transform
 from pyproj import Transformer
 
 router = APIRouter(prefix="/api/rivers", tags=["rivers"])
+logger = logging.getLogger(__name__)
 
 # ─── ESTAÇÕES TELEMÉTRIAS ─────────────────────────────────────────────────────
 # Dados reais das estações DAEE/CGE/SAISP de São Paulo.
@@ -168,12 +173,106 @@ def _cache_set(key: str, data):
 
 
 # ─── INTEGRAÇÃO TELEMÉTRICA ──────────────────────────────────────────────────
-def _try_fetch_real_data(station_id: str) -> Optional[float]:
+SAISP_REPORT_URL = "https://www.saisp.br/online/"
+_saisp_report_cache = {"ts": 0.0, "statuses": None, "error": None}
+_SAISP_STATION_ALIASES = {
+    "D2-024": ["Rio Tietê - Ponte do Piqueri", "Rio Tietê - Barragem Móvel"],
+    "D2-025": ["Rio Tietê - Estaleiro", "Rio Tietê - Barragem Móvel"],
+    "D2-026": ["Rio Tietê - Anhembi", "Rio Tietê - Belenzinho"],
+    "D2-027": ["Rio Tietê - Barragem da Penha Montante", "Rio Tietê - Barragem da Penha Jusante"],
+    "D2-040": ["Rio Pinheiros - Ponte Cid. Universitária"],
+    "D2-041": ["Rio Pinheiros - Ponte João Dias"],
+    "D2-060": ["Rio Tamanduateí - Mercado Municipal"],
+    "D2-080": ["Rio Aricanduva - Av. Ragueb Chohfi", "Rio Aricanduva - Shopping"],
+    "D2-081": ["Rio Aricanduva - Av. Itaquera"],
+}
+
+
+def _normalize_station_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value or "")
+    return " ".join("".join(ch for ch in normalized if not unicodedata.combining(ch)).casefold().split())
+
+
+def _fetch_saisp_statuses() -> dict[str, str]:
+    now = time.time()
+    if _saisp_report_cache["statuses"] is not None and now - _saisp_report_cache["ts"] < CACHE_TTL:
+        return _saisp_report_cache["statuses"]
+    if _saisp_report_cache["error"] and now - _saisp_report_cache["ts"] < 60:
+        raise RuntimeError(_saisp_report_cache["error"])
+
+    try:
+        response = requests.get(
+            SAISP_REPORT_URL,
+            timeout=12,
+            headers={"User-Agent": "FloodGuardAI/1.0 (+telemetria SAISP)"},
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        _saisp_report_cache.update({"ts": now, "statuses": None, "error": str(exc)})
+        raise
+    response.encoding = "utf-8"
+
+    statuses: dict[str, str] = {}
+    scripts = re.findall(
+        r'<script[^>]+type="application/json"[^>]*>(.*?)</script>',
+        response.text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    for raw_json in scripts:
+        try:
+            widget = json.loads(raw_json)
+        except (TypeError, ValueError):
+            continue
+        payload = widget.get("x") or {}
+        container = payload.get("container") or ""
+        data = payload.get("data") or []
+        if "Alerta" not in container or len(data) < 2:
+            continue
+        names, states = data[0], data[1]
+        if not isinstance(names, list) or not isinstance(states, list):
+            continue
+        for name, state in zip(names, states):
+            statuses[_normalize_station_name(str(name))] = str(state).strip().upper()
+
+    if not statuses:
+        raise ValueError("Relatório SAISP não trouxe a tabela de estados fluviométricos")
+    _saisp_report_cache.update({"ts": now, "statuses": statuses, "error": None})
+    return statuses
+
+
+def _try_fetch_real_data(station: dict) -> Optional[dict]:
+    """Obtém o estado fluviométrico oficial publicado no relatório do SAISP.
+
+    O relatório público divulga estado (normal/atenção/alerta/extravasamento),
+    não uma cota numérica aberta. A cota abaixo é uma estimativa conservadora
+    dentro da faixa oficial e é identificada como estimativa na resposta.
     """
-    Tenta buscar dados reais de cota em metros de APIs públicas.
-    Retorna None para acionar a simulação calibrada de alta precisão em tempo real.
-    """
-    return None
+    statuses = _fetch_saisp_statuses()
+    aliases = _SAISP_STATION_ALIASES.get(station.get("_saisp_id"), [station.get("nome", "")])
+    matched_name = None
+    official_state = "NORMAL"
+    for alias in aliases:
+        normalized_alias = _normalize_station_name(alias)
+        if normalized_alias in statuses:
+            matched_name = alias
+            official_state = statuses[normalized_alias]
+            break
+
+    state_ratio = {
+        "NORMAL": 0.40,
+        "ATENÇÃO": 0.60,
+        "ATENCAO": 0.60,
+        "ALERTA": 0.80,
+        "EMERGÊNCIA": 0.90,
+        "EMERGENCIA": 0.90,
+        "EXTRAVASAMENTO": 0.96,
+    }.get(official_state, 0.40)
+    return {
+        "cota": round(station["cota_maxima_m"] * state_ratio, 2),
+        "estado": official_state,
+        "posto": matched_name or aliases[0],
+        "cota_estimada": True,
+    }
 
 
 # ─── MOCK PREMIUM PSEUDO-DINÂMICO ─────────────────────────────────────────────
@@ -271,6 +370,7 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
 
     cota = None
     fonte = "mock"
+    saisp_data = None
 
     if scenario == "tempestade":
         cota = round(st["cota_maxima_m"] * 0.94, 2)
@@ -283,12 +383,21 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
         fonte = "Simulação Nível Seguro"
     else:
         if st.get("_saisp_id"):
-            cota = _try_fetch_real_data(st["_saisp_id"])
-            if cota is not None:
-                fonte = "SAISP/CGE (tempo real)"
+            try:
+                saisp_data = _try_fetch_real_data(st)
+                if saisp_data is not None:
+                    cota = saisp_data["cota"]
+                    fonte = "SAISP (estado fluviométrico oficial)"
+            except Exception as exc:
+                logger.warning("Falha ao consultar SAISP para %s: %s", st["nome"], exc)
 
         if cota is None:
-            cota = _get_mock_cota(st)
+            try:
+                cota = _get_mock_cota(st)
+                logger.warning("Usando fallback simulado para %s; telemetria oficial indisponível", st["nome"])
+            except Exception as exc:
+                logger.warning("Falha também no fallback de %s: %s", st["nome"], exc)
+                cota = round(st["cota_maxima_m"] * 0.35, 2)
 
     classificacao = _classify_level(cota, st)
     # Uma estimativa sintética nunca deve ser apresentada nem ponderada como
@@ -315,6 +424,9 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
         "cota_alerta_m": st["cota_alerta_m"],
         "fonte_dados": fonte,
         "dados_simulados": fonte == "mock" or fonte.startswith("Simulação"),
+        "estado_saisp": saisp_data.get("estado") if saisp_data else None,
+        "posto_saisp": saisp_data.get("posto") if saisp_data else None,
+        "cota_estimada_pelo_estado": bool(saisp_data and saisp_data.get("cota_estimada")),
         "nome_estacao": st["nome"],
         "rio_nome": st["rio"],
         "altura_atual_m": round(cota, 2),

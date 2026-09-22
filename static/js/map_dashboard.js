@@ -733,7 +733,7 @@ async function checkSavedPlacesRiskAlerts() {
             }
 
             forecastRainAccum += rainVal;
-            const risk = calculateRiskFormula(rainVal, acc24h + forecastRainAccum, probVal, alt, lat, lon, soilMoisture);
+            const risk = calculateForecastRiskFormula(rainVal, acc24h + forecastRainAccum, probVal, alt, lat, lon, soilMoisture);
 
             if (risk > maxRiskInForecast) {
                 maxRiskInForecast = risk;
@@ -1246,8 +1246,8 @@ function getMinDistanceToRivers(lat, lon) {
         }
     }
 
-    // Regra de Tolerância Zero (Snap-to-Water de 100 metros)
-    if (minDistance <= 100) {
+    // Buffer oficial da aplicação: toda coordenada até 150m da calha é distância zero.
+    if (minDistance <= 150) {
         minDistance = 0;
     } else {
         minDistance = Math.round(minDistance);
@@ -1281,26 +1281,6 @@ const SP_DRAINAGE_STRUCTURES = [
     { nome: "Piscinão Rincão", lat: -23.5367, lon: -46.5702, raio: 900 },
     { nome: "Piscinão Guamiranga", lat: -23.5797, lon: -46.5909, raio: 900 }
 ];
-
-// ─── CÁLCULO DE DISTÂNCIA ATÉ O RIO MAIS PRÓXIMO ──────────────────────────────
-function getMinDistanceToRivers(lat, lon) {
-    let minDistance = 999999;
-    let closestRiver = "Bacia Geral";
-
-    for (const river of SP_RIVERS) {
-        for (let i = 0; i < river.coords.length - 1; i++) {
-            const p1 = river.coords[i];
-            const p2 = river.coords[i + 1];
-            const dist = distanceToSegment(lat, lon, p1[0], p1[1], p2[0], p2[1]);
-            if (dist < minDistance) {
-                minDistance = dist;
-                closestRiver = river.nome;
-            }
-        }
-    }
-
-    return { distance: Math.round(minDistance), river: closestRiver };
-}
 
 function distanceToSegment(lat, lon, lat1, lon1, lat2, lon2) {
     // Projeção métrica precisa para SP (1° lat ~ 111.000m, 1° lon ~ 102.000m)
@@ -1733,7 +1713,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 
         forecastRainTotal += rainVal;
         maxForecastRain = Math.max(maxForecastRain, rainVal);
-        const risk = calculateRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon, soilMoisture);
+        const risk = calculateForecastRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon, soilMoisture);
 
         labels.push(horaStr);
         historyRisks.push(null);
@@ -1789,6 +1769,21 @@ function getRainRiskCap(rainMm, acc24h) {
 
 function applyRainRiskCap(risk, rainMm, acc24h) {
     return Math.min(risk, getRainRiskCap(rainMm, acc24h));
+}
+
+// Projeções de +1h a +3h usam a precipitação prevista daquele horário.
+// A chuva atual não entra neste cálculo e, portanto, céu limpo agora não
+// bloqueia um alerta para um temporal previsto nas próximas horas.
+function calculateForecastRiskFormula(forecastRainMm, forecastAccumulatedMm, probability, alt, lat, lon, soilMoisture = null) {
+    return calculateRiskFormula(
+        forecastRainMm,
+        forecastAccumulatedMm,
+        probability,
+        alt,
+        lat,
+        lon,
+        soilMoisture
+    );
 }
 
 // ─── MOTOR PREDITIVO DE IA — HIERARQUIA HIDROLÓGICA (0 a 100%) ───────────────
@@ -4154,10 +4149,15 @@ function formatRouteDuration(durationSeconds) {
     return minutes > 0 ? `${hours}h ${minutes} min` : `${hours}h`;
 }
 
-function buildRouteMetrics(distanceKm) {
+function buildRouteMetrics(distanceKm, durationSeconds, maxRisk) {
+    const duration = formatRouteDuration(durationSeconds);
+    const risk = Math.round(clamp(Number(maxRisk) || 0, 0, 100));
+    const riskStyle = getRouteRiskStyle(risk);
     return `
         <span style="display:block;color:#E2E8F0;margin-top:7px;line-height:1.65;">
             <span style="display:block;"><strong>Distância Total:</strong> ${distanceKm} km</span>
+            <span style="display:block;"><strong>Tempo Estimado:</strong> ${duration}</span>
+            <span style="display:block;"><strong>Risco Máximo:</strong> <span style="color:${riskStyle.color};font-weight:800;">${risk}% — ${riskStyle.level}</span></span>
         </span>
     `;
 }

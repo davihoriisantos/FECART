@@ -77,8 +77,37 @@ def create_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    latest = (
+        db.query(HistoricoBuscaRegiao)
+        .filter(HistoricoBuscaRegiao.usuario_id == current_user.id)
+        .order_by(HistoricoBuscaRegiao.criado_em.desc())
+        .first()
+    )
+    normalized_term = item.termo_busca.strip().casefold()
+    if latest and latest.termo_busca.strip().casefold() == normalized_term:
+        same_lat = (latest.lat is None and item.lat is None) or (
+            latest.lat is not None and item.lat is not None and abs(latest.lat - item.lat) < 0.000001
+        )
+        same_lon = (latest.lon is None and item.lon is None) or (
+            latest.lon is not None and item.lon is not None and abs(latest.lon - item.lon) < 0.000001
+        )
+        if same_lat and same_lon:
+            return latest
+
     history = HistoricoBuscaRegiao(usuario_id=current_user.id, **item.model_dump())
     db.add(history)
     db.commit()
     db.refresh(history)
+
+    stale_entries = (
+        db.query(HistoricoBuscaRegiao)
+        .filter(HistoricoBuscaRegiao.usuario_id == current_user.id)
+        .order_by(HistoricoBuscaRegiao.criado_em.desc(), HistoricoBuscaRegiao.id.desc())
+        .offset(50)
+        .all()
+    )
+    for stale in stale_entries:
+        db.delete(stale)
+    if stale_entries:
+        db.commit()
     return history
