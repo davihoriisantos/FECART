@@ -2,10 +2,107 @@
 
 from datetime import datetime, timezone
 from typing import Optional
+import time
+
+import requests
 
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models.zone import RiskZone
+
+
+_weather_cache: dict[str, dict] = {}
+
+
+def fetch_open_meteo_forecast(lat: float, lon: float) -> dict:
+    """Obtém clima real da Open-Meteo com cache curto e TLS por ambiente."""
+    coord_key = f"{round(lat, 3)}_{round(lon, 3)}"
+    now = time.time()
+    cached = _weather_cache.get(coord_key)
+    if cached and now < cached["expires_at"]:
+        return cached["data"]
+
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+        "&current=precipitation,rain,showers,temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+        "&hourly=precipitation,rain,showers,precipitation_probability,soil_moisture_0_to_1cm"
+        "&daily=precipitation_sum,precipitation_probability_max"
+        "&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo"
+    )
+    errors = []
+    data = None
+    for trust_environment in (True, False):
+        try:
+            session = requests.Session()
+            session.trust_env = trust_environment
+            response = session.get(url, timeout=8, verify=settings.VERIFY_SSL)
+            response.raise_for_status()
+            candidate = response.json()
+            if candidate.get("hourly") and candidate.get("current"):
+                data = candidate
+                break
+            errors.append("Resposta sem dados horários ou atuais")
+        except (requests.RequestException, ValueError) as exc:
+            errors.append(str(exc))
+
+    if not data and cached:
+        return cached["data"]
+    if not data:
+        return {
+            "error": "Serviço meteorológico temporariamente indisponível",
+            "lat": lat,
+            "lon": lon,
+            "source": "unavailable",
+            "details": errors[-1] if errors else "sem resposta",
+        }
+
+    current = data.get("current", {})
+    hourly = data.get("hourly", {})
+    current_rain = float(current.get("precipitation") or current.get("rain") or 0.0)
+    hourly_precip = hourly.get("precipitation", [])
+    hourly_times = hourly.get("time", [])
+    current_time = current.get("time", "")
+    current_idx = next(
+        (index for index, value in enumerate(hourly_times) if value.startswith(current_time[:13])),
+        len(hourly_times) - 8 if hourly_times else -1,
+    )
+
+    def accumulated(hours: int) -> float:
+        if current_idx < 0:
+            return 0.0
+        return sum(
+            float(hourly_precip[index] or 0.0)
+            for index in range(max(0, current_idx - hours + 1), current_idx + 1)
+            if index < len(hourly_precip)
+        )
+
+    today = current_time[:10] or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    daily = data.get("daily", {})
+    daily_times = daily.get("time", [])
+    daily_sums = daily.get("precipitation_sum", [])
+    today_sum = 0.0
+    if today in daily_times:
+        index = daily_times.index(today)
+        if index < len(daily_sums):
+            today_sum = float(daily_sums[index] or 0.0)
+
+    payload = {
+        "lat": lat,
+        "lon": lon,
+        "current_rain_mm_h": round(current_rain, 1),
+        "accumulated_24h_mm": round(accumulated(24), 1),
+        "accumulated_recent_3h_mm": round(accumulated(3), 1),
+        "today_rain_sum_mm": round(today_sum, 1),
+        "is_raining_now": current_rain > 0.0,
+        "current": current,
+        "hourly": hourly,
+        "daily": daily,
+        "source": "open-meteo",
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _weather_cache[coord_key] = {"data": payload, "expires_at": now + 180}
+    return payload
 
 
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:

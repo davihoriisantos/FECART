@@ -10,6 +10,7 @@ Estratégia em 3 camadas:
 """
 
 from fastapi import APIRouter
+from ..config import settings
 from typing import List, Optional
 import math
 import time
@@ -205,6 +206,7 @@ def _fetch_saisp_statuses() -> dict[str, str]:
             SAISP_REPORT_URL,
             timeout=12,
             headers={"User-Agent": "FloodGuardAI/1.0 (+telemetria SAISP)"},
+            verify=settings.VERIFY_SSL,
         )
         response.raise_for_status()
     except requests.RequestException as exc:

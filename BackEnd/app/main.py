@@ -7,6 +7,10 @@ from .routers import auth, sensors, zones, alerts, dashboard, user_profile
 from .seed_data import seed_database
 from contextlib import asynccontextmanager
 from .services.database_migrations import ensure_user_place_columns, migrate_legacy_history
+from .config import SECRET_KEY
+
+if not SECRET_KEY:
+    raise RuntimeError("FATAL: SECRET_KEY não configurada no ambiente.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
