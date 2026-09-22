@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, Date
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Date, Float
 from datetime import datetime, timezone
 from ..database import Base
 
@@ -16,3 +16,9 @@ class User(Base):
     ativo            = Column(Boolean,     default=True)
     created_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_login       = Column(DateTime, nullable=True)
+    home_address     = Column(String(500), nullable=True)
+    home_lat         = Column(Float, nullable=True)
+    home_lon         = Column(Float, nullable=True)
+    work_address     = Column(String(500), nullable=True)
+    work_lat         = Column(Float, nullable=True)
+    work_lon         = Column(Float, nullable=True)

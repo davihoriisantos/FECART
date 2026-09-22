@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from ..database import Base
 
 class HistoricoBuscaRegiao(Base):
-    __tablename__ = "historico_buscas_regiao"
+    __tablename__ = "search_history"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     usuario_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)

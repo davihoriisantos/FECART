@@ -1315,9 +1315,6 @@
                 line-height: 1.4;
             }
 
-            #probability-gauge {
-                display: none !important; /* Esconde canvas secundário em telas menores */
-            }
         }
 
         /* ─── BANNER DE ALERTA PREDITIVO CRÍTICO (LOCAIS SALVOS) ─── */
@@ -1737,7 +1734,6 @@
                     <div id="hero-recommendation" style="font-size: 12px; color: #94A3B8; margin-top: 6px;">
                         🛡️ Sem risco iminente de alagamento nas próximas horas.
                     </div>
-                    <canvas id="probability-gauge" width="80" height="80" style="margin-top:8px; display:block;"></canvas>
                 </div>
 
                 <!-- ─── CARD ALERTA HÍDRICO / TELEMETRIA DE RIOS ─── -->
@@ -1979,9 +1975,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/static/js/api.js?v=20260916-session-fix"></script>
-    <script src="/static/js/historico_buscas.js?v=20260915-v1"></script>
+    <script src="/static/js/historico_buscas.js?v=20260922-db"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260915-route-unified"></script>
-    <script src="/static/js/map_dashboard.js?v=20260916-daily-rain"></script>
+    <script src="/static/js/map_dashboard.js?v=20260922-db"></script>
         <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
     <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
         <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">

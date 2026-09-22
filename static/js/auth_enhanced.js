@@ -42,7 +42,7 @@ function saveSession(token, user) {
     localStorage.setItem(AUTH_CONFIG.TOKEN_KEY, token);
     // Mantém compatibilidade com módulos antigos que ainda usam esta chave.
     localStorage.setItem('floodguard_token', token);
-    localStorage.setItem(AUTH_CONFIG.USER_KEY,  JSON.stringify(user));
+    localStorage.removeItem(AUTH_CONFIG.USER_KEY);
 }
 
 function clearSession() {
@@ -56,9 +56,7 @@ function getToken() {
 }
 
 function getCurrentUser() {
-    try {
-        return JSON.parse(localStorage.getItem(AUTH_CONFIG.USER_KEY)) || null;
-    } catch { return null; }
+    return null;
 }
 
 function isLoggedIn() {

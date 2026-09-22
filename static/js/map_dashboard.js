@@ -79,25 +79,15 @@ let searchRequestId = 0;
 let searchSuggestionResults = [];
 let activePredictiveAlertPlace = null;
 let predictiveAlertCheckInterval = null;
+let savedPlacesState = { home: null, work: null };
 
 // ─── INICIALIZAÇÃO GERAL ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     initLeafletMap();
     setupSearchListeners();
     setupRouteAutocomplete();
+    await syncSavedPlacesFromServer();
     refreshSavedPlaceButtons();
-    // Atualiza nome do usuário logado no botão Perfil
-    try {
-        const rawUser = localStorage.getItem('fg_user');
-        if (rawUser) {
-            const u = JSON.parse(rawUser);
-            const labelEl = document.getElementById('header-user-label');
-            if (labelEl && u && u.nome) {
-                labelEl.textContent = u.nome.split(' ')[0];
-            }
-        }
-    } catch (_) {}
-
     // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
     setTimeout(() => {
         checkAndPromptNotificationPermission();
@@ -131,9 +121,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Verifica se veio de um clique no Histórico de Buscas do Perfil
     try {
-        const targetSearch = JSON.parse(localStorage.getItem('fg_target_search') || 'null');
+        const targetSearch = JSON.parse(sessionStorage.getItem('fg_target_search') || 'null');
         if (targetSearch && targetSearch.lat && targetSearch.lon) {
-            localStorage.removeItem('fg_target_search');
+            sessionStorage.removeItem('fg_target_search');
             await analyzePoint(Number(targetSearch.lat), Number(targetSearch.lon), targetSearch.nome, targetSearch.bairro || 'São Paulo - SP');
             if (map) map.flyTo([Number(targetSearch.lat), Number(targetSearch.lon)], 16, { duration: 1.0 });
             return;
@@ -165,82 +155,71 @@ let simplePlaceSearchTimeout = null;
 
 // ─── ESTADO INICIAL OBRIGATÓRIO: NULL (SEM DADOS PRÉ-DEFINIDOS) ─────────────
 function getUserPlace(type) {
-    const key = `user_${type}`;
-    try {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed === 'object' && parsed.lat && parsed.lon) {
-                return parsed;
-            }
-        }
-    } catch (_) {}
-
-    // Fallback para chave por usuário autenticado se existir
-    const user = getAuthenticatedUserContext();
-    const uid = user?.id || user?.email;
-    if (uid) {
-        try {
-            const storageKey = `floodguard_saved_places:${encodeURIComponent(uid)}`;
-            const places = JSON.parse(localStorage.getItem(storageKey) || '{}');
-            if (places && places[type] && places[type].lat && places[type].lon) {
-                return places[type];
-            }
-        } catch (_) {}
-    }
-
-    // Estritamente null por padrão (sem dados hardcoded)
-    return null;
+    return savedPlacesState[type] || null;
 }
 
-function setUserPlace(type, placeData) {
-    const key = `user_${type}`;
-    if (!placeData) {
-        localStorage.removeItem(key);
-    } else {
-        localStorage.setItem(key, JSON.stringify(placeData));
+async function syncSavedPlacesFromServer() {
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) {
+        savedPlacesState = { home: null, work: null };
+        return;
     }
-
-    const user = getAuthenticatedUserContext();
-    const uid = user?.id || user?.email || 'default_user';
     try {
-        const storageKey = `floodguard_saved_places:${encodeURIComponent(uid)}`;
-        const places = JSON.parse(localStorage.getItem(storageKey) || '{}');
-        if (!placeData) {
-            delete places[type];
-        } else {
-            places[type] = placeData;
-        }
-        localStorage.setItem(storageKey, JSON.stringify(places));
-    } catch (_) {}
+        const response = await fetch('/api/user/profile', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) return;
+        const profile = await response.json();
+        const normalize = (place, label) => place ? {
+            lat: Number(place.lat), lon: Number(place.lon),
+            nome: place.address || label, address: place.address || label,
+            bairro: 'São Paulo - SP'
+        } : null;
+        savedPlacesState = {
+            home: normalize(profile.saved_places?.home, 'Casa'),
+            work: normalize(profile.saved_places?.work, 'Trabalho')
+        };
+        const labelEl = document.getElementById('header-user-label');
+        if (labelEl && profile.user?.nome) labelEl.textContent = profile.user.nome.split(' ')[0];
+    } catch (error) {
+        console.warn('[Locais salvos] Não foi possível sincronizar:', error);
+    }
+}
 
+async function setUserPlace(type, placeData) {
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) return false;
+    const previous = savedPlacesState[type];
+    savedPlacesState[type] = placeData;
     refreshSavedPlaceButtons();
-    checkAndPromptNotificationPermission();
-    checkSavedPlacesRiskAlerts();
+    try {
+        const response = await fetch('/api/user/saved-places', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                type,
+                address: placeData?.address || placeData?.nome || null,
+                lat: placeData?.lat ?? null,
+                lon: placeData?.lon ?? null
+            })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        checkAndPromptNotificationPermission();
+        checkSavedPlacesRiskAlerts();
+        return true;
+    } catch (error) {
+        savedPlacesState[type] = previous;
+        refreshSavedPlaceButtons();
+        console.warn('[Locais salvos] Falha ao persistir:', error);
+        return false;
+    }
 }
 
 function getAuthenticatedUserContext() {
     const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
-    if (!token) {
-        try {
-            const savedUser = JSON.parse(localStorage.getItem('fg_user') || 'null');
-            if (savedUser && (savedUser.id || savedUser.email)) {
-                return { id: String(savedUser.id || savedUser.email), email: savedUser.email, nome: savedUser.nome };
-            }
-        } catch (_) {}
-        return null;
-    }
+    if (!token) return null;
     const payload = decodeJwtPayload(token);
-    if (!payload || !payload.sub) {
-        try {
-            const savedUser = JSON.parse(localStorage.getItem('fg_user') || 'null');
-            const savedId = savedUser?.email || savedUser?.id;
-            return savedId ? { id: String(savedId), email: savedUser?.email, nome: savedUser?.nome } : null;
-        } catch (_) {
-            return null;
-        }
-    }
-    return { id: String(payload.sub) };
+    return payload?.sub ? { id: String(payload.sub), email: payload.sub } : null;
 }
 
 // Retorna o local pesquisado / selecionado ativo no card lateral
@@ -352,7 +331,11 @@ function openSavedPlace(type) {
 }
 
 // ─── SALVAMENTO DIRETO E INTELIGENTE PELO BOTÃO + ───────────────────────────
-function handlePlacePlusClick(type) {
+async function handlePlacePlusClick(type) {
+    if (!getAuthenticatedUserContext()) {
+        openSavedPlaceAuthModal();
+        return;
+    }
     const isHome = type === 'home';
     const typeLabel = isHome ? 'Casa' : 'Trabalho';
     const activeLoc = getActiveLocationForSave();
@@ -368,8 +351,10 @@ function handlePlacePlusClick(type) {
             address: activeLoc.address || activeLoc.nome
         };
 
-        setUserPlace(type, placeData);
-        showGeoToast('success', `📍 Endereço salvo como ${typeLabel} com sucesso!`);
+        const saved = await setUserPlace(type, placeData);
+        showGeoToast(saved ? 'success' : 'error', saved
+            ? `📍 Endereço salvo como ${typeLabel} com sucesso!`
+            : 'Não foi possível salvar o endereço. Tente novamente.');
         return;
     }
 
@@ -378,7 +363,7 @@ function handlePlacePlusClick(type) {
 }
 
 function editSavedPlace(type) {
-    handlePlacePlusClick(type);
+    return handlePlacePlusClick(type);
 }
 
 function openPlaceConfigModal(type) {
@@ -561,9 +546,23 @@ async function submitSimplePlaceModal() {
         };
     }
 
-    setUserPlace(type, target);
-    closeSimplePlaceModal();
-    showGeoToast('success', `📍 Endereço salvo como ${typeLabel} com sucesso!`);
+    const saved = await setUserPlace(type, target);
+    if (saved) closeSimplePlaceModal();
+    showGeoToast(saved ? 'success' : 'error', saved
+        ? `📍 Endereço salvo como ${typeLabel} com sucesso!`
+        : 'Não foi possível salvar o endereço. Tente novamente.');
+}
+
+function openSavedPlaceAuthModal() {
+    const modal = document.getElementById('saved-place-auth-modal');
+    if (modal) modal.classList.add('open');
+}
+
+function closeSavedPlaceAuthModal(event) {
+    const modal = document.getElementById('saved-place-auth-modal');
+    if (!modal) return;
+    if (event && event.target !== modal) return;
+    modal.classList.remove('open');
 }
 
 // ─── SISTEMA DE ALERTAS PREDITIVOS DE RISCO (CASA / TRABALHO) ───────────────

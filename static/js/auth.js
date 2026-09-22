@@ -15,9 +15,11 @@
 const AUTH_KEYS = {
     TOKEN: 'fg_token',
     TOKEN_LEGACY: 'floodguard_token',
-    USER: 'fg_user',
-    SAVED_PLACES_PREFIX: 'floodguard_saved_places:'
+    USER: 'fg_user'
 };
+
+let currentUserState = null;
+let currentProfileState = { saved_places: { home: null, work: null }, history: [] };
 
 // ─── VERIFICAÇÃO DE SESSÃO ───────────────────────────────────────────────────
 function getToken() {
@@ -25,15 +27,11 @@ function getToken() {
 }
 
 function getCurrentUser() {
-    try {
-        const raw = localStorage.getItem(AUTH_KEYS.USER);
-        if (raw) return JSON.parse(raw);
-    } catch (_) {}
-    return null;
+    return currentUserState;
 }
 
 function isLoggedIn() {
-    return !!(getToken() || getCurrentUser());
+    return !!getToken();
 }
 
 function saveSession(token, user) {
@@ -42,8 +40,9 @@ function saveSession(token, user) {
         localStorage.setItem(AUTH_KEYS.TOKEN_LEGACY, token);
     }
     if (user) {
-        localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(user));
+        currentUserState = user;
     }
+    localStorage.removeItem(AUTH_KEYS.USER);
     try {
         sessionStorage.removeItem('fg_notif_prompt_dismissed');
     } catch (_) {}
@@ -53,6 +52,8 @@ function clearSession() {
     localStorage.removeItem(AUTH_KEYS.TOKEN);
     localStorage.removeItem(AUTH_KEYS.TOKEN_LEGACY);
     localStorage.removeItem(AUTH_KEYS.USER);
+    currentUserState = null;
+    currentProfileState = { saved_places: { home: null, work: null }, history: [] };
     try {
         sessionStorage.removeItem('fg_notif_prompt_dismissed');
     } catch (_) {}
@@ -94,16 +95,13 @@ async function authFetch(endpoint, options = {}) {
 // ─── LOCAIS SALVOS DO USUÁRIO ────────────────────────────────────────────────
 function getSavedPlaces(user) {
     if (!user) return {};
-    const keyById = AUTH_KEYS.SAVED_PLACES_PREFIX + encodeURIComponent(user.id || '');
-    const keyByEmail = AUTH_KEYS.SAVED_PLACES_PREFIX + encodeURIComponent(user.email || '');
-
-    try {
-        const placesId = JSON.parse(localStorage.getItem(keyById) || '{}');
-        const placesEmail = JSON.parse(localStorage.getItem(keyByEmail) || '{}');
-        return Object.assign({}, placesEmail, placesId);
-    } catch (_) {
-        return {};
-    }
+    const places = currentProfileState.saved_places || {};
+    const normalize = (place, label) => place ? {
+        ...place,
+        nome: place.address || label,
+        bairro: 'São Paulo - SP'
+    } : null;
+    return { home: normalize(places.home, 'Casa'), work: normalize(places.work, 'Trabalho') };
 }
 
 function renderSavedPlaces(user) {
@@ -144,7 +142,7 @@ function renderSavedPlaces(user) {
                     <div style="font-size:12px; color:#38BDF8; margin-top:4px; font-weight:600;">${p.nome || 'Local Definido'}</div>
                     <div style="font-size:11px; color:#94A3B8; margin-top:2px;">${p.bairro || 'São Paulo - SP'}</div>
                 </div>
-                <a href="/static/map.html" onclick="localStorage.setItem('fg_target_search', '${targetData}')" class="btn-save" style="text-decoration:none; padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
+                <a href="/static/map.html" onclick="sessionStorage.setItem('fg_target_search', '${targetData}')" class="btn-save" style="text-decoration:none; padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
                     🗺️ Ver no Mapa
                 </a>
             </div>
@@ -163,7 +161,7 @@ function renderSavedPlaces(user) {
                     <div style="font-size:12px; color:#38BDF8; margin-top:4px; font-weight:600;">${p.nome || 'Local Definido'}</div>
                     <div style="font-size:11px; color:#94A3B8; margin-top:2px;">${p.bairro || 'São Paulo - SP'}</div>
                 </div>
-                <a href="/static/map.html" onclick="localStorage.setItem('fg_target_search', '${targetData}')" class="btn-save" style="text-decoration:none; padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
+                <a href="/static/map.html" onclick="sessionStorage.setItem('fg_target_search', '${targetData}')" class="btn-save" style="text-decoration:none; padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
                     🗺️ Ver no Mapa
                 </a>
             </div>
@@ -295,11 +293,14 @@ async function initProfileView() {
 
         // Tenta buscar dados atualizados da API em background (sem deslogar em caso de erro)
         try {
-            const res = await authFetch('/me');
+            const res = await authFetch('/api/user/profile');
             if (res && res.ok) {
-                const updatedUser = await res.json();
+                const profile = await res.json();
+                const updatedUser = profile.user;
+                currentProfileState = profile;
                 saveSession(getToken(), updatedUser);
                 fillProfileUI(updatedUser);
+                if (typeof renderProfileHistory === 'function') renderProfileHistory(profile.history || []);
             }
             // NOTA: Se res for 401 ou erro de rede, NÃO deslogamos o usuário automaticamente.
             // Mantemos a conta e o histórico salvos até o clique explícito em Sair.

@@ -119,6 +119,12 @@ class UserProfile(BaseModel):
     ativo:           bool
     created_at:      datetime
     last_login:      Optional[datetime]
+    home_address:    Optional[str] = None
+    home_lat:        Optional[float] = None
+    home_lon:        Optional[float] = None
+    work_address:    Optional[str] = None
+    work_lat:        Optional[float] = None
+    work_lon:        Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -128,3 +134,18 @@ class Token(BaseModel):
     access_token: str
     token_type:   str
     user:         UserProfile
+
+
+class SavedPlaceUpdate(BaseModel):
+    type: str
+    address: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+
+    @field_validator('type')
+    @classmethod
+    def valid_type(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in ('home', 'work'):
+            raise ValueError("type deve ser 'home' ou 'work'.")
+        return normalized

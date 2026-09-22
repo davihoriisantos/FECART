@@ -3,13 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .database import engine, Base, SessionLocal
-from .routers import auth, sensors, zones, alerts, dashboard
+from .routers import auth, sensors, zones, alerts, dashboard, user_profile
 from .seed_data import seed_database
 from contextlib import asynccontextmanager
+from .services.database_migrations import ensure_user_place_columns, migrate_legacy_history
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_user_place_columns(engine)
     Base.metadata.create_all(bind=engine)
+    migrate_legacy_history(engine)
     db = SessionLocal()
     seed_database(db)
     db.close()
@@ -30,6 +33,7 @@ app.include_router(sensors.router)
 app.include_router(zones.router)
 app.include_router(alerts.router)
 app.include_router(dashboard.router)
+app.include_router(user_profile.router)
 
 from .routers import confirmations, river_sensors, historico
 app.include_router(confirmations.router)

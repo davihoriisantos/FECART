@@ -50,7 +50,7 @@ async function salvarBuscaHistorico(item) {
     };
 
     try {
-        const res = await fetch('/api/historico/busca', {
+        const res = await fetch('/api/user/history', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -73,13 +73,14 @@ async function carregarHistorico(limit = 10) {
     if (!token) return [];
 
     try {
-        const res = await fetch(`/api/historico/busca?limit=${limit}`, {
+        const res = await fetch('/api/user/profile', {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
         });
         if (res.ok) {
-            return await res.json();
+            const profile = await res.json();
+            return (profile.history || []).slice(0, limit);
         }
     } catch (e) {
         console.debug('[Histórico] Erro ao carregar buscas:', e.message);
@@ -235,7 +236,7 @@ async function showRecentSearches() {
 }
 
 // ─── 6. Exibir Histórico Completo no Painel de Perfil (profile.html) ──────────
-async function renderProfileHistory() {
+async function renderProfileHistory(preloadedItems = null) {
     const container = document.getElementById('profile-history-list');
     if (!container) return;
 
@@ -245,7 +246,7 @@ async function renderProfileHistory() {
         <div class="skeleton" style="height: 52px; border-radius: 10px;"></div>
     `;
 
-    const items = await carregarHistorico(30);
+    const items = Array.isArray(preloadedItems) ? preloadedItems.slice(0, 30) : await carregarHistorico(30);
 
     if (!items || items.length === 0) {
         container.innerHTML = `
@@ -296,7 +297,7 @@ async function renderProfileHistory() {
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <a href="/map" onclick="localStorage.setItem('fg_target_search', '${targetData}')" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38BDF8; font-size: 12px; font-weight: 700; padding: 8px 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                    <a href="/map" onclick="sessionStorage.setItem('fg_target_search', '${targetData}')" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38BDF8; font-size: 12px; font-weight: 700; padding: 8px 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;">
                         🗺️ Ver no Mapa
                     </a>
                     <button type="button" onclick="deletarItemHistoricoPerfil(${item.id})" title="Remover do histórico" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #FCA5A5; font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer; line-height: 1;">
