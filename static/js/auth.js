@@ -242,7 +242,7 @@ function fillProfileUI(user) {
 
 // ─── ALTERNAR ABAS DO PAINEL DE PERFIL ───────────────────────────────────────
 function switchProfileTab(tab) {
-    ['dados', 'locais', 'historico', 'atividade', 'seguranca'].forEach(t => {
+    ['dados', 'locais', 'historico', 'atividade'].forEach(t => {
         const panel = document.getElementById(`panel-${t}`);
         const btn = document.getElementById(`ptab-${t}`);
         if (panel) panel.classList.toggle('active', t === tab);
@@ -538,79 +538,10 @@ function setupProfileUpdateForm() {
     });
 }
 
-// ─── ALTERAR SENHA (LOGADO) ─────────────────────────────────────────────────
-function setupPasswordChangeForm() {
-    const form = document.getElementById('pwForm');
-    if (!form) return;
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const msg = document.getElementById('pwMsg');
-        const senha_atual = document.getElementById('pw-atual')?.value;
-        const nova_senha = document.getElementById('pw-nova')?.value;
-        const confirm = document.getElementById('pw-confirm')?.value;
-        const btn = document.getElementById('btn-save-pw');
-
-        if (msg) msg.style.display = 'none';
-
-        if (!senha_atual || !nova_senha) {
-            if (msg) {
-                msg.textContent = '⚠️ Preencha a senha atual e a nova senha.';
-                msg.className = 'msg-box msg-error';
-                msg.style.display = 'block';
-            }
-            return;
-        }
-
-        if (nova_senha !== confirm) {
-            if (msg) {
-                msg.textContent = '⚠️ A confirmação da nova senha não confere.';
-                msg.className = 'msg-box msg-error';
-                msg.style.display = 'block';
-            }
-            return;
-        }
-
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ Alterando...'; }
-
-        try {
-            const res = await authFetch('/me/password', {
-                method: 'PUT',
-                body: JSON.stringify({ senha_atual, nova_senha })
-            });
-
-            if (res && res.ok) {
-                if (msg) {
-                    msg.textContent = '✅ Senha alterada com sucesso!';
-                    msg.className = 'msg-box msg-success';
-                    msg.style.display = 'block';
-                }
-                form.reset();
-            } else {
-                const data = await res.json();
-                if (msg) {
-                    msg.textContent = '❌ ' + extractApiError(data, 'Senha atual incorreta.');
-                    msg.className = 'msg-box msg-error';
-                    msg.style.display = 'block';
-                }
-            }
-        } catch (_) {
-            if (msg) {
-                msg.textContent = '❌ Erro de conexão ao alterar senha.';
-                msg.className = 'msg-box msg-error';
-                msg.style.display = 'block';
-            }
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '🔐 Alterar Senha'; }
-        }
-    });
-}
-
 // ─── AUTO-INICIALIZAÇÃO NO DOM ──────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initProfileView();
     setupGuestLoginForm();
     setupGuestRegisterForm();
     setupProfileUpdateForm();
-    setupPasswordChangeForm();
 });

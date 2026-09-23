@@ -276,60 +276,6 @@
         .auth-modal-login { border: 0; color: #06111D; background: #38BDF8; }
         .auth-modal-close { border: 1px solid #334155; color: #CBD5E1; background: transparent; }
 
-        /* Botão Minha Localização (GPS) */
-        .btn-geolocate {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            height: 44px;
-            padding: 0 14px;
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(2, 132, 199, 0.28));
-            border: 1px solid rgba(56, 189, 248, 0.45);
-            border-radius: 10px;
-            color: #38BDF8;
-            font-size: 12px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            flex-shrink: 0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-
-        .btn-geolocate:hover {
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
-            border-color: #38BDF8;
-            color: #FFFFFF;
-            box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
-            transform: translateY(-1px);
-        }
-
-        .btn-geolocate:active {
-            transform: translateY(0);
-        }
-
-        .btn-geolocate.is-locating {
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.35));
-            border-color: #F59E0B;
-            color: #F59E0B;
-            animation: pulse-gps 1.2s infinite alternate;
-        }
-
-        .btn-geolocate.is-locating .gps-icon {
-            animation: spin-radar 1.2s linear infinite;
-        }
-
-        @keyframes spin-radar {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse-gps {
-            from { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
-            to { box-shadow: 0 0 18px rgba(245, 158, 11, 0.8); }
-        }
 
         /* Toast / Modal de Alerta de Localização */
         .geo-toast {
@@ -1294,7 +1240,6 @@
 
             /* Botões principais com área de toque maior (Touch-Friendly) */
             .btn-calc-route,
-            .btn-geolocate,
             .search-input,
             .route-input {
                 min-height: 44px; /* Recomendação Apple/Google Human Interface */
