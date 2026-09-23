@@ -106,14 +106,12 @@
             }
         }
 
-        @media (max-width: 900px) {
-            body { overflow-y: auto; height: auto; }
+        @media (max-width: 1024px) {
             .dash-main {
-                grid-template-columns: 1fr;
-                height: auto;
-                overflow: visible;
+                grid-template-columns: 380px 1fr;
+                padding: 10px;
+                gap: 10px;
             }
-            #map-container { height: 500px !important; }
         }
 
         /* ─── Coluna Esquerda: Painel de Controle ─── */
@@ -126,6 +124,9 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            min-height: 0;
+            height: 100%;
+            box-sizing: border-box;
             box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
         }
 
@@ -168,20 +169,34 @@
 
         /* ─── Conteúdo Rolável do Painel ─── */
         .dash-sidebar-content {
-            flex: 1;
+            flex: 1 1 0;
+            min-height: 0;
             overflow-y: auto;
+            overflow-x: hidden;
             padding: 16px;
+            padding-bottom: 32px;
             display: flex;
             flex-direction: column;
             gap: 14px;
         }
 
+        /* Filhos diretos nunca encolhem — o container é que rola */
+        .dash-sidebar-content > * {
+            flex-shrink: 0;
+        }
+
         .dash-sidebar-content::-webkit-scrollbar {
-            width: 6px;
+            width: 5px;
+        }
+        .dash-sidebar-content::-webkit-scrollbar-track {
+            background: transparent;
         }
         .dash-sidebar-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.18);
             border-radius: 4px;
+        }
+        .dash-sidebar-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.32);
         }
 
         /* ─── Barra de Busca Universal & Botão GPS ─── */
@@ -244,60 +259,23 @@
             display: none;
         }
 
-        /* Botão Minha Localização (GPS) */
-        .btn-geolocate {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            height: 44px;
-            padding: 0 14px;
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(2, 132, 199, 0.28));
-            border: 1px solid rgba(56, 189, 248, 0.45);
-            border-radius: 10px;
-            color: #38BDF8;
-            font-size: 12px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            flex-shrink: 0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            font-family: 'Plus Jakarta Sans', sans-serif;
-        }
+        .saved-places-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+        .saved-place-control { display: flex; min-width: 0; border: 1px solid rgba(56,189,248,.22); border-radius: 10px; overflow: hidden; background: rgba(15,23,42,.72); }
+        .saved-place-btn, .saved-place-save { border: 0; color: #E2E8F0; cursor: pointer; transition: background .2s ease,color .2s ease; }
+        .saved-place-btn { flex: 1; min-width: 0; padding: 10px 8px; background: transparent; font-size: 12px; font-weight: 800; text-align: left; }
+        .saved-place-save { width: 34px; background: rgba(56,189,248,.09); border-left: 1px solid rgba(56,189,248,.18); font-size: 14px; }
+        .saved-place-btn:hover, .saved-place-save:hover { background: rgba(56,189,248,.16); color: #38BDF8; }
+        .auth-modal-backdrop { position: fixed; inset: 0; z-index: 5000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(2,6,23,.78); backdrop-filter: blur(8px); }
+        .auth-modal-backdrop.open { display: flex; }
+        .auth-modal-card { width: min(430px,100%); padding: 26px; border: 1px solid rgba(56,189,248,.3); border-radius: 18px; background: #0F172A; box-shadow: 0 24px 80px rgba(0,0,0,.55); text-align: center; }
+        .auth-modal-icon { font-size: 38px; margin-bottom: 10px; }
+        .auth-modal-card h2 { margin: 0 0 10px; font-size: 21px; }
+        .auth-modal-card p { margin: 0; color: #CBD5E1; font-size: 14px; line-height: 1.65; }
+        .auth-modal-actions { display: flex; gap: 10px; margin-top: 22px; }
+        .auth-modal-actions a, .auth-modal-actions button { flex: 1; padding: 11px 12px; border-radius: 9px; font-weight: 800; font-size: 13px; text-decoration: none; cursor: pointer; }
+        .auth-modal-login { border: 0; color: #06111D; background: #38BDF8; }
+        .auth-modal-close { border: 1px solid #334155; color: #CBD5E1; background: transparent; }
 
-        .btn-geolocate:hover {
-            background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
-            border-color: #38BDF8;
-            color: #FFFFFF;
-            box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
-            transform: translateY(-1px);
-        }
-
-        .btn-geolocate:active {
-            transform: translateY(0);
-        }
-
-        .btn-geolocate.is-locating {
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.35));
-            border-color: #F59E0B;
-            color: #F59E0B;
-            animation: pulse-gps 1.2s infinite alternate;
-        }
-
-        .btn-geolocate.is-locating .gps-icon {
-            animation: spin-radar 1.2s linear infinite;
-        }
-
-        @keyframes spin-radar {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse-gps {
-            from { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
-            to { box-shadow: 0 0 18px rgba(245, 158, 11, 0.8); }
-        }
 
         /* Toast / Modal de Alerta de Localização */
         .geo-toast {
@@ -412,17 +390,15 @@
         }
 
         .search-dropdown {
-            position: absolute;
-            top: calc(100% + 6px);
-            left: 0;
-            right: 0;
+            position: fixed;
             background: rgba(11, 16, 30, 0.98);
             backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(56, 189, 248, 0.3);
             border-radius: 10px;
             max-height: 320px;
             overflow-y: auto;
-            z-index: 1000;
+            z-index: 99999;
             box-shadow: 0 15px 35px rgba(0,0,0,0.7);
             display: none;
         }
@@ -1004,9 +980,525 @@
             box-shadow: 0 5px 14px rgba(37, 99, 235, 0.36);
         }
 
-        @media (max-width: 680px) {
-            .map-layer-toolbar { min-height: 50px; padding: 6px 10px; }
-            .map-layer-option { min-width: 78px; padding: 8px 10px; }
+        /* ─── Puxador do Bottom Sheet Mobile (Oculto em desktop) ─── */
+        .mobile-sheet-handle {
+            display: none;
+        }
+
+        /* ─── OTIMIZAÇÕES MOBILE (@media (max-width: 768px)) ─── */
+        @media (max-width: 768px) {
+            html, body {
+                height: 100%;
+                overflow: hidden;
+            }
+
+            .dash-header {
+                height: 52px;
+                padding: 0 12px;
+            }
+
+            .dash-header .ai-live-badge {
+                display: none; /* Oculta texto longo no mobile */
+            }
+
+            .dash-header .logo-text {
+                font-size: 16px;
+            }
+
+            .header-left { min-width: 0; }
+            .header-left .logo-brand { min-width: 0; }
+            .header-left .logo-text { white-space: nowrap; }
+            .header-right { gap: 5px !important; }
+            .header-right .btn { padding: 6px 8px !important; font-size: 11px !important; white-space: nowrap; }
+
+            /* Main em Container Relativo: Mapa em tela cheia por baixo + Bottom Sheet por cima */
+            .dash-main {
+                display: flex;
+                flex-direction: column;
+                position: relative;
+                height: calc(100vh - 52px);
+                padding: 0;
+                gap: 0;
+                overflow: hidden;
+            }
+
+            /* Mapa em destaque total (100% de largura e altura da viewport de conteúdo) */
+            #map-container {
+                position: absolute;
+                inset: 0;
+                width: 100% !important;
+                height: 100% !important;
+                border-radius: 0;
+                border: none;
+                z-index: 1;
+            }
+
+            #map {
+                width: 100%;
+                height: 100%;
+            }
+
+            /* Ajuste da toolbar de camadas do mapa no mobile */
+            .map-layer-toolbar {
+                min-height: 44px;
+                padding: 4px 8px;
+                background: rgba(11, 16, 30, 0.94);
+                backdrop-filter: blur(10px);
+            }
+
+            .map-layer-switcher {
+                padding: 3px;
+                border-radius: 10px;
+            }
+
+            .map-layer-option {
+                min-width: 68px;
+                padding: 6px 8px;
+                font-size: 11px;
+            }
+
+            /* Controles rápidos do mapa reposicionados para não colidir com o sheet */
+            .map-quick-controls {
+                top: 10px;
+                right: 10px;
+                gap: 4px;
+                max-width: calc(100% - 20px);
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            .map-btn-icon {
+                padding: 6px 10px;
+                font-size: 11px;
+                border-radius: 8px;
+                max-width: 48vw;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            /* Legenda flutuante mais compacta no mobile */
+            .map-floating-legend {
+                bottom: 110px;
+                right: 10px;
+                padding: 6px 10px;
+                font-size: 10px;
+                background: rgba(11, 16, 30, 0.94);
+            }
+
+            .map-floating-legend .legend-row {
+                gap: 5px;
+                margin-bottom: 2px;
+            }
+
+            /* ─── PAINEL DESLIZANTE / BOTTOM SHEET ─── */
+            .dash-sidebar {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                z-index: 100;
+                width: 100%;
+                max-width: 100%;
+                height: 58vh;
+                max-height: 85vh;
+                min-height: 90px;
+                border-radius: 20px 20px 0 0;
+                border-bottom: none;
+                border-left: none;
+                border-right: none;
+                box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.75);
+                transition: height 0.3s cubic-bezier(0.2, 0.9, 0.3, 1), transform 0.3s ease;
+                background: rgba(15, 23, 42, 0.95);
+                backdrop-filter: blur(28px);
+                -webkit-backdrop-filter: blur(28px);
+            }
+
+            /* Estado minimizado do Bottom Sheet (modo espiada do mapa) */
+            .dash-sidebar.collapsed {
+                height: 98px !important;
+            }
+
+            /* Estado totalmente expandido do Bottom Sheet */
+            .dash-sidebar.expanded {
+                height: 84vh !important;
+            }
+
+            /* Puxador Visível no Mobile */
+            .mobile-sheet-handle {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 8px 14px 4px 14px;
+                cursor: pointer;
+                user-select: none;
+                background: rgba(0, 0, 0, 0.25);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            }
+
+            .mobile-sheet-pill {
+                width: 44px;
+                height: 4px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.35);
+                margin-bottom: 6px;
+            }
+
+            .mobile-sheet-bar {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .mobile-sheet-title {
+                font-size: 11px;
+                font-weight: 800;
+                color: #38BDF8;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .mobile-sheet-btn {
+                background: rgba(56, 189, 248, 0.14);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                color: #38BDF8;
+                border-radius: 6px;
+                width: 28px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                cursor: pointer;
+            }
+
+            /* Abas adaptadas para mobile */
+            .dash-tabs {
+                background: rgba(0, 0, 0, 0.35);
+            }
+
+            .dash-tab {
+                padding: 12px 8px;
+                font-size: 12px;
+                min-height: 44px; /* Touch target amigável */
+            }
+
+            /* Conteúdo rolável do painel no mobile */
+            .dash-sidebar-content {
+                padding: 12px;
+                padding-bottom: 30px;
+                gap: 10px;
+            }
+
+            /* Cards Compactos e Otimizados */
+            .risk-hero-card {
+                padding: 12px;
+                border-radius: 12px;
+            }
+
+            .location-title {
+                font-size: 15px;
+            }
+
+            .location-pin-badge {
+                width: 28px;
+                height: 28px;
+                font-size: 14px;
+            }
+
+            .location-address-full {
+                padding: 6px 8px;
+                font-size: 10px;
+            }
+
+            .risk-big-value {
+                font-size: 30px;
+            }
+
+            /* Mini KPIs: 2 colunas compactas */
+            .kpi-grid {
+                gap: 8px;
+            }
+
+            .kpi-card {
+                padding: 8px 10px;
+                border-radius: 8px;
+            }
+
+            .kpi-label {
+                font-size: 10px;
+            }
+
+            .kpi-val {
+                font-size: 16px;
+            }
+
+            .kpi-sub {
+                font-size: 9px;
+            }
+
+            /* Botões principais com área de toque maior (Touch-Friendly) */
+            .btn-calc-route,
+            .search-input,
+            .route-input {
+                min-height: 44px; /* Recomendação Apple/Google Human Interface */
+            }
+
+            .btn-calc-route {
+                font-size: 14px;
+                padding: 12px;
+            }
+
+            /* Ocultar elementos secundários ou decorativos pesados em telas pequenas */
+            .ai-insight-box {
+                padding: 8px 10px;
+            }
+
+            .ai-insight-box #ai-insight-text {
+                font-size: 11px;
+                line-height: 1.4;
+            }
+
+        }
+
+        /* ─── BANNER DE ALERTA PREDITIVO CRÍTICO (LOCAIS SALVOS) ─── */
+        .predictive-alert-banner {
+            position: fixed;
+            top: 72px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(940px, calc(100% - 32px));
+            z-index: 4000;
+            background: linear-gradient(135deg, rgba(220, 38, 38, 0.96) 0%, rgba(153, 27, 27, 0.98) 100%);
+            border: 1px solid rgba(248, 113, 113, 0.7);
+            border-radius: 14px;
+            box-shadow: 0 12px 36px rgba(220, 38, 38, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            animation: alertBannerSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes alertBannerSlideDown {
+            from { opacity: 0; transform: translate(-50%, -20px); }
+            to { opacity: 1; transform: translate(-50%, 0); }
+        }
+
+        .predictive-alert-content {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 18px;
+            color: #FFFFFF;
+        }
+
+        .predictive-alert-icon-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .predictive-alert-pulse {
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            border: 2px solid #FCA5A5;
+            animation: pulse-ring 1.8s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.9); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .predictive-alert-icon {
+            font-size: 20px;
+        }
+
+        .predictive-alert-text-wrap {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .predictive-alert-title {
+            font-size: 13px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            color: #FFFFFF;
+        }
+
+        .predictive-place-badge {
+            background: rgba(0, 0, 0, 0.35);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            color: #FEF08A;
+            border: 1px solid rgba(254, 240, 138, 0.3);
+        }
+
+        .predictive-countdown-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 12px;
+            color: #FFFFFF;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .predictive-alert-body {
+            font-size: 12px;
+            color: #FEE2E2;
+            margin-top: 3px;
+            line-height: 1.4;
+        }
+
+        .predictive-alert-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .btn-predictive-action {
+            background: #FFFFFF;
+            color: #991B1B;
+            border: none;
+            border-radius: 8px;
+            padding: 7px 13px;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .btn-predictive-action:hover {
+            background: #FEE2E2;
+            transform: translateY(-1px);
+        }
+
+        .btn-predictive-close {
+            background: rgba(0, 0, 0, 0.25);
+            color: #FCA5A5;
+            border: none;
+            border-radius: 8px;
+            width: 30px;
+            height: 30px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .btn-predictive-close:hover {
+            background: rgba(0, 0, 0, 0.45);
+            color: #FFFFFF;
+        }
+
+        /* ─── BANNER DISCRETO DE PERMISSÃO DE NOTIFICAÇÃO ─── */
+        .notification-prompt-banner {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 4500;
+            animation: promptSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes promptSlideUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .notif-prompt-card {
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            border-radius: 14px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.15);
+            backdrop-filter: blur(20px);
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            max-width: 460px;
+        }
+
+        .notif-prompt-icon {
+            font-size: 26px;
+            flex-shrink: 0;
+        }
+
+        .notif-prompt-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .notif-prompt-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: #38BDF8;
+            margin-bottom: 2px;
+        }
+
+        .notif-prompt-desc {
+            font-size: 12px;
+            color: #CBD5E1;
+            line-height: 1.4;
+        }
+
+        .notif-prompt-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .btn-notif-activate {
+            background: #0EA5E9;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 8px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .btn-notif-activate:hover {
+            background: #38BDF8;
+        }
+
+        .btn-notif-dismiss {
+            background: transparent;
+            border: 1px solid #334155;
+            color: #94A3B8;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .btn-notif-dismiss:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #E2E8F0;
         }
     </style>
 </head>
@@ -1023,7 +1515,7 @@
     <!-- ─── HEADER DO DASHBOARD ─── -->
     <header class="dash-header">
         <div class="header-left">
-            <a href="/" class="logo-brand" style="text-decoration: none;">
+            <a href="/?skipSplash=1" class="logo-brand" style="text-decoration: none;">
                 <div class="logo-icon" style="width: 36px; height: 36px; border-radius: 9px; overflow: hidden; padding: 0; background: transparent; border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);">
                     <img src="/static/img/logo.jpg" alt="FloodGuard AI Logo" style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 7px;">
                 </div>
@@ -1035,23 +1527,83 @@
             </div>
         </div>
 
-        <div class="header-right">
-            <a href="/" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
+        <div class="header-right" style="display: flex; gap: 8px; align-items: center;">
+            <a href="/?skipSplash=1" class="btn btn-outline" style="padding: 6px 14px; font-size: 13px;">
                 🏠 Início
+            </a>
+            <a href="/profile" id="btn-header-profile" class="btn btn-primary" style="padding: 6px 14px; font-size: 13px; gap: 6px; display: inline-flex; align-items: center;">
+                👤 <span id="header-user-label">Perfil</span>
             </a>
         </div>
     </header>
+
+    <!-- ─── BANNER DE ALERTA PREDITIVO CRÍTICO (LOCAIS SALVOS) ─── -->
+    <div id="predictive-risk-alert-banner" class="predictive-alert-banner" style="display: none;" role="alert" aria-live="assertive">
+        <div class="predictive-alert-content">
+            <div class="predictive-alert-icon-wrap">
+                <span class="predictive-alert-pulse"></span>
+                <span class="predictive-alert-icon">🚨</span>
+            </div>
+            <div class="predictive-alert-text-wrap">
+                <div class="predictive-alert-title">
+                    <span>ALERTA FLOODGUARD AI: Risco Crítico em</span>
+                    <span id="predictive-alert-place-badge" class="predictive-place-badge">Casa</span>
+                    <span id="predictive-alert-countdown" class="predictive-countdown-badge">nas próximas 2 horas</span>
+                </div>
+                <div id="predictive-alert-body" class="predictive-alert-body">
+                    Atenção: A previsão indica alto risco de alagamento em <strong id="predictive-alert-address">--</strong>. Tome precauções!
+                </div>
+            </div>
+            <div class="predictive-alert-actions">
+                <button type="button" id="btn-predictive-view-map" class="btn-predictive-action" onclick="focusPredictiveAlertPlace()">
+                    🗺️ Ver no Mapa
+                </button>
+                <button type="button" class="btn-predictive-close" onclick="dismissPredictiveAlertBanner()" title="Fechar alerta" aria-label="Fechar alerta">
+                    ✕
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── BANNER DISCRETO DE PERMISSÃO DE NOTIFICAÇÃO (WEB PUSH API) ─── -->
+    <div id="notification-permission-prompt" class="notification-prompt-banner" style="display: none;" role="dialog" aria-modal="false" aria-labelledby="notif-prompt-title">
+        <div class="notif-prompt-card">
+            <div class="notif-prompt-icon">🔔</div>
+            <div class="notif-prompt-info">
+                <div id="notif-prompt-title" class="notif-prompt-title">Alertas Preventivos FloodGuard AI</div>
+                <div class="notif-prompt-desc">Deseja ativar os alertas preventivos de enchente para sua Casa e Trabalho?</div>
+            </div>
+            <div class="notif-prompt-actions">
+                <button type="button" id="btn-activate-notifications" class="btn-notif-activate" onclick="requestNotificationAlertsPermission()">
+                    Ativar Alertas
+                </button>
+                <button type="button" class="btn-notif-dismiss" onclick="dismissNotificationPrompt()" title="Agora não">
+                    Agora não
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- ─── CORPO PRINCIPAL (SPLIT SCREEN) ─── -->
     <main class="dash-main">
         
         <!-- ─── COLUNA ESQUERDA: PAINEL DE CONTROLE E MÉTRICAS ─── -->
-        <aside class="dash-sidebar">
+        <aside id="dash-sidebar-panel" class="dash-sidebar">
+            <!-- Puxador Mobile (Bottom Sheet Handle) -->
+            <div id="mobile-sheet-handle" class="mobile-sheet-handle" onclick="toggleMobileSheet()" aria-label="Expandir ou recolher painel de controle">
+                <div class="mobile-sheet-pill"></div>
+                <div class="mobile-sheet-bar">
+                    <span class="mobile-sheet-title">📊 Controles e Análise de Risco</span>
+                    <button type="button" class="mobile-sheet-btn" id="btn-toggle-sheet" title="Expandir/Minimizar">
+                        <span id="sheet-arrow-icon">▲</span>
+                    </button>
+                </div>
+            </div>
             
             <!-- Abas do Painel -->
             <div class="dash-tabs">
                 <div id="tab-btn-explorar" class="dash-tab active-explorar" onclick="switchDashboardTab('explorar')">
-                    <span>🔍</span> Explorar Bairro / Região
+                    <span>🔍</span> Explorar Bairro
                 </div>
                 <div id="tab-btn-rota" class="dash-tab" onclick="switchDashboardTab('rota')">
                     <span>🛣️</span> Checar Trajeto
@@ -1071,19 +1623,20 @@
                                 autocomplete="off">
                             <button id="btn-search-clear" class="search-btn-clear" onclick="clearSearchInput()" title="Limpar busca">✕</button>
                         </div>
-                        <button id="btn-geolocate" class="btn-geolocate" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
-                            <svg class="gps-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="7"></circle>
-                                <line x1="12" y1="1" x2="12" y2="5"></line>
-                                <line x1="12" y1="19" x2="12" y2="23"></line>
-                                <line x1="1" y1="12" x2="5" y2="12"></line>
-                                <line x1="19" y1="12" x2="23" y2="12"></line>
-                                <circle cx="12" cy="12" r="2.5" fill="currentColor"></circle>
-                            </svg>
-                            <span class="gps-btn-label">GPS</span>
-                        </button>
+
                     </div>
                     <div id="universal-search-dropdown" class="search-dropdown"></div>
+                </div>
+
+                                                <div class="saved-places-row" aria-label="Locais salvos">
+                    <div class="saved-place-control">
+                        <button type="button" id="saved-place-home" class="saved-place-btn" onclick="openSavedPlace('home')" title="Abrir o local salvo como Casa">🏠 Casa</button>
+                        <button type="button" id="saved-place-home-btn-edit" class="saved-place-save" onclick="editSavedPlace('home')" title="Definir ou alterar local de Casa" aria-label="Alterar Casa">➕</button>
+                    </div>
+                    <div class="saved-place-control">
+                        <button type="button" id="saved-place-work" class="saved-place-btn" onclick="openSavedPlace('work')" title="Abrir o local salvo como Trabalho">💼 Trabalho</button>
+                        <button type="button" id="saved-place-work-btn-edit" class="saved-place-save" onclick="editSavedPlace('work')" title="Definir ou alterar local de Trabalho" aria-label="Alterar Trabalho">➕</button>
+                    </div>
                 </div>
 
                 <!-- Hero Card: Status de Risco Preditivo do Ponto Selecionado -->
@@ -1126,7 +1679,6 @@
                     <div id="hero-recommendation" style="font-size: 12px; color: #94A3B8; margin-top: 6px;">
                         🛡️ Sem risco iminente de alagamento nas próximas horas.
                     </div>
-                    <canvas id="probability-gauge" width="80" height="80" style="margin-top:8px; display:block;"></canvas>
                 </div>
 
                 <!-- ─── CARD ALERTA HÍDRICO / TELEMETRIA DE RIOS ─── -->
@@ -1175,13 +1727,13 @@
                 <!-- Grid de Mini KPIs: 4 Pilares Geográficos e Meteorológicos -->
                 <div class="kpi-grid">
                     <div class="kpi-card">
-                        <div class="kpi-label">💧 Chuva Atual</div>
-                        <div id="kpi-rain-current" class="kpi-val" style="color: #38BDF8;">0.0 mm/h</div>
-                        <div id="kpi-rain-forecast-sub" class="kpi-sub">+0.0 mm prev. (+3h)</div>
+                        <div class="kpi-label">💧 Chuva Prevista Hoje</div>
+                        <div id="kpi-rain-current" class="kpi-val" style="color: #38BDF8;">0.0 mm</div>
+                        <div id="kpi-rain-forecast-sub" class="kpi-sub">Chance máxima hoje: 0%</div>
                     </div>
 
                     <div class="kpi-card">
-                        <div class="kpi-label">🌧️ Acumulado 24h</div>
+                        <div class="kpi-label">🌧️ Últimas 24 horas</div>
                         <div id="kpi-rain-acc24" class="kpi-val" style="color: #38BDF8;">0.0 mm</div>
                         <div id="kpi-soil-status" class="kpi-sub">Solo Estável</div>
                     </div>
@@ -1254,7 +1806,7 @@
                     <div class="route-field">
                         <span class="route-field-icon" style="color: #38BDF8;">🚀</span>
                         <input type="text" id="route-origem" class="route-input" placeholder="Ponto de Partida..." autocomplete="off">
-                        <button type="button" onclick="useCurrentLocationForRoute()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; font-size: 14px;" title="Usar GPS Atual">🧭</button>
+                        <button type="button" onclick="useCurrentLocationForRoute('route-origem')" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; font-size: 14px;" title="Usar GPS Atual">🧭</button>
                         <div id="route-origem-dropdown" class="search-dropdown"></div>
                     </div>
 
@@ -1273,6 +1825,34 @@
                 <!-- Alerta de Resultado de Rota -->
                 <div id="route-alert-box" style="display: none; margin-top: 6px;"></div>
 
+                <!-- ─── PAINEL ROTA ALTERNATIVA SEGURA ─── -->
+                <div id="alt-route-panel" style="display:none; margin-top:10px; border-radius:12px; overflow:hidden; border:1.5px solid rgba(16,185,129,0.5); background:rgba(16,185,129,0.06);">
+                    <div style="background:linear-gradient(90deg,rgba(16,185,129,0.28) 0%,rgba(16,185,129,0.06) 100%); padding:9px 13px; display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:18px;">🛡️</span>
+                        <div style="flex:1;">
+                            <div style="font-size:10px; font-weight:800; color:#10B981; text-transform:uppercase; letter-spacing:0.5px;">ROTA ALTERNATIVA SEGURA</div>
+                            <div id="alt-route-subtitle" style="font-size:11px; font-weight:600; color:#6EE7B7; margin-top:1px;">Calculando rota por áreas seguras...</div>
+                        </div>
+                        <div id="alt-route-badge" style="font-size:11px; font-weight:900; color:#10B981; background:rgba(16,185,129,0.2); padding:3px 8px; border-radius:6px;">--</div>
+                    </div>
+                    <div style="padding:9px 13px; background:rgba(15,23,42,0.80);">
+                        <div id="alt-route-details" style="font-size:11px; color:#A7F3D0; line-height:1.65;">
+                            Buscando trajeto alternativo por regiões de maior altitude...
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                            <button onclick="showAltRouteOnMap()"
+                                style="flex:1; min-width:110px; background:linear-gradient(135deg,#10B981,#059669); color:#fff; border:none; border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px;">
+                                🗺️ Ver no Mapa
+                            </button>
+                            <button onclick="compareRoutes()"
+                                style="flex:1; min-width:110px; background:rgba(56,189,248,0.15); color:#38BDF8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px;">
+                                ⚖️ Comparar Rotas
+                            </button>
+                        </div>
+                        <div id="alt-route-warning" style="display:none; margin-top:8px; font-size:10px; color:#FCD34D; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:6px; padding:6px 9px;"></div>
+                    </div>
+                </div>
+
             </div>
 
         </aside>
@@ -1284,9 +1864,7 @@
             <div class="map-stage">
             <!-- Controles Rápidos no Mapa -->
             <div class="map-quick-controls">
-                <button id="btn-map-gps" class="map-btn-icon map-btn-gps" onclick="triggerUserGeolocation()" title="Usar minha localização atual" aria-label="Usar minha localização atual">
-                    🎯 Minha Localização
-                </button>
+
                 <button class="map-btn-icon" onclick="flyToSaoPauloCenter()" title="Centralizar Mapa em SP">
                     🌆 Centralizar SP
                 </button>
@@ -1326,12 +1904,55 @@
 
     </main>
 
+    <div id="saved-place-auth-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="saved-place-modal-title" onclick="closeSavedPlaceAuthModal(event)">
+        <div class="auth-modal-card">
+            <div class="auth-modal-icon">🔒</div>
+            <h2 id="saved-place-modal-title">Entre para usar seus locais</h2>
+            <p>🔒 Recurso exclusivo para usuários cadastrados. Faça Login ou Crie uma Conta para salvar seus locais e receber alertas em tempo real!</p>
+            <div class="auth-modal-actions">
+                <button type="button" class="auth-modal-close" onclick="closeSavedPlaceAuthModal()">Agora não</button>
+                <a class="auth-modal-login" href="/login">Fazer Login / Criar Conta</a>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/static/js/api.js"></script>
-    <script src="/static/js/auth.js"></script>
-    <script src="/static/js/historico_defesa_civil.js?v=20260910-universal"></script>
-    <script src="/static/js/map_dashboard.js?v=20260910-universal"></script>
+    <script src="/static/js/api.js?v=20260916-session-fix"></script>
+    <script src="/static/js/historico_buscas.js?v=20260922-db"></script>
+    <script src="/static/js/historico_defesa_civil.js?v=20260915-route-unified"></script>
+    <script src="/static/js/map_dashboard.js?v=20260922-critical-fixes"></script>
+        <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
+    <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
+        <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="simple-place-icon" style="font-size: 22px;">🏠</span>
+                    <h3 id="simple-place-title" style="margin: 0; font-size: 16px; font-weight: 700; color: #F1F5F9;">Salvar Casa</h3>
+                </div>
+                <button type="button" onclick="closeSimplePlaceModal()" style="background: transparent; border: none; color: #94A3B8; font-size: 20px; cursor: pointer; padding: 2px 6px;" aria-label="Fechar">✕</button>
+            </div>
+
+            <p id="simple-place-question" style="color: #CBD5E1; font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Digite o endereço da sua <strong id="simple-place-type-label" style="color: #38BDF8;">Casa</strong>:
+            </p>
+
+            <div style="position: relative; margin-bottom: 18px;">
+                <input type="text" id="simple-place-input" placeholder="Ex: Rua Manoel Dutra, 536" autocomplete="off" style="width: 100%; box-sizing: border-box; padding: 10px 12px; background: rgba(15,23,42,0.95); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; color: #FFFFFF; font-size: 13px; outline: none; transition: border-color .2s ease;">
+                <div id="simple-place-dropdown" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 9999; max-height: 190px; overflow-y: auto; background: #0B101E; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7);"></div>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="closeSimplePlaceModal()" style="padding: 9px 16px; border: 1px solid #334155; background: transparent; color: #94A3B8; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; transition: background .15s ease;">
+                    Cancelar
+                </button>
+                <button type="button" id="btn-simple-place-save" onclick="submitSimplePlaceModal()" style="padding: 9px 20px; border: none; background: #0EA5E9; color: #FFFFFF; font-size: 13px; font-weight: 800; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background .15s ease;">
+                    Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

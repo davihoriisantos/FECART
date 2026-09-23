@@ -799,3 +799,42 @@ nav.main-nav {
   min-height: 20px;
   transition: all 0.2s ease;
 }
+
+/* Responsividade Mobile Global */
+@media (max-width: 768px) {
+  .sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.12); padding: 16px; }
+  .main-content { margin-left: 0; padding: 16px; }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; gap: 16px; }
+  .container { padding: 0 16px; }
+}
+
+/* ─── Ajustes finais para telefones ─────────────────────────────────────── */
+@media (max-width: 640px) {
+  html { overflow-x: hidden; }
+  body { width: 100%; overflow-x: hidden; }
+  header.site-header { padding: 10px 0; }
+  .header-wrapper { flex-wrap: wrap; gap: 10px; }
+  .logo-brand { gap: 8px; }
+  .logo-icon { width: 34px; height: 34px; }
+  .logo-text { font-size: 17px; }
+  .site-header .ai-badge { display: none; }
+  nav.main-nav { order: 3; width: 100%; gap: 0; justify-content: space-between; overflow-x: auto; scrollbar-width: none; padding: 3px 0; }
+  nav.main-nav::-webkit-scrollbar { display: none; }
+  .nav-link { flex: 0 0 auto; font-size: 12px; padding: 7px 5px; }
+  .header-actions { margin-left: auto; gap: 6px !important; }
+  .header-actions .btn { padding: 7px 9px !important; font-size: 11px !important; }
+  .hero { padding-top: 34px; padding-bottom: 34px; }
+  .hero-title { font-size: clamp(29px, 9vw, 42px); line-height: 1.08; letter-spacing: -1.2px; }
+  .hero-subtitle { font-size: 14px; line-height: 1.65; }
+  .hero .btn { width: 100%; padding: 13px 16px !important; font-size: 14px !important; }
+  .card { border-radius: 14px; }
+  .content-section-title { font-size: clamp(25px, 8vw, 34px); }
+  .quote-card, .mission-card, .how-card { padding: 22px 18px; }
+  .features-grid { grid-template-columns: 1fr; gap: 14px; }
+  .feature-card { min-width: 0; padding: 20px 18px; }
+  .feature-title { font-size: 18px; }
+  .feature-desc { font-size: 14px; line-height: 1.6; }
+  .splash-title-box { width: calc(100% - 32px); text-align: center; }
+  .splash-brand { font-size: 26px; }
+  .splash-subtitle { font-size: 12px; }
+}

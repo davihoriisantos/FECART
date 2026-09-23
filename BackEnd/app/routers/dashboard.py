@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timedelta, timezone
-from typing import List
+from datetime import datetime, timezone
 from ..database import get_db
-from ..models.sensor import Sensor, SensorReading
+from ..models.sensor import Sensor
 from ..models.alert import Alert
 from ..models.zone import RiskZone
+from ..services.prediction_service import fetch_open_meteo_forecast
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -28,22 +28,43 @@ def get_stats(db: Session = Depends(get_db)):
     }
 
 @router.get("/precipitation")
-def get_precipitation(hours: int = 24, db: Session = Depends(get_db)):
-    time_limit = datetime.now(timezone.utc) - timedelta(hours=hours)
-    # Simulate precipitation data for dashboard
-    pluviometros = db.query(Sensor).filter(Sensor.tipo == 'pluviometro').all()
-    if not pluviometros:
-        return []
-        
-    sensor_id = pluviometros[0].id
-    readings = db.query(SensorReading).filter(
-        SensorReading.sensor_id == sensor_id,
-        SensorReading.timestamp >= time_limit
-    ).order_by(SensorReading.timestamp).all()
-    
-    return [{"timestamp": r.timestamp.isoformat(), "valor": r.valor} for r in readings]
+def get_precipitation(
+    hours: int = 24,
+    lat: float = -23.5505,
+    lon: float = -46.6333,
+):
+    """Retorna precipitação horária real da Open-Meteo, sem consultar mocks."""
+    weather = fetch_open_meteo_forecast(lat, lon)
+    if weather.get("source") != "open-meteo":
+        return weather
+
+    hourly = weather.get("hourly", {})
+    timestamps = hourly.get("time", [])
+    values = hourly.get("precipitation", hourly.get("rain", []))
+    limit = max(1, min(int(hours), 48))
+    current_time = (weather.get("current") or {}).get("time", "")
+    current_index = next(
+        (index for index, value in enumerate(timestamps) if value.startswith(current_time[:13])),
+        0,
+    )
+    end_index = min(len(timestamps), current_index + limit)
+    return {
+        "source": "open-meteo",
+        "lat": lat,
+        "lon": lon,
+        "precipitation": [
+            {"timestamp": timestamps[index], "valor": float(values[index] or 0.0)}
+            for index in range(current_index, end_index)
+            if index < len(values)
+        ],
+    }
 
 @router.get("/risk-summary")
 def get_risk_summary(db: Session = Depends(get_db)):
     zones = db.query(RiskZone).all()
     return [{"zone_name": z.nome, "nivel_risco": z.nivel_risco, "probabilidade": z.probabilidade_enchente} for z in zones]
+
+@router.get("/weather")
+def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
+    """Retorna clima real processado pelo serviço preditivo compartilhado."""
+    return fetch_open_meteo_forecast(lat, lon)

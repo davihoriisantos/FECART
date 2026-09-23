@@ -2,6 +2,34 @@
  * FloodGuard AI — Gerenciador do Splash Screen com Animação Profissional
  */
 (function() {
+    function shouldShowSplash() {
+        const url = new URL(window.location.href);
+        const explicitlySkipped = url.searchParams.get('skipSplash') === '1';
+
+        // O parâmetro serve apenas para esta navegação. Removê-lo garante que
+        // uma atualização posterior volte a exibir a animação normalmente.
+        if (explicitlySkipped) {
+            url.searchParams.delete('skipSplash');
+            history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+            return false;
+        }
+
+        const navigationEntry = performance.getEntriesByType('navigation')[0];
+        const navigationType = navigationEntry?.type || 'navigate';
+        if (navigationType === 'reload') return true;
+
+        // Entrada direta/externa representa a abertura real do site.
+        if (!document.referrer) return true;
+        try {
+            const referrer = new URL(document.referrer);
+            return referrer.origin !== window.location.origin;
+        } catch (_) {
+            return true;
+        }
+    }
+
+    if (!shouldShowSplash()) return;
+
     function createSplash() {
         if (document.getElementById('splash-screen')) return;
 

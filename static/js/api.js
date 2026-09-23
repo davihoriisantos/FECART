@@ -1,7 +1,7 @@
 const API = {
   baseUrl: '',
   
-  getToken() { return localStorage.getItem('floodguard_token'); },
+  getToken() { return localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token'); },
   
   async request(endpoint, options = {}) {
     const token = this.getToken();
@@ -12,9 +12,8 @@ const API = {
       const response = await fetch(`${this.baseUrl}${endpoint}`, { ...options, headers });
       
       if (response.status === 401) {
-        localStorage.removeItem('floodguard_token');
-        // Sistema aberto: sem redirecionamento para login
-        return;
+        // Preservação de dados: Não desloga o usuário automaticamente
+        return null;
       }
       
       if (!response.ok) {

@@ -63,6 +63,7 @@ let currentSelectedPoint = {
 let activeMarker = null;
 let activeRiskCircle = null;
 let riskTrendChart = null;
+let hasActiveUserSelection = false;
 let simulatedScenario = 'real'; // 'real', 'tempestade', 'moderada'
 let currentRiverTelemetry = null; // Guardará o status do rio mais próximo
 let routeLayers = [];
@@ -76,20 +77,852 @@ let currentLocationCoords = null; // Coordenadas salvas do GPS do usuário { lat
 let searchTimeout = null;
 let searchRequestId = 0;
 let searchSuggestionResults = [];
+let activePredictiveAlertPlace = null;
+let predictiveAlertCheckInterval = null;
+let savedPlacesState = { home: null, work: null };
 
 // ─── INICIALIZAÇÃO GERAL ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     initLeafletMap();
     setupSearchListeners();
     setupRouteAutocomplete();
+    await syncSavedPlacesFromServer();
+    refreshSavedPlaceButtons();
+    // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
+    setTimeout(() => {
+        checkAndPromptNotificationPermission();
+        checkSavedPlacesRiskAlerts();
+    }, 1500);
 
-    // Força o Leaflet a recalcular as dimensões reais do container após o layout flex ser resolvido
+    // Checagem periódica em background (a cada 5 minutos)
+    if (!predictiveAlertCheckInterval) {
+        predictiveAlertCheckInterval = setInterval(() => {
+            checkSavedPlacesRiskAlerts();
+        }, 5 * 60 * 1000);
+    }
+
+    // Força o Leaflet a recalcular as dimensões reais do container
     setTimeout(() => {
         if (map) map.invalidateSize();
     }, 200);
 
+    // Redimensionamento dinâmico do Leaflet ao alterar tamanho de tela ou girar celular
+    window.addEventListener('resize', () => {
+        if (map) {
+            map.invalidateSize();
+        }
+    });
+
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            if (map) map.invalidateSize();
+        }, 300);
+    });
+
+    // Verifica se veio de um clique no Histórico de Buscas do Perfil
+    try {
+        const targetSearch = JSON.parse(sessionStorage.getItem('fg_target_search') || 'null');
+        if (targetSearch && targetSearch.lat && targetSearch.lon) {
+            sessionStorage.removeItem('fg_target_search');
+            await analyzePoint(Number(targetSearch.lat), Number(targetSearch.lon), targetSearch.nome, targetSearch.bairro || 'São Paulo - SP');
+            if (map) map.flyTo([Number(targetSearch.lat), Number(targetSearch.lon)], 16, { duration: 1.0 });
+            return;
+        }
+    } catch (_) {}
+
     // Carrega dados iniciais da FECAP
     await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
+});
+
+// ─── ATALHOS CASA / TRABALHO VINCULADOS À CONTA ─────────────────────────────
+function decodeJwtPayload(token) {
+    try {
+        const encodedPayload = token.split('.')[1];
+        if (!encodedPayload) return null;
+        const base64 = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+        const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+        const decoded = decodeURIComponent(Array.from(binary, char =>
+            `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''));
+        return JSON.parse(decoded);
+    } catch (_) {
+        return null;
+    }
+}
+
+let currentSimplePlaceType = null; // 'home' | 'work'
+let currentSimplePickedPoint = null;
+let simplePlaceSearchTimeout = null;
+
+// ─── ESTADO INICIAL OBRIGATÓRIO: NULL (SEM DADOS PRÉ-DEFINIDOS) ─────────────
+function getUserPlace(type) {
+    return savedPlacesState[type] || null;
+}
+
+async function syncSavedPlacesFromServer() {
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) {
+        savedPlacesState = { home: null, work: null };
+        return;
+    }
+    try {
+        const response = await fetch('/api/user/profile', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) return;
+        const profile = await response.json();
+        const normalize = (place, label) => place ? {
+            lat: Number(place.lat), lon: Number(place.lon),
+            nome: place.address || label, address: place.address || label,
+            bairro: 'São Paulo - SP'
+        } : null;
+        savedPlacesState = {
+            home: normalize(profile.saved_places?.home, 'Casa'),
+            work: normalize(profile.saved_places?.work, 'Trabalho')
+        };
+        const labelEl = document.getElementById('header-user-label');
+        if (labelEl && profile.user?.nome) labelEl.textContent = profile.user.nome.split(' ')[0];
+    } catch (error) {
+        console.warn('[Locais salvos] Não foi possível sincronizar:', error);
+    }
+}
+
+async function setUserPlace(type, placeData) {
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) return false;
+    const previous = savedPlacesState[type];
+    savedPlacesState[type] = placeData;
+    refreshSavedPlaceButtons();
+    try {
+        const response = await fetch('/api/user/saved-places', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                type,
+                address: placeData?.address || placeData?.nome || null,
+                lat: placeData?.lat ?? null,
+                lon: placeData?.lon ?? null
+            })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        checkAndPromptNotificationPermission();
+        checkSavedPlacesRiskAlerts();
+        return true;
+    } catch (error) {
+        savedPlacesState[type] = previous;
+        refreshSavedPlaceButtons();
+        console.warn('[Locais salvos] Falha ao persistir:', error);
+        return false;
+    }
+}
+
+function getAuthenticatedUserContext() {
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) return null;
+    const payload = decodeJwtPayload(token);
+    return payload?.sub ? { id: String(payload.sub), email: payload.sub } : null;
+}
+
+// Retorna o local pesquisado / selecionado ativo no card lateral
+function getActiveLocationForSave() {
+    const searchInput = document.getElementById('universal-search-input');
+    const inputVal = searchInput ? searchInput.value.trim() : '';
+
+    if (inputVal && inputVal.length > 2 && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: inputVal,
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || inputVal
+        };
+    }
+
+    if (hasActiveUserSelection && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: currentSelectedPoint.nome || 'Local Selecionado',
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || currentSelectedPoint.nome
+        };
+    }
+
+    const heroTitleEl = document.getElementById('hero-location-name');
+    const heroText = heroTitleEl ? heroTitleEl.innerText.trim() : '';
+    if (heroText && !heroText.includes('FECAP') && !heroText.includes('Localizando') && !heroText.includes('Carregando') && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: heroText,
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || heroText
+        };
+    }
+
+    return null;
+}
+
+// ─── FEEDBACK NOS BOTÕES ────────────────────────────────────────────────────
+function refreshSavedPlaceButtons() {
+    [['home', 'Casa', '🏠'], ['work', 'Trabalho', '💼']].forEach(([type, label, icon]) => {
+        const button = document.getElementById(`saved-place-${type}`);
+        const editBtn = document.getElementById(`saved-place-${type}-btn-edit`);
+        const place = getUserPlace(type);
+        const container = button ? button.closest('.saved-place-control') : null;
+
+        if (place) {
+            // Local configurado: muda cor e exibe check (✓)
+            if (button) {
+                button.innerHTML = `${icon} ${label} <span style="color: #10B981; font-weight: 800; margin-left: 3px;">✓</span>`;
+                button.title = `${label} cadastrada: ${place.nome}. Clique para ir.`;
+                button.style.color = '#38BDF8';
+                button.style.background = 'rgba(56, 189, 248, 0.10)';
+            }
+            if (container) {
+                container.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+                container.style.background = 'rgba(15, 23, 42, 0.90)';
+            }
+            if (editBtn) {
+                editBtn.innerHTML = '➕';
+                editBtn.title = `Clique para salvar o local ativo como ${label}`;
+                editBtn.style.color = '#38BDF8';
+                editBtn.style.background = 'rgba(56, 189, 248, 0.16)';
+            }
+        } else {
+            // Não configurado: estado neutro padrão
+            if (button) {
+                button.innerHTML = `${icon} ${label}`;
+                button.title = `Você ainda não cadastrou o seu endereço de ${label}. Clique no '+' para salvar.`;
+                button.style.color = '#94A3B8';
+                button.style.background = 'transparent';
+            }
+            if (container) {
+                container.style.borderColor = 'rgba(56, 189, 248, 0.22)';
+                container.style.background = 'rgba(15, 23, 42, 0.72)';
+            }
+            if (editBtn) {
+                editBtn.innerHTML = '➕';
+                editBtn.title = `Salvar local ativo como ${label}`;
+                editBtn.style.color = '#94A3B8';
+                editBtn.style.background = 'rgba(56, 189, 248, 0.09)';
+            }
+        }
+    });
+}
+
+// ─── AÇÕES DOS BOTÕES DE ATALHO ─────────────────────────────────────────────
+function openSavedPlace(type) {
+    const place = getUserPlace(type);
+
+    if (!place) {
+        // Se null, aciona o fluxo inteligente de salvamento pelo botão +
+        handlePlacePlusClick(type);
+        return;
+    }
+
+    // Somente se já configurado: voa até o local e analisa o risco
+    if (map) {
+        map.flyTo([Number(place.lat), Number(place.lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+    }
+    analyzePoint(place.lat, place.lon, place.nome, place.bairro, place.alt, place.address, false);
+}
+
+// ─── SALVAMENTO DIRETO E INTELIGENTE PELO BOTÃO + ───────────────────────────
+async function handlePlacePlusClick(type) {
+    if (!getAuthenticatedUserContext()) {
+        openSavedPlaceAuthModal();
+        return;
+    }
+    const isHome = type === 'home';
+    const typeLabel = isHome ? 'Casa' : 'Trabalho';
+    const activeLoc = getActiveLocationForSave();
+
+    if (activeLoc && activeLoc.lat && activeLoc.lon) {
+        // Se já houver busca/local ativo no card lateral: salva imediatamente
+        const placeData = {
+            lat: Number(activeLoc.lat),
+            lon: Number(activeLoc.lon),
+            nome: activeLoc.nome || typeLabel,
+            bairro: activeLoc.bairro || 'São Paulo - SP',
+            alt: activeLoc.alt ?? null,
+            address: activeLoc.address || activeLoc.nome
+        };
+
+        const saved = await setUserPlace(type, placeData);
+        showGeoToast(saved ? 'success' : 'error', saved
+            ? `📍 Endereço salvo como ${typeLabel} com sucesso!`
+            : 'Não foi possível salvar o endereço. Tente novamente.');
+        return;
+    }
+
+    // Se NÃO houver local selecionado: abre o pequeno Modal limpo
+    openSimplePlaceModal(type);
+}
+
+function editSavedPlace(type) {
+    return handlePlacePlusClick(type);
+}
+
+function openPlaceConfigModal(type) {
+    openSimplePlaceModal(type);
+}
+
+function closePlaceConfigModal() {
+    closeSimplePlaceModal();
+}
+
+// ─── MODAL SIMPLES E LIMPO (QUANDO NÃO HOUVER LOCAL SELECIONADO) ────────────
+function openSimplePlaceModal(type) {
+    currentSimplePlaceType = type;
+    currentSimplePickedPoint = null;
+
+    const modal = document.getElementById('simple-place-modal');
+    if (!modal) return;
+
+    const isHome = type === 'home';
+    const typeLabel = isHome ? 'Casa' : 'Trabalho';
+    const typeIcon = isHome ? '🏠' : '💼';
+
+    const titleEl = document.getElementById('simple-place-title');
+    const iconEl = document.getElementById('simple-place-icon');
+    const typeLabelEl = document.getElementById('simple-place-type-label');
+    const inputEl = document.getElementById('simple-place-input');
+    const dropdownEl = document.getElementById('simple-place-dropdown');
+
+    if (titleEl) titleEl.textContent = `Salvar ${typeLabel}`;
+    if (iconEl) iconEl.textContent = typeIcon;
+    if (typeLabelEl) typeLabelEl.textContent = typeLabel;
+    if (inputEl) {
+        inputEl.value = '';
+        inputEl.placeholder = isHome ? 'Ex: Rua Manoel Dutra, 536' : 'Ex: Av. Paulista, 1000';
+    }
+    if (dropdownEl) {
+        dropdownEl.style.display = 'none';
+        dropdownEl.innerHTML = '';
+    }
+
+    modal.classList.add('open');
+    setupSimplePlaceInputListeners();
+    setTimeout(() => {
+        if (inputEl) inputEl.focus();
+    }, 120);
+}
+
+function closeSimplePlaceModal(event) {
+    const modal = document.getElementById('simple-place-modal');
+    if (!modal) return;
+    if (event && event.target !== modal && !event.target.classList.contains('auth-modal-backdrop')) {
+        return;
+    }
+    modal.classList.remove('open');
+    const dropdownEl = document.getElementById('simple-place-dropdown');
+    if (dropdownEl) dropdownEl.style.display = 'none';
+}
+
+function setupSimplePlaceInputListeners() {
+    const input = document.getElementById('simple-place-input');
+    const dropdown = document.getElementById('simple-place-dropdown');
+    if (!input || !dropdown || input.dataset.hasSimpleListeners) return;
+    input.dataset.hasSimpleListeners = 'true';
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim();
+        clearTimeout(simplePlaceSearchTimeout);
+
+        if (query.length < 2) {
+            dropdown.style.display = 'none';
+            dropdown.innerHTML = '';
+            return;
+        }
+
+        const localMatches = filterLocalNeighborhoods(query);
+        if (localMatches.length > 0) {
+            renderSimplePlaceDropdown(localMatches, []);
+        }
+
+        simplePlaceSearchTimeout = setTimeout(async () => {
+            const nominatimResults = await searchNominatim(query);
+            renderSimplePlaceDropdown(localMatches, nominatimResults);
+        }, 300);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitSimplePlaceModal();
+        } else if (e.key === 'Escape') {
+            closeSimplePlaceModal();
+        }
+    });
+}
+
+function renderSimplePlaceDropdown(local, nominatim) {
+    const dropdown = document.getElementById('simple-place-dropdown');
+    if (!dropdown) return;
+
+    const all = [...nominatim, ...local];
+    if (all.length === 0) {
+        dropdown.innerHTML = '<div style="padding:10px 12px; font-size:12px; color:#94A3B8; text-align:center;">Nenhum endereço encontrado em SP.</div>';
+        dropdown.style.display = 'block';
+        return;
+    }
+
+    let html = '';
+    all.slice(0, 5).forEach((item, index) => {
+        const safeNome = escapeHtml(item.nome);
+        const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
+        html += `
+            <div class="search-item" data-simple-index="${index}" style="padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 15px;">📍</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 700; font-size: 12px; color: #FFFFFF; line-height: 1.3;">${safeNome}</div>
+                    <div style="font-size: 11px; color: #94A3B8; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${safeDisplay}</div>
+                </div>
+            </div>
+        `;
+    });
+
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+
+    dropdown.querySelectorAll('[data-simple-index]').forEach(el => {
+        el.addEventListener('click', () => {
+            const idx = Number(el.dataset.simpleIndex);
+            const picked = all[idx];
+            if (!picked) return;
+
+            currentSimplePickedPoint = {
+                lat: Number(picked.lat),
+                lon: Number(picked.lon),
+                nome: picked.nome,
+                bairro: picked.bairro || 'São Paulo - SP',
+                alt: picked.alt ?? null,
+                address: picked.display_name || picked.nome
+            };
+
+            const input = document.getElementById('simple-place-input');
+            if (input) input.value = picked.nome;
+            dropdown.style.display = 'none';
+        });
+    });
+}
+
+async function submitSimplePlaceModal() {
+    if (!currentSimplePlaceType) return;
+    const type = currentSimplePlaceType;
+    const isHome = type === 'home';
+    const typeLabel = isHome ? 'Casa' : 'Trabalho';
+
+    const input = document.getElementById('simple-place-input');
+    const query = input ? input.value.trim() : '';
+
+    if (!query) {
+        showGeoToast('warning', `Por favor, digite o endereço da sua ${typeLabel}.`);
+        return;
+    }
+
+    let target = currentSimplePickedPoint;
+
+    if (!target || target.nome !== query) {
+        const localMatches = filterLocalNeighborhoods(query);
+        const nomMatches = await searchNominatim(query);
+        const best = nomMatches[0] || localMatches[0];
+
+        if (!best || !best.lat || !best.lon) {
+            showGeoToast('error', 'Endereço não encontrado em São Paulo. Tente especificar rua e número.');
+            return;
+        }
+
+        target = {
+            lat: Number(best.lat),
+            lon: Number(best.lon),
+            nome: best.nome || query,
+            bairro: best.bairro || 'São Paulo - SP',
+            alt: best.alt ?? null,
+            address: best.display_name || query
+        };
+    }
+
+    const saved = await setUserPlace(type, target);
+    if (saved) closeSimplePlaceModal();
+    showGeoToast(saved ? 'success' : 'error', saved
+        ? `📍 Endereço salvo como ${typeLabel} com sucesso!`
+        : 'Não foi possível salvar o endereço. Tente novamente.');
+}
+
+function openSavedPlaceAuthModal() {
+    const modal = document.getElementById('saved-place-auth-modal');
+    if (modal) modal.classList.add('open');
+}
+
+function closeSavedPlaceAuthModal(event) {
+    const modal = document.getElementById('saved-place-auth-modal');
+    if (!modal) return;
+    if (event && event.target !== modal) return;
+    modal.classList.remove('open');
+}
+
+// ─── SISTEMA DE ALERTAS PREDITIVOS DE RISCO (CASA / TRABALHO) ───────────────
+
+/**
+ * Solicitação de Permissão de Notificação (Web Push API)
+ * Apenas para usuários autenticados com locais salvos.
+ */
+function checkAndPromptNotificationPermission() {
+    // 4. Proteção de Acesso: Usuários visitantes ou sem locais salvos não devem receber solicitações
+    const user = getAuthenticatedUserContext();
+    if (!user) return;
+
+    const homePlace = getUserPlace('home');
+    const workPlace = getUserPlace('work');
+    if (!homePlace && !workPlace) return;
+
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
+
+    if (sessionStorage.getItem('fg_notif_prompt_dismissed') === 'true') return;
+
+    const promptEl = document.getElementById('notification-permission-prompt');
+    if (promptEl) {
+        promptEl.style.display = 'block';
+    }
+}
+
+async function requestNotificationAlertsPermission() {
+    const promptEl = document.getElementById('notification-permission-prompt');
+    if (promptEl) promptEl.style.display = 'none';
+
+    if (!('Notification' in window)) {
+        showGeoToast('warning', 'Seu navegador não suporta notificações de sistema.');
+        return;
+    }
+
+    try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+            showGeoToast('success', '🔔 Alertas preventivos para Casa e Trabalho ativados!');
+            checkSavedPlacesRiskAlerts();
+        } else if (perm === 'denied') {
+            showGeoToast('info', 'Permissão de notificações não foi concedida.');
+        }
+    } catch (e) {
+        console.warn('[FloodGuard Alerta] Erro ao solicitar permissão de notificações:', e);
+    }
+}
+
+function dismissNotificationPrompt() {
+    sessionStorage.setItem('fg_notif_prompt_dismissed', 'true');
+    const promptEl = document.getElementById('notification-permission-prompt');
+    if (promptEl) {
+        promptEl.style.display = 'none';
+    }
+}
+
+/**
+ * Checagem Preditiva de Risco em Background para locais salvos
+ * Consulta dados meteorológicos (Open-Meteo) para user_home e user_work.
+ * Se a previsão indicar acúmulo severo ou Risco Crítico (>75%) nas próximas 1 a 3 horas:
+ * - Calcula o horário de pico (ex: "nas próximas 2 horas")
+ * - Emite Web Notification nativa (se autorizada)
+ * - Exibe Card/Banner de alerta em vermelho no topo da tela com contagem regressiva
+ */
+async function checkSavedPlacesRiskAlerts() {
+    // 4. Proteção de Acesso: visitantes ou usuários sem locais salvos não rodam a checagem
+    const user = getAuthenticatedUserContext();
+    if (!user) {
+        dismissPredictiveAlertBanner();
+        return;
+    }
+
+    const homePlace = getUserPlace('home');
+    const workPlace = getUserPlace('work');
+
+    const targets = [];
+    if (homePlace && homePlace.lat && homePlace.lon) {
+        targets.push({ type: 'home', label: 'Casa', icon: '🏠', ...homePlace });
+    }
+    if (workPlace && workPlace.lat && workPlace.lon) {
+        targets.push({ type: 'work', label: 'Trabalho', icon: '💼', ...workPlace });
+    }
+
+    if (targets.length === 0) {
+        dismissPredictiveAlertBanner();
+        return;
+    }
+
+    let highestRiskAlert = null;
+
+    for (const target of targets) {
+        const lat = Number(target.lat);
+        const lon = Number(target.lon);
+        if (isNaN(lat) || isNaN(lon)) continue;
+
+        let alt = target.alt;
+        if (alt === null || alt === undefined || isNaN(Number(alt))) {
+            try {
+                alt = await getElevation(lat, lon);
+            } catch (_) {
+                alt = 745;
+            }
+        }
+
+        let weatherData = null;
+        try {
+            weatherData = await fetchWeatherData(lat, lon);
+        } catch (e) {
+            console.warn('[FloodGuard Alerta] Erro ao consultar clima para', target.label, e);
+        }
+
+        if (!weatherData || !weatherData.hourly) continue;
+
+        const times = weatherData.hourly.time || [];
+        const rains = weatherData.hourly.precipitation || weatherData.hourly.rain || [];
+        const probs = weatherData.hourly.precipitation_probability || [];
+        const soilMoistures = weatherData.hourly.soil_moisture_0_to_1cm || [];
+
+        const currentTimeStr = (weatherData.current && weatherData.current.time) ? weatherData.current.time : '';
+        let currentIdx = -1;
+        if (currentTimeStr) {
+            currentIdx = times.findIndex(t => t.startsWith(currentTimeStr.slice(0, 13)));
+        }
+        if (currentIdx === -1) {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const localHourStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
+            currentIdx = times.findIndex(t => t.startsWith(localHourStr));
+        }
+        if (currentIdx === -1) currentIdx = Math.max(0, times.length - 8);
+
+        // Acumulado 24h
+        let acc24h = 0.0;
+        if (typeof weatherData.accumulated_24h_mm === 'number') {
+            acc24h = weatherData.accumulated_24h_mm;
+        } else {
+            for (let j = 0; j < 24; j++) {
+                const idx = currentIdx - j;
+                if (idx >= 0 && rains[idx] !== null && !isNaN(rains[idx])) {
+                    acc24h += Number(rains[idx]);
+                }
+            }
+        }
+
+        // Projeção futura (+1h, +2h, +3h)
+        let maxRiskInForecast = 0;
+        let peakForecastHour = 1;
+        let peakRain = 0;
+        let forecastRainAccum = 0;
+
+        for (let f = 1; f <= 3; f++) {
+            const idx = currentIdx + f;
+            let rainVal = (idx < rains.length && rains[idx] !== null) ? Number(rains[idx]) : 0;
+            let probVal = (idx < probs.length && probs[idx] !== null) ? Number(probs[idx]) : 0;
+            const soilMoisture = (idx < soilMoistures.length && soilMoistures[idx] !== null)
+                ? soilMoistures[idx]
+                : (soilMoistures[currentIdx] ?? null);
+
+            // Respeita cenários de simulação se ativos
+            if (simulatedScenario === 'tempestade') {
+                rainVal = f === 1 ? 18.0 : (f === 2 ? 38.0 : 20.0);
+                probVal = 98;
+            } else if (simulatedScenario === 'moderada') {
+                rainVal = f === 1 ? 4.0 : (f === 2 ? 5.5 : 3.0);
+                probVal = 70;
+            }
+
+            forecastRainAccum += rainVal;
+            const risk = calculateForecastRiskFormula(rainVal, acc24h + forecastRainAccum, probVal, alt, lat, lon, soilMoisture);
+
+            if (risk > maxRiskInForecast) {
+                maxRiskInForecast = risk;
+                peakForecastHour = f;
+                peakRain = rainVal;
+            }
+        }
+
+        // Critério: Risco Crítico (>75%) ou acúmulo severo de chuva nas próximas 1 a 3h
+        const isCriticalRisk = maxRiskInForecast >= 75 || peakRain >= 18 || forecastRainAccum >= 35;
+
+        if (isCriticalRisk) {
+            const alertItem = {
+                target,
+                peakForecastHour,
+                maxRiskInForecast,
+                peakRain,
+                forecastRainAccum,
+                address: target.address || target.nome
+            };
+
+            if (!highestRiskAlert || alertItem.maxRiskInForecast > highestRiskAlert.maxRiskInForecast) {
+                highestRiskAlert = alertItem;
+            }
+
+            // Emissão de Notificação Nativa Web Push API (se concedida)
+            emitWebNotification(alertItem);
+        }
+    }
+
+    if (highestRiskAlert) {
+        showPredictiveAlertBanner(highestRiskAlert);
+    } else {
+        dismissPredictiveAlertBanner();
+    }
+}
+
+/**
+ * Emite Notificação do Sistema (Web Notification nativa)
+ */
+function emitWebNotification(alertItem) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    const { target, peakForecastHour, address } = alertItem;
+    const hourLabel = peakForecastHour === 1 ? '1 hora' : `${peakForecastHour} horas`;
+    const notifKey = `fg_notif_sent_${target.type}_${peakForecastHour}_${new Date().getHours()}`;
+
+    // Evita duplicar notificações nativas no mesmo bloco de hora
+    if (sessionStorage.getItem(notifKey)) {
+        return;
+    }
+    sessionStorage.setItem(notifKey, 'true');
+
+    try {
+        const title = `🚨 ALERTA FLOODGUARD AI: Risco Crítico em ${target.label}`;
+        const body = `Atenção: A previsão indica alto risco de alagamento em ${address} em aproximadamente ${hourLabel}. Tome precauções!`;
+
+        const notif = new Notification(title, {
+            body: body,
+            icon: '/static/img/logo.jpg',
+            badge: '/static/img/logo.jpg',
+            tag: `floodguard-risk-${target.type}`,
+            renotify: true
+        });
+
+        notif.onclick = () => {
+            window.focus();
+            focusPredictiveAlertPlace(target);
+        };
+    } catch (err) {
+        console.warn('[FloodGuard Alerta] Falha ao disparar Notification nativa:', err);
+    }
+}
+
+/**
+ * Banner Interno na Interface: Card/banner de alerta em vermelho no topo da tela
+ */
+function showPredictiveAlertBanner(alertItem) {
+    const banner = document.getElementById('predictive-risk-alert-banner');
+    if (!banner) return;
+
+    const { target, peakForecastHour, address, maxRiskInForecast } = alertItem;
+    activePredictiveAlertPlace = target;
+
+    const badgeEl = document.getElementById('predictive-alert-place-badge');
+    const countdownEl = document.getElementById('predictive-alert-countdown');
+    const addressEl = document.getElementById('predictive-alert-address');
+
+    const hourLabel = peakForecastHour === 1 ? 'na próxima 1 hora' : `nas próximas ${peakForecastHour} horas`;
+
+    if (badgeEl) badgeEl.textContent = `${target.icon || '📍'} ${target.label}`;
+    if (countdownEl) countdownEl.textContent = `Pico: ${hourLabel} (${Math.round(maxRiskInForecast)}%)`;
+    if (addressEl) addressEl.textContent = address;
+
+    banner.style.display = 'block';
+}
+
+function dismissPredictiveAlertBanner() {
+    const banner = document.getElementById('predictive-risk-alert-banner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+    activePredictiveAlertPlace = null;
+}
+
+function focusPredictiveAlertPlace(specificTarget = null) {
+    const target = specificTarget || activePredictiveAlertPlace;
+    if (!target || !target.lat || !target.lon) return;
+
+    if (map) {
+        map.flyTo([Number(target.lat), Number(target.lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+    }
+    analyzePoint(target.lat, target.lon, target.nome, target.bairro, target.alt, target.address, false);
+}
+
+// ─── AUTOCOMPLETE INTELIGENTE NAS BUSCAS ─────────────────────────────────────
+function getPlaceSearchSuggestions(query) {
+    const norm = normalizeText(query);
+    if (!norm) return [];
+
+    const results = [];
+    const homePlace = getUserPlace('home');
+    const workPlace = getUserPlace('work');
+
+    const matchesHome = norm.includes('casa') || norm === 'minha casa';
+    const matchesWork = norm.includes('trabalh') || norm.includes('trampo') || norm.includes('servico') || norm === 'meu trabalho';
+
+    if (matchesHome) {
+        if (homePlace && homePlace.lat && homePlace.lon) {
+            results.push({
+                isSavedPlace: true,
+                placeType: 'home',
+                nome: `🏠 Sua Casa - ${homePlace.nome}`,
+                rawNome: homePlace.nome,
+                bairro: homePlace.bairro || 'Endereço Salvo',
+                display_name: homePlace.address || `${homePlace.nome} — ${homePlace.bairro || 'São Paulo'}`,
+                lat: Number(homePlace.lat),
+                lon: Number(homePlace.lon),
+                alt: homePlace.alt ?? null,
+                icon: '🏠'
+            });
+        } else {
+            results.push({
+                isPlaceConfigAction: true,
+                placeType: 'home',
+                nome: '➕ Cadastrar endereço de Casa',
+                bairro: 'Defina seu endereço residencial para busca rápida',
+                display_name: 'Clique para cadastrar o endereço de Casa',
+                icon: '🏠'
+            });
+        }
+    }
+
+    if (matchesWork) {
+        if (workPlace && workPlace.lat && workPlace.lon) {
+            results.push({
+                isSavedPlace: true,
+                placeType: 'work',
+                nome: `💼 Seu Trabalho - ${workPlace.nome}`,
+                rawNome: workPlace.nome,
+                bairro: workPlace.bairro || 'Endereço Salvo',
+                display_name: workPlace.address || `${workPlace.nome} — ${workPlace.bairro || 'São Paulo'}`,
+                lat: Number(workPlace.lat),
+                lon: Number(workPlace.lon),
+                alt: workPlace.alt ?? null,
+                icon: '💼'
+            });
+        } else {
+            results.push({
+                isPlaceConfigAction: true,
+                placeType: 'work',
+                nome: '➕ Cadastrar endereço de Trabalho',
+                bairro: 'Defina seu endereço profissional para rota e risco',
+                display_name: 'Clique para cadastrar o endereço de Trabalho',
+                icon: '💼'
+            });
+        }
+    }
+
+    return results;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+        closeSavedPlaceAuthModal();
+        closeSimplePlaceModal();
+    }
 });
 
 // ─── CONSULTA DE ALTITUDE EM TEMPO REAL (OPENTOPODATA / OPEN-ELEVATION) ────────
@@ -413,8 +1246,8 @@ function getMinDistanceToRivers(lat, lon) {
         }
     }
 
-    // Regra de Tolerância Zero (Snap-to-Water de 100 metros)
-    if (minDistance <= 100) {
+    // Buffer oficial da aplicação: toda coordenada até 150m da calha é distância zero.
+    if (minDistance <= 150) {
         minDistance = 0;
     } else {
         minDistance = Math.round(minDistance);
@@ -448,26 +1281,6 @@ const SP_DRAINAGE_STRUCTURES = [
     { nome: "Piscinão Rincão", lat: -23.5367, lon: -46.5702, raio: 900 },
     { nome: "Piscinão Guamiranga", lat: -23.5797, lon: -46.5909, raio: 900 }
 ];
-
-// ─── CÁLCULO DE DISTÂNCIA ATÉ O RIO MAIS PRÓXIMO ──────────────────────────────
-function getMinDistanceToRivers(lat, lon) {
-    let minDistance = 999999;
-    let closestRiver = "Bacia Geral";
-
-    for (const river of SP_RIVERS) {
-        for (let i = 0; i < river.coords.length - 1; i++) {
-            const p1 = river.coords[i];
-            const p2 = river.coords[i + 1];
-            const dist = distanceToSegment(lat, lon, p1[0], p1[1], p2[0], p2[1]);
-            if (dist < minDistance) {
-                minDistance = dist;
-                closestRiver = river.nome;
-            }
-        }
-    }
-
-    return { distance: Math.round(minDistance), river: closestRiver };
-}
 
 function distanceToSegment(lat, lon, lat1, lon1, lat2, lon2) {
     // Projeção métrica precisa para SP (1° lat ~ 111.000m, 1° lon ~ 102.000m)
@@ -628,6 +1441,7 @@ function initLeafletMap() {
 
     // Clique em qualquer parte do mapa -> Análise dinâmica instantânea
     map.on('click', async (e) => {
+        hasActiveUserSelection = true;
         const { lat, lng } = e.latlng;
         
         // Exibe loader instantâneo no card e limpa dados anteriores
@@ -727,22 +1541,48 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
     renderTrendChart(analysis.labels, analysis.historyRisks, analysis.forecastRisks, analysis.maxForecastRisk);
 }
 
-// ─── BUSCA DE CLIMA NA OPEN-METEO (48h PASSADO + 48h FUTURO) ─────────────────
+// ─── BUSCA DE CLIMA NA OPEN-METEO (API REAL EM TEMPO REAL) ───────────────────
 async function fetchWeatherData(lat, lon) {
     const key = `w_${lat.toFixed(3)}_${lon.toFixed(3)}`;
-    if (geocodeCache[key]) return geocodeCache[key];
-
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=rain,precipitation_probability,soil_moisture_0_to_1cm&current_weather=true&past_days=2&forecast_days=2&timezone=America%2FSao_Paulo`;
-    
-    try {
-        const res = await fetch(url);
-        const data = await res.json();
-        geocodeCache[key] = data;
-        return data;
-    } catch (e) {
-        console.warn("Falha ao consultar Open-Meteo, usando fallback seguro.", e);
-        return null;
+    const now = Date.now();
+    if (geocodeCache[key] && geocodeCache[key].expiresAt && now < geocodeCache[key].expiresAt) {
+        return geocodeCache[key].data;
     }
+
+    // API Open-Meteo Oficial: coordenadas exatas, precipitação em tempo real (current) e histórico horário (hourly)
+    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers&hourly=precipitation,precipitation_probability,soil_moisture_0_to_1cm&daily=precipitation_sum,precipitation_probability_max&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo`;
+    const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
+
+    let data = null;
+
+    // 1. Chamada direta à API da Open-Meteo
+    try {
+        const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
+        if (res.ok) {
+            data = await res.json();
+        }
+    } catch (e) {
+        console.warn("[FloodGuard] Chamada direta Open-Meteo falhou, tentando proxy interno...", e.message);
+    }
+
+    // 2. Fallback resiliente via backend interno
+    if (!data || !data.hourly) {
+        try {
+            const proxyRes = await fetch(proxyUrl);
+            if (proxyRes.ok) {
+                data = await proxyRes.json();
+            }
+        } catch (e) {
+            console.warn("[FloodGuard] Proxy meteorológico indisponível:", e.message);
+        }
+    }
+
+    if (data && data.hourly) {
+        geocodeCache[key] = { data, expiresAt: Date.now() + 120000 };
+        return data;
+    }
+
+    return null;
 }
 
 // ─── PROCESSADOR DO MOTOR PREDITIVO DE RISCO (4 PILARES) ─────────────────────
@@ -751,27 +1591,72 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         return getFallbackAnalysis();
     }
 
-    const times = data.hourly.time;
-    const rains = data.hourly.rain;
+    const times = data.hourly.time || [];
+    // Prioriza precipitação total (chuva contínua + pancadas + garoa)
+    const rains = data.hourly.precipitation || data.hourly.rain || [];
     const probs = data.hourly.precipitation_probability || [];
     const soilMoistures = data.hourly.soil_moisture_0_to_1cm || [];
-    const now = new Date();
 
-    // Encontra o índice da hora atual
-    let currentIdx = times.findIndex(t => {
-        const d = new Date(t);
-        return d.getDate() === now.getDate() && d.getHours() === now.getHours();
-    });
-    if (currentIdx === -1) currentIdx = times.length - 24;
-
-    const currentRain = rains[currentIdx] ?? 0;
-
-    // Acumulado 24h passadas
-    let acc24h = 0;
-    for (let j = 0; j < 24; j++) {
-        const idx = currentIdx - j;
-        if (idx >= 0 && rains[idx] !== null) acc24h += rains[idx];
+    // Localiza o índice da hora atual com base no timestamp retornado pela Open-Meteo
+    const currentTimeStr = (data.current && data.current.time) ? data.current.time : '';
+    let currentIdx = -1;
+    if (currentTimeStr) {
+        currentIdx = times.findIndex(t => t.startsWith(currentTimeStr.slice(0, 13)));
     }
+    if (currentIdx === -1) {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const localHourStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
+        currentIdx = times.findIndex(t => t.startsWith(localHourStr));
+    }
+    if (currentIdx === -1) currentIdx = Math.max(0, times.length - 8);
+
+    // Chuva atual ainda alimenta o motor de risco, mas o card exibe a previsão diária.
+    let currentRain = 0.0;
+    if (typeof data.current_rain_mm_h === 'number') {
+        currentRain = data.current_rain_mm_h;
+    } else if (data.current && typeof data.current.precipitation === 'number') {
+        currentRain = Number(data.current.precipitation);
+    } else if (data.current && typeof data.current.rain === 'number') {
+        currentRain = Number(data.current.rain) + Number(data.current.showers || 0);
+    } else if (currentIdx >= 0 && rains[currentIdx] !== null) {
+        currentRain = Number(rains[currentIdx]) || 0;
+    }
+
+    // Acumulado 24h (#kpi-rain-acc24): Soma real das últimas 24 horas de chuva para o ponto selecionado
+    let acc24h = 0.0;
+    if (typeof data.accumulated_24h_mm === 'number') {
+        acc24h = data.accumulated_24h_mm;
+    } else {
+        for (let j = 0; j < 24; j++) {
+            const idx = currentIdx - j;
+            if (idx >= 0 && rains[idx] !== null && !isNaN(rains[idx])) {
+                acc24h += Number(rains[idx]);
+            }
+        }
+    }
+
+    // Total e maior probabilidade do dia civil atual (fuso América/São Paulo)
+    const daily = data.daily || {};
+    const spTodayStr = (data.current && data.current.time)
+        ? data.current.time.slice(0, 10)
+        : new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+
+    let dailyIndex = Array.isArray(daily.time) ? daily.time.indexOf(spTodayStr) : -1;
+    if (dailyIndex === -1 && Array.isArray(daily.time) && daily.time.length > 0) {
+        // Pega o último elemento (hoje/previsão), NUNCA o índice 0 (ontem)!
+        dailyIndex = daily.time.length - 1;
+    }
+
+    let dailyRainTotal = 0.0;
+    if (typeof data.today_rain_sum_mm === 'number') {
+        dailyRainTotal = data.today_rain_sum_mm;
+    } else if (dailyIndex >= 0 && Array.isArray(daily.precipitation_sum)) {
+        dailyRainTotal = Math.max(0, Number(daily.precipitation_sum[dailyIndex]) || 0);
+    }
+    const dailyRainChance = (dailyIndex >= 0 && Array.isArray(daily.precipitation_probability_max))
+        ? clamp(Number(daily.precipitation_probability_max[dailyIndex]) || 0, 0, 100)
+        : 0;
 
     // Série das últimas 24h
     const labels = [];
@@ -803,6 +1688,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 
     // Projeção futura (+1h, +2h, +3h)
     let forecastRainTotal = 0;
+    let maxForecastRain = 0;
     const fRisks = [];
 
     for (let f = 1; f <= 3; f++) {
@@ -826,7 +1712,8 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         }
 
         forecastRainTotal += rainVal;
-        const risk = calculateRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon, soilMoisture);
+        maxForecastRain = Math.max(maxForecastRain, rainVal);
+        const risk = calculateForecastRiskFormula(rainVal, acc24h + forecastRainTotal, probVal, altitude, lat, lon, soilMoisture);
 
         labels.push(horaStr);
         historyRisks.push(null);
@@ -839,7 +1726,10 @@ function processRiskAnalysis(data, altitude, lat, lon) {
     return {
         currentRain,
         acc24h,
+        dailyRainTotal,
+        dailyRainChance,
         forecastRainTotal,
+        maxForecastRain,
         currentRisk,
         maxForecastRisk,
         labels,
@@ -848,8 +1738,56 @@ function processRiskAnalysis(data, altitude, lat, lon) {
     };
 }
 
-// ─── MOTOR PREDITIVO DE IA — OS 4 PILARES UNIVERSAIS (0 a 100%) ───────────────
-// Risco = (Peso_Topografia * Relevo) + (Peso_Proximidade * Rio) + (Peso_Chuva * Clima) + (Peso_Historico * Registro_CGE)
+// Retorna o teto hidrológico imposto pela chuva. A chuva é condição necessária:
+// relevo, histórico ou rio isoladamente nunca produzem alerta alto/crítico.
+function getRainRiskCap(rainMm, acc24h) {
+    const rain = Math.max(0, Number(rainMm) || 0);
+    const accumulated = Math.max(0, Number(acc24h) || 0);
+    const strongRain = rain > 15 || accumulated > 40;
+    if (strongRain) return 100;
+
+    // ─── 1. REGRA ABSOLUTA DO FATOR CHUVA (GATEKEEPER) ───
+    // Se a Chuva Atual for 0.0 mm/h e o acumulado for < 1.0 mm:
+    // O Risco Preditivo final NÃO PODE ultrapassar 20% (Status VERDE - Condição Segura / Risco Baixo)
+    // em NENHUM PONTO de São Paulo, independentemente da proximidade de córregos, topografia ou dados históricos antigos.
+    if (rain === 0.0 && accumulated < 1.0) {
+        return 15.0; // Estritamente Risco Baixo (<20%)
+    }
+    // Ao clicar em qualquer local sem chuva no momento (0.0 mm/h):
+    // Obrigatoriamente Risco Baixo (<20%) - Condição Segura
+    if (rain === 0.0) {
+        if (accumulated <= 10.0) {
+            return 18.0; // Risco Baixo (<20%)
+        }
+        return 19.5; // Teto absoluto sem chuva atual (<20%)
+    }
+
+    if (rain >= 0.1 && rain <= 5) return 45;
+    // Chuva intermediária ou solo ainda carregado: permite risco alto, não crítico.
+    return 75;
+}
+
+function applyRainRiskCap(risk, rainMm, acc24h) {
+    return Math.min(risk, getRainRiskCap(rainMm, acc24h));
+}
+
+// Projeções de +1h a +3h usam a precipitação prevista daquele horário.
+// A chuva atual não entra neste cálculo e, portanto, céu limpo agora não
+// bloqueia um alerta para um temporal previsto nas próximas horas.
+function calculateForecastRiskFormula(forecastRainMm, forecastAccumulatedMm, probability, alt, lat, lon, soilMoisture = null) {
+    return calculateRiskFormula(
+        forecastRainMm,
+        forecastAccumulatedMm,
+        probability,
+        alt,
+        lat,
+        lon,
+        soilMoisture
+    );
+}
+
+// ─── MOTOR PREDITIVO DE IA — HIERARQUIA HIDROLÓGICA (0 a 100%) ───────────────
+// Risco = (Chuva * 0.50) + (Rio * 0.30) + (Relevo_Histórico * 0.20)
 function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture = null) {
     const rain = Math.max(0, Number(rainMm) || 0);
     const accumulated = Math.max(0, Number(acc24h) || 0);
@@ -883,12 +1821,11 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     const Score_Proximidade_Rio = clamp(100 * Math.exp(-riverDist / 800), 2, 98);
 
     let riverMultiplier = 1.0;
-    let forceMinRisk = null;
-    if (currentRiverTelemetry && currentRiverTelemetry.dentro_raio) {
+    const riverSource = currentRiverTelemetry?.estacao?.fonte_dados || '';
+    const hasRealRiverTelemetry = currentRiverTelemetry && currentRiverTelemetry.dentro_raio &&
+        !currentRiverTelemetry.dados_simulados && riverSource !== 'mock';
+    if (hasRealRiverTelemetry) {
         riverMultiplier = currentRiverTelemetry.multiplicador;
-        if (currentRiverTelemetry.risco_minimo_forca) {
-            forceMinRisk = currentRiverTelemetry.risco_minimo_forca;
-        }
     }
     const Score_Nivel_Rio = clamp(Score_Proximidade_Rio * riverMultiplier, 2, 100);
 
@@ -903,18 +1840,16 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Score_Historico_CGE = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
     }
 
-    // ─── PESOS BALANCEADOS DO MOTOR PREDITIVO DE IA ───
-    // Fórmula solicitada: Risco_Final = (Relevo * 0.25) + (Chuva_Acumulada * 0.25) + (Histórico * 0.20) + (Nivel_Telemetrico_Rio * 0.30)
-    const Peso_Topografia = 0.25;
-    const Peso_Chuva = 0.25;
-    const Peso_Historico = 0.20;
+    // Histórico da Defesa Civil é prioritário dentro da faixa conjunta de 20%.
+    const Score_Relevo_Historico = (Score_Historico_CGE * 0.70) + (Score_Topografia * 0.30);
+    const Peso_Chuva = 0.50;
     const Peso_Rio = 0.30;
+    const Peso_Relevo_Historico = 0.20;
 
     let Risco_Multifatorial = (
-        (Peso_Topografia * Score_Topografia) +
         (Peso_Chuva * Score_Clima) +
-        (Peso_Historico * Score_Historico_CGE) +
-        (Peso_Rio * Score_Nivel_Rio)
+        (Peso_Rio * Score_Nivel_Rio) +
+        (Peso_Relevo_Historico * Score_Relevo_Historico)
     );
 
     // Atenuação por estruturas de macrodrenagem e piscinões
@@ -923,27 +1858,24 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Risco_Multifatorial *= (1 - drainageInfo.influence * 0.08);
     }
 
-    // Forçar Risco Crítico em caso de extravasamento iminente (raio < 800m)
-    if (forceMinRisk !== null) {
-        Risco_Multifatorial = Math.max(Risco_Multifatorial, forceMinRisk);
+    // ─── REGRA ABSOLUTA DO FATOR CHUVA (GATEKEEPER) ───
+    // Se a Chuva Atual for 0.0 mm/h e o acumulado < 1.0 mm:
+    // O Risco Preditivo final NÃO PODE ultrapassar 20% (Status VERDE - Condição Segura / Risco Baixo)
+    // em NENHUM PONTO de São Paulo, independentemente de córregos, topografia ou histórico.
+    if (rain === 0.0 && accumulated < 1.0) {
+        Risco_Multifatorial = Math.min(Risco_Multifatorial * 0.15, 15);
+    } else if (rain === 0.0) {
+        Risco_Multifatorial = Math.min(Risco_Multifatorial * 0.25, 18);
+    } else {
+        Risco_Multifatorial = applyRainRiskCap(Risco_Multifatorial, rain, accumulated);
     }
 
-    // Modulação física para tempo seco real:
-    // Evita falsos positivos de enchente quando o céu está limpo,
-    // MAS NÃO aplica o cap se houver alerta hídrico ativo (rio em extravasamento/alerta).
-    const riverAlerting = currentRiverTelemetry && currentRiverTelemetry.dentro_raio &&
-        ['alerta', 'extravasamento'].includes(currentRiverTelemetry.nivel);
-    if (rain < 0.1 && accumulated < 3.5 && probability < 25 && simulatedScenario === 'real' && !riverAlerting) {
-        Risco_Multifatorial = Math.min(Risco_Multifatorial, 8);
-    }
-
-
-    return Math.max(1, Math.min(100, Math.round(Risco_Multifatorial)));
+    return Math.max(0, Math.min(100, Math.round(Risco_Multifatorial)));
 }
 
 // ─── ATUALIZAR UI COM DADOS CALCULADOS E 4 PILARES ───────────────────────────
 function updateUIWithAnalysis(analysis, alt, lat, lon) {
-    const risk = analysis.maxForecastRisk;
+    const risk = analysis.currentRisk;
     const color = getRiskColor(risk);
     const label = getRiskLabel(risk);
     const altInfo = getAltitudeClassification(alt);
@@ -989,7 +1921,10 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         const pct   = rt.percentual_ocupacao || 0;
         const nomeEstacao = rt.estacao.nome || rt.estacao.rio;
         const fonte = rt.estacao.fonte_dados || 'mock dinâmico';
-        const fonteLabel = fonte.includes('tempo real') ? '🔴 AO VIVO — SAISP/CGE' : '🔵 Simulação FloodGuard AI';
+        const isSimulatedRiver = rt.dados_simulados || fonte === 'mock' || fonte.startsWith('Simulação');
+        const fonteLabel = fonte.includes('tempo real')
+            ? '🔴 AO VIVO — SAISP/CGE'
+            : (isSimulatedRiver ? '⚪ Telemetria real indisponível' : 'Fonte externa');
 
         // Cores por nível
         const lvlColors = {
@@ -997,6 +1932,7 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
             alerta:         { border: '#F97316', bg: 'rgba(249,115,22,0.08)', text: '#F97316', light: '#FDBA74' },
             atencao:        { border: '#EAB308', bg: 'rgba(234,179,8,0.08)',  text: '#EAB308', light: '#FDE047' },
             normal:         { border: '#10B981', bg: 'rgba(16,185,129,0.08)', text: '#10B981', light: '#6EE7B7' },
+            indisponivel:   { border: '#64748B', bg: 'rgba(100,116,139,0.08)', text: '#94A3B8', light: '#CBD5E1' },
         };
         const lc = lvlColors[nivel] || lvlColors.normal;
 
@@ -1036,7 +1972,9 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
                 const okInfo  = document.getElementById('river-ok-info');
                 if (okEmoji) okEmoji.textContent = rt.emoji || '🟢';
                 if (okName)  okName.textContent = rt.estacao.rio;
-                if (okInfo)  okInfo.textContent = `${rt.label} — ${pct}% da calha • ${fonteLabel}`;
+                if (okInfo)  okInfo.textContent = isSimulatedRiver
+                    ? 'Dados simulados desconsiderados do risco • aguardando telemetria real'
+                    : `${rt.label} — ${pct}% da calha • ${fonteLabel}`;
             }
         }
     } else {
@@ -1056,14 +1994,46 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         elRec.innerHTML = `🛡️ <strong>Sem risco iminente:</strong> Drenagem operando normalmente (${altInfo.tipo}).`;
     }
 
-    // Mini KPIs: 4 Pilares
-    document.getElementById('kpi-rain-current').textContent = `${analysis.currentRain.toFixed(1)} mm/h`;
-    const elForecastSub = document.getElementById('kpi-rain-forecast-sub');
-    if (elForecastSub) elForecastSub.textContent = `+${analysis.forecastRainTotal.toFixed(1)} mm prev. (+3h)`;
+    // ── Mini KPIs: previsão total do dia e histórico das últimas 24h ──────────
+    const elRainCurrent = document.getElementById('kpi-rain-current');
+    if (elRainCurrent) {
+        const rainToday = analysis.dailyRainTotal;
+        elRainCurrent.textContent = `${rainToday.toFixed(1)} mm`;
+        if (rainToday >= 30) {
+            elRainCurrent.style.color = '#EF4444'; // Vermelho — Chuva Forte/Tempestade
+        } else if (rainToday >= 10) {
+            elRainCurrent.style.color = '#F59E0B'; // Amarelo — Chuva Moderada
+        } else if (rainToday > 0) {
+            elRainCurrent.style.color = '#38BDF8'; // Azul — Chuva Fraca/Garoa
+        } else {
+            elRainCurrent.style.color = '#10B981'; // Verde — Sem chuva prevista
+        }
+    }
 
-    document.getElementById('kpi-rain-acc24').textContent = `${analysis.acc24h.toFixed(1)} mm`;
-    document.getElementById('kpi-soil-status').textContent = analysis.acc24h > 30 ? "⚠️ Solo Saturado" : "Solo Estável";
-    document.getElementById('kpi-soil-status').style.color = analysis.acc24h > 30 ? "#F59E0B" : "#64748B";
+    const elForecastSub = document.getElementById('kpi-rain-forecast-sub');
+    if (elForecastSub) {
+        elForecastSub.textContent = `Chance máxima hoje: ${Math.round(analysis.dailyRainChance)}%`;
+    }
+
+    const elRainAcc = document.getElementById('kpi-rain-acc24');
+    if (elRainAcc) {
+        elRainAcc.textContent = `${analysis.acc24h.toFixed(1)} mm`;
+        elRainAcc.style.color = analysis.acc24h >= 50 ? '#EF4444' : (analysis.acc24h >= 20 ? '#F59E0B' : '#38BDF8');
+    }
+
+    const elSoil = document.getElementById('kpi-soil-status');
+    if (elSoil) {
+        if (analysis.acc24h > 50) {
+            elSoil.textContent = '🚨 Solo Saturado';
+            elSoil.style.color = '#EF4444';
+        } else if (analysis.acc24h > 20) {
+            elSoil.textContent = '⚠️ Solo Úmido';
+            elSoil.style.color = '#F59E0B';
+        } else {
+            elSoil.textContent = 'Solo Estável';
+            elSoil.style.color = '#64748B';
+        }
+    }
 
     // Distância do Rio e Corpo Hídrico
     const elRiverDist = document.getElementById('kpi-river-dist');
@@ -1118,6 +2088,8 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         elInsight.innerHTML = `<strong>🚨 ALERTA MÁXIMO DA IA (${risk}%):</strong> Precipitação +${analysis.forecastRainTotal.toFixed(1)}mm • Relevo ${alt}m (${altInfo.factorTxt}) • Calha a ${riverInfo.distance}m (${riverFactorTxt}).${telemetriaTxt} ${chronicTxt}`;
     } else if (risk >= 50) {
         elInsight.innerHTML = `<strong>⚠️ ATENÇÃO ELEVADA (${risk}%):</strong> Chuva +${analysis.forecastRainTotal.toFixed(1)}mm • Topografia ${alt}m (${altInfo.tipo}) • ${riverInfo.distance}m de corpo hídrico.${telemetriaTxt} ${chronicTxt}`;
+    } else if (analysis.currentRain === 0 && risk <= 20) {
+        elInsight.innerHTML = `<strong>🟢 CONDIÇÃO SEGURA (${risk}%):</strong> Sem chuva no momento (0.0 mm/h). Condição segura e estável para a região • Relevo ${alt}m (${altInfo.tipo}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt}`;
     } else {
         elInsight.innerHTML = `<strong>🔍 ANÁLISE PREDITIVA (${risk}%):</strong> Relevo ${alt}m (${altInfo.tipo}, ${altInfo.factorTxt}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt} ${chronicTxt}`;
     }
@@ -1132,7 +2104,7 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
     if (activeMarker) map.removeLayer(activeMarker);
     if (activeRiskCircle) map.removeLayer(activeRiskCircle);
 
-    const risk = analysis.maxForecastRisk;
+    const risk = analysis.currentRisk;
     const color = getRiskColor(risk);
     const altInfo = getAltitudeClassification(alt);
     const riverInfo = getMinDistanceToRivers(lat, lon);
@@ -1313,10 +2285,12 @@ function setupSearchListeners() {
             return;
         }
 
-        // Mostra resultados locais imediatamente (rápido)
+        // Atalhos de Casa e Trabalho + Base Local
+        const placeResults = getPlaceSearchSuggestions(val);
         const localResults = filterLocalNeighborhoods(val);
-        if (localResults.length > 0) {
-            renderSearchDropdown({ local: localResults, nominatim: [], loading: true });
+
+        if (placeResults.length > 0 || localResults.length > 0) {
+            renderSearchDropdown({ local: localResults, nominatim: [], places: placeResults, loading: true });
         } else {
             showSearchLoading(val);
         }
@@ -1328,6 +2302,7 @@ function setupSearchListeners() {
             renderSearchDropdown({
                 local: localResults,
                 nominatim: nominatimResults,
+                places: placeResults,
                 loading: false
             });
         }, 350);
@@ -1345,9 +2320,17 @@ function setupSearchListeners() {
             const nominatimResults = await searchNominatim(query);
             if (requestId !== searchRequestId || input.value.trim() !== query) return;
 
-            const firstResult = nominatimResults[0] || filterLocalNeighborhoods(query)[0];
-            if (firstResult) selectSearchSuggestion(firstResult);
-            else showSearchEmpty();
+            const placeResults = getPlaceSearchSuggestions(query);
+            const firstResult = placeResults[0] || nominatimResults[0] || filterLocalNeighborhoods(query)[0];
+            if (firstResult) {
+                if (firstResult.isPlaceConfigAction) {
+                    openPlaceConfigModal(firstResult.placeType);
+                } else {
+                    selectSearchSuggestion(firstResult);
+                }
+            } else {
+                showSearchEmpty();
+            }
         } else if (e.key === 'Escape') {
             dropdown.style.display = 'none';
             input.blur();
@@ -1355,6 +2338,13 @@ function setupSearchListeners() {
             e.preventDefault();
             const items = dropdown.querySelectorAll('.search-item');
             if (items.length > 0) items[0].focus();
+        }
+    });
+
+    // Exibir buscas recentes ao focar no campo vazio
+    input.addEventListener('focus', () => {
+        if (input.value.trim().length === 0 && typeof showRecentSearches === 'function') {
+            showRecentSearches();
         }
     });
 
@@ -1556,14 +2546,15 @@ function showSearchEmpty() {
 }
 
 // ─── RENDERIZAR DROPDOWN UNIFICADO COM SEÇÕES ─────────────────────────────────
-function renderSearchDropdown({ local = [], nominatim = [], loading = false }) {
+function renderSearchDropdown({ local = [], nominatim = [], places = [], loading = false }) {
     const dropdown = document.getElementById('universal-search-dropdown');
     if (!dropdown) return;
 
+    const hasPlaces = places.length > 0;
     const hasLocal = local.length > 0;
     const hasNominatim = nominatim.length > 0;
 
-    if (!hasLocal && !hasNominatim && !loading) {
+    if (!hasPlaces && !hasLocal && !hasNominatim && !loading) {
         showSearchEmpty();
         return;
     }
@@ -1573,29 +2564,42 @@ function renderSearchDropdown({ local = [], nominatim = [], loading = false }) {
     // Status bar
     if (loading) {
         html += `<div class="search-status-bar loading"><div class="search-loading-dot"></div>Buscando na base global...</div>`;
-    } else if (hasNominatim || hasLocal) {
-        const total = local.length + nominatim.length;
+    } else if (hasNominatim || hasLocal || hasPlaces) {
+        const total = places.length + local.length + nominatim.length;
         html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
     }
 
-    // Resultados precisos do Nominatim aparecem primeiro e são priorizados no Enter.
+    // 1. Atalhos de Casa / Trabalho
+    if (hasPlaces) {
+        html += `<div class="search-section-label">🏠 Atalhos de Locais</div>`;
+        html += places.map((item, index) => buildSearchItemHtml(item, index)).join('');
+    }
+
+    // 2. Resultados do Nominatim
     if (hasNominatim) {
         html += `<div class="search-section-label">📍 Endereços e locais em São Paulo</div>`;
-        html += nominatim.map((item, index) => buildSearchItemHtml(item, index)).join('');
+        html += nominatim.map((item, index) => buildSearchItemHtml(item, places.length + index)).join('');
     }
 
+    // 3. Resultados locais
     if (hasLocal) {
         html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
-        html += local.map((item, index) => buildSearchItemHtml(item, nominatim.length + index)).join('');
+        html += local.map((item, index) => buildSearchItemHtml(item, places.length + nominatim.length + index)).join('');
     }
 
-    searchSuggestionResults = [...nominatim, ...local];
+    searchSuggestionResults = [...places, ...nominatim, ...local];
     dropdown.innerHTML = html;
     dropdown.style.display = 'block';
     dropdown.querySelectorAll('[data-search-index]').forEach(element => {
         element.addEventListener('click', () => {
             const item = searchSuggestionResults[Number(element.dataset.searchIndex)];
-            if (item) selectSearchSuggestion(item);
+            if (!item) return;
+            if (item.isPlaceConfigAction) {
+                dropdown.style.display = 'none';
+                openPlaceConfigModal(item.placeType);
+            } else {
+                selectSearchSuggestion(item);
+            }
         });
     });
 }
@@ -1617,7 +2621,7 @@ function buildSearchItemHtml(item, index) {
                 ${safeDisplay}
             </div>
         </div>
-        <span style="font-size: 10px; color: #38BDF8; font-weight: 700; flex-shrink: 0; background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.25); padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">IR</span>
+        <span style="font-size: 10px; color: ${item.isPlaceConfigAction ? '#F59E0B' : '#38BDF8'}; font-weight: 700; flex-shrink: 0; background: ${item.isPlaceConfigAction ? 'rgba(245,158,11,0.12)' : 'rgba(56,189,248,0.10)'}; border: 1px solid ${item.isPlaceConfigAction ? 'rgba(245,158,11,0.3)' : 'rgba(56,189,248,0.25)'}; padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">${item.isPlaceConfigAction ? 'CADASTRAR' : 'IR'}</span>
     </div>
     `;
 }
@@ -1628,6 +2632,7 @@ function selectSearchSuggestion(item) {
 
 // ─── SELECIONAR RESULTADO E ANALISAR RISCO DO LOCAL ───────────────────────────
 function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = null, icon = '📍') {
+    hasActiveUserSelection = true;
     const input = document.getElementById('universal-search-input');
     if (input) {
         input.value = nome;
@@ -1646,6 +2651,17 @@ function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = nu
 
     // Aciona o motor de análise completo: clima + elevação + risco
     analyzePoint(lat, lon, nome, bairro, alt, fullAddress);
+
+    // ── Registra no Histórico de Buscas (se o usuário estiver logado) ──
+    if (typeof salvarBuscaHistorico === 'function') {
+        salvarBuscaHistorico({
+            nome,
+            lat,
+            lon,
+            bairro,
+            display_name: fullAddress || `${nome} — ${bairro}`
+        });
+    }
 }
 
 function clearSearchInput() {
@@ -1835,50 +2851,486 @@ function switchDashboardTab(tab) {
         // Remove imediatamente do mapa o círculo de raio (500m) e o marcador central pertencentes ao modo 'Explorar Bairro/Região'
         clearExplorationLayers();
     }
+
+    // Garante que o mapa do Leaflet redimensione adequadamente ao alternar abas
+    setTimeout(() => {
+        if (map) {
+            map.invalidateSize();
+        }
+    }, 150);
 }
 
-// ─── AUTOCOMPLETE DA ABA DE ROTAS ─────────────────────────────────────────────
+// ─── CONTROLE DO BOTTOM SHEET MOBILE (PAINEL DESLIZANTE) ─────────────────────
+function toggleMobileSheet() {
+    const sidebar = document.getElementById('dash-sidebar-panel');
+    const icon = document.getElementById('sheet-arrow-icon');
+    if (!sidebar) return;
+
+    if (sidebar.classList.contains('collapsed')) {
+        // Estava recolhido -> abre normal
+        sidebar.classList.remove('collapsed');
+        sidebar.classList.remove('expanded');
+        if (icon) icon.textContent = '▲';
+    } else if (sidebar.classList.contains('expanded')) {
+        // Estava expandido -> recolhe
+        sidebar.classList.remove('expanded');
+        sidebar.classList.add('collapsed');
+        if (icon) icon.textContent = '▲';
+    } else {
+        // Estava padrão -> expande para tela cheia
+        sidebar.classList.add('expanded');
+        if (icon) icon.textContent = '▼';
+    }
+
+    setTimeout(() => {
+        if (map) map.invalidateSize();
+    }, 320);
+}
+
+function setMobileSheetState(state) {
+    const sidebar = document.getElementById('dash-sidebar-panel');
+    const icon = document.getElementById('sheet-arrow-icon');
+    if (!sidebar) return;
+
+    sidebar.classList.remove('collapsed', 'expanded');
+    if (state === 'collapsed') {
+        sidebar.classList.add('collapsed');
+        if (icon) icon.textContent = '▲';
+    } else if (state === 'expanded') {
+        sidebar.classList.add('expanded');
+        if (icon) icon.textContent = '▼';
+    } else {
+        if (icon) icon.textContent = '▲';
+    }
+
+    setTimeout(() => {
+        if (map) map.invalidateSize();
+    }, 320);
+}
+
+// ─── AUTOCOMPLETE DA ABA DE ROTAS (UNIFICADO COM ABA EXPLORAR) ───────────────
+const routeSearchTimeouts = {};
+const routeSearchRequestIds = { 'route-origem': 0, 'route-destino': 0 };
+const routeSearchSuggestions = { 'route-origem': [], 'route-destino': [] };
+const selectedRoutePoints = {
+    'route-origem': null,
+    'route-destino': null,
+    'route-origin': null,
+    'route-destination': null
+};
+
 function setupRouteAutocomplete() {
-    const setupField = (inputId, dropdownId) => {
+    const setupField = (inputId, dropdownId, fieldType) => {
         const input = document.getElementById(inputId);
         const dd = document.getElementById(dropdownId);
         if (!input || !dd) return;
 
         input.addEventListener('input', () => {
             const val = input.value.trim();
-            if (val.length < 2) { dd.style.display = 'none'; return; }
-            const normVal = normalizeText(val);
-            let itemsHtml = '';
+            // Se o usuário editou manualmente o campo após selecionar um atalho/endereço, limpa o cache e dataset
+            if (input.dataset.selectedNome && input.value !== input.dataset.selectedNome) {
+                delete input.dataset.lat;
+                delete input.dataset.lon;
+                delete input.dataset.lng;
+                delete input.dataset.cleanAddress;
+                delete input.dataset.placeType;
+                delete input.dataset.selectedNome;
+                selectedRoutePoints[inputId] = null;
+            }
+            routeSearchRequestIds[inputId] = (routeSearchRequestIds[inputId] || 0) + 1;
+            const requestId = routeSearchRequestIds[inputId];
+            clearTimeout(routeSearchTimeouts[inputId]);
 
-            // Sugestão de Minha Localização se digitar termos correlatos
-            if (normVal.includes('minh') || normVal.includes('loca') || normVal.includes('gps') || normVal.includes('atual')) {
-                itemsHtml += `
-                    <div class="search-item" onclick="selectMyLocationForField('${inputId}', '${dropdownId}')">
-                        <span>🎯</span>
-                        <div style="font-size: 12px; color: #38BDF8; font-weight: 700;">Minha Localização Atual <small style="color:#94A3B8;">(GPS do Navegador)</small></div>
-                    </div>
-                `;
+            if (val.length < 2) {
+                dd.style.display = 'none';
+                dd.innerHTML = '';
+                routeSearchSuggestions[inputId] = [];
+                return;
             }
 
-            const results = filterLocalNeighborhoods(val).slice(0, 5);
-            itemsHtml += results.map(r => `
-                <div class="search-item" onclick="document.getElementById('${inputId}').value='${r.nome}'; document.getElementById('${dropdownId}').style.display='none';">
-                    <span>${r.icon || '📍'}</span>
-                    <div style="font-size: 12px; color: #fff;">${r.nome} <small style="color:#94A3B8;">(${r.bairro})</small></div>
-                </div>
-            `).join('');
+            const normVal = normalizeText(val);
 
-            if (itemsHtml) {
-                dd.innerHTML = itemsHtml;
-                dd.style.display = 'block';
+            // 1. Atalhos de Casa e Trabalho + Minha Localização
+            const placeResults = getPlaceSearchSuggestions(val);
+            const hasGpsTrigger = normVal.includes('minh') || normVal.includes('loca') || normVal.includes('gps') || normVal.includes('atual');
+            const localResults = filterLocalNeighborhoods(val);
+
+            // Exibe feedback imediato com atalhos, base local e loading da base global
+            if (placeResults.length > 0 || localResults.length > 0 || hasGpsTrigger) {
+                renderRouteSearchDropdown(inputId, dropdownId, fieldType, {
+                    local: localResults,
+                    nominatim: [],
+                    places: placeResults,
+                    loading: true,
+                    includeGps: hasGpsTrigger
+                });
             } else {
+                showRouteSearchLoading(dropdownId, val);
+            }
+
+            // 2. Debounce para consulta na base cartográfica global (Nominatim)
+            routeSearchTimeouts[inputId] = setTimeout(async () => {
+                const nominatimResults = await searchNominatim(val);
+                if (requestId !== routeSearchRequestIds[inputId] || input.value.trim() !== val) return;
+                renderRouteSearchDropdown(inputId, dropdownId, fieldType, {
+                    local: localResults,
+                    nominatim: nominatimResults,
+                    places: placeResults,
+                    loading: false,
+                    includeGps: hasGpsTrigger
+                });
+            }, 350);
+        });
+
+        // Tecla Enter seleciona o primeiro item automaticamente
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const query = input.value.trim();
+                if (query.length < 2) return;
+
+                clearTimeout(routeSearchTimeouts[inputId]);
+                const requestId = ++routeSearchRequestIds[inputId];
+                showRouteSearchLoading(dropdownId, query);
+                const nominatimResults = await searchNominatim(query);
+                if (requestId !== routeSearchRequestIds[inputId] || input.value.trim() !== query) return;
+
+                const placeResults = getPlaceSearchSuggestions(query);
+                const firstResult = placeResults[0] || nominatimResults[0] || filterLocalNeighborhoods(query)[0];
+                if (firstResult) {
+                    if (firstResult.isPlaceConfigAction) {
+                        openPlaceConfigModal(firstResult.placeType);
+                    } else {
+                        selectRouteItem(inputId, dropdownId, fieldType, firstResult);
+                    }
+                } else {
+                    showRouteSearchEmpty(dropdownId);
+                }
+            } else if (e.key === 'Escape') {
                 dd.style.display = 'none';
+                input.blur();
             }
         });
     };
 
-    setupField('route-origem', 'route-origem-dropdown');
-    setupField('route-destino', 'route-destino-dropdown');
+    // Suporte aos IDs padrão e aliases
+    setupField('route-origem', 'route-origem-dropdown', 'origin');
+    setupField('route-destino', 'route-destino-dropdown', 'destination');
+
+    const originAlt = document.getElementById('route-origin');
+    if (originAlt) setupField('route-origin', 'route-origin-dropdown', 'origin');
+    const destAlt = document.getElementById('route-destination');
+    if (destAlt) setupField('route-destination', 'route-destination-dropdown', 'destination');
+
+    // Fechar ao clicar fora
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.route-field')) {
+            const ddOrigem = document.getElementById('route-origem-dropdown');
+            const ddDestino = document.getElementById('route-destino-dropdown');
+            if (ddOrigem) ddOrigem.style.display = 'none';
+            if (ddDestino) ddDestino.style.display = 'none';
+        }
+    });
+}
+
+function positionRouteDropdown(inputId, dropdownId) {
+    const input = document.getElementById(inputId);
+    const dropdown = document.getElementById(dropdownId);
+    if (!input || !dropdown) return;
+    const rect = input.getBoundingClientRect();
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.top = (rect.bottom + 6) + 'px';
+    dropdown.style.width = rect.width + 'px';
+}
+
+function showRouteSearchLoading(dropdownId, query) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+    dropdown.innerHTML = `
+        <div class="search-status-bar loading">
+            <div class="search-loading-dot"></div>
+            Buscando "${escapeHtml(query)}"...
+        </div>
+        <div class="search-empty">⏳ 🔵 BUSCANDO NA BASE GLOBAL...</div>
+    `;
+    // Mapear dropdownId -> inputId
+    const inputId = dropdownId.replace('-dropdown', '');
+    positionRouteDropdown(inputId, dropdownId);
+    dropdown.style.display = 'block';
+}
+
+function showRouteSearchEmpty(dropdownId) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+    dropdown.innerHTML = `
+        <div class="search-empty">
+            📍 Local não encontrado em SP.<br>
+            <span style="color:#38BDF8;">Tente digitar o nome da rua, número ou bairro.</span>
+        </div>
+    `;
+    dropdown.style.display = 'block';
+}
+
+function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [], nominatim = [], places = [], loading = false, includeGps = false }) {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+
+    const hasPlaces = places.length > 0;
+    const hasLocal = local.length > 0;
+    const hasNominatim = nominatim.length > 0;
+
+    if (!hasPlaces && !hasLocal && !hasNominatim && !includeGps && !loading) {
+        showRouteSearchEmpty(dropdownId);
+        return;
+    }
+
+    let html = '';
+
+    // Status bar com indicador de carregamento
+    if (loading) {
+        html += `<div class="search-status-bar loading"><div class="search-loading-dot"></div>🔵 BUSCANDO NA BASE GLOBAL...</div>`;
+    } else if (hasNominatim || hasLocal) {
+        const total = local.length + nominatim.length;
+        html += `<div class="search-status-bar">🌍 ${total} resultado${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}</div>`;
+    }
+
+    // Atalhos de Casa e Trabalho no Trajeto
+    if (hasPlaces) {
+        html += `<div class="search-section-label">🏠 Atalhos de Locais</div>`;
+        html += places.map((item, index) => buildRouteSearchItemHtml(item, index, fieldType)).join('');
+    }
+
+    // Minha Localização
+    if (includeGps) {
+        html += `
+            <div class="search-item" data-action="gps">
+                <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">🎯</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 700; font-size: 13px; color: #38BDF8; line-height: 1.35;">
+                        Minha Localização Atual
+                    </div>
+                    <div style="font-size: 11px; color: #94A3B8; margin-top: 3px;">
+                        Coordenadas via GPS do navegador
+                    </div>
+                </div>
+                <span style="font-size: 10px; color: #38BDF8; font-weight: 700; flex-shrink: 0; background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.25); padding: 3px 8px; border-radius: 6px; margin-left: 8px;">USAR</span>
+            </div>
+        `;
+    }
+
+    // Resultados do Nominatim formatados no mesmo padrão
+    if (hasNominatim) {
+        html += `<div class="search-section-label">📍 Endereços e locais em São Paulo</div>`;
+        html += nominatim.map((item, index) => buildRouteSearchItemHtml(item, index, fieldType)).join('');
+    }
+
+    // Resultados locais
+    if (hasLocal) {
+        html += `<div class="search-section-label">⭐ Pontos de Referência</div>`;
+        html += local.map((item, index) => buildRouteSearchItemHtml(item, nominatim.length + index, fieldType)).join('');
+    }
+
+    routeSearchSuggestions[inputId] = [...places, ...nominatim, ...local];
+    dropdown.innerHTML = html;
+    positionRouteDropdown(inputId, dropdownId);
+    dropdown.style.display = 'block';
+
+    // Eventos de clique
+    dropdown.querySelectorAll('[data-action="gps"]').forEach(el => {
+        el.addEventListener('click', () => {
+            selectMyLocationForField(inputId, dropdownId);
+        });
+    });
+
+    dropdown.querySelectorAll('[data-route-index]').forEach(element => {
+        element.addEventListener('click', () => {
+            const item = routeSearchSuggestions[inputId][Number(element.dataset.routeIndex)];
+            if (!item) return;
+            if (item.isPlaceConfigAction) {
+                dropdown.style.display = 'none';
+                openPlaceConfigModal(item.placeType);
+            } else {
+                selectRouteItem(inputId, dropdownId, fieldType, item);
+            }
+        });
+    });
+}
+
+function buildRouteSearchItemHtml(item, index, fieldType) {
+    const safeNome = escapeHtml(item.nome);
+    const safeDisplay = escapeHtml(item.display_name || `${item.nome} — ${item.bairro}`);
+    const safeIcon = escapeHtml(item.icon || (fieldType === 'origin' ? '🚀' : '🏁'));
+    const actionLabel = item.isPlaceConfigAction ? 'CADASTRAR' : (fieldType === 'origin' ? 'PARTIDA' : 'DESTINO');
+    const actionColor = item.isPlaceConfigAction ? '#F59E0B' : (fieldType === 'origin' ? '#10B981' : '#EF4444');
+
+    return `
+    <div class="search-item" data-route-index="${index}" role="button" tabindex="0">
+        <span style="font-size: 17px; flex-shrink: 0; line-height: 1;">${safeIcon}</span>
+        <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 700; font-size: 13px; color: #FFFFFF; line-height: 1.35; word-break: break-word;">
+                ${safeNome}
+            </div>
+            <div style="font-size: 11px; color: #94A3B8; margin-top: 3px; line-height: 1.3; word-break: break-word;">
+                ${safeDisplay}
+            </div>
+        </div>
+        <span style="font-size: 10px; color: ${actionColor}; font-weight: 700; flex-shrink: 0; background: ${actionColor}22; border: 1px solid ${actionColor}55; padding: 3px 8px; border-radius: 6px; margin-left: 8px; white-space: nowrap;">
+            ${actionLabel}
+        </span>
+    </div>
+    `;
+}
+
+function selectRouteItem(inputId, dropdownId, fieldType, item) {
+    const input = document.getElementById(inputId);
+    const lat = Number(item.lat);
+    const lon = Number(item.lon ?? item.lng);
+    const cleanAddress = (
+        item.cleanAddress ||
+        item.rawNome ||
+        (item.display_name ? item.display_name.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '').trim() : '') ||
+        item.nome ||
+        ''
+    ).replace(/^(sua\s+casa|seu\s+trabalho|casa|trabalho)\s*[-–—:]\s*/i, '').trim();
+
+    if (input) {
+        // Mantém a formatação amigável no input visível (ex: "🏠 Sua Casa - ...")
+        input.value = item.nome;
+        if (!isNaN(lat) && !isNaN(lon)) {
+            input.dataset.lat = String(lat);
+            input.dataset.lon = String(lon);
+            input.dataset.lng = String(lon);
+            input.dataset.cleanAddress = cleanAddress;
+            input.dataset.placeType = item.placeType || '';
+            input.dataset.selectedNome = item.nome;
+        }
+        input.blur();
+    }
+
+    if (!isNaN(lat) && !isNaN(lon)) {
+        selectedRoutePoints[inputId] = {
+            lat,
+            lon,
+            lng: lon,
+            nome: item.nome,
+            cleanAddress: cleanAddress,
+            placeType: item.placeType || null,
+            isSavedPlace: !!item.isSavedPlace
+        };
+    }
+
+    const dropdown = document.getElementById(dropdownId);
+    if (dropdown) {
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+    }
+
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    // ── Integração com o Mapa: Insere o marcador correspondente ─────────────
+    if (fieldType === 'origin') {
+        if (routeStartMarker && map) {
+            try { map.removeLayer(routeStartMarker); } catch (_) {}
+            routeStartMarker = null;
+        }
+
+        const originIcon = L.divIcon({
+            className: 'custom-route-marker marker-origin',
+            iconSize: [40, 50],
+            iconAnchor: [20, 50],
+            popupAnchor: [0, -48],
+            tooltipAnchor: [0, -48],
+            html: `
+                <div style="position: relative; width: 40px; height: 50px; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 4px 10px rgba(16, 185, 129, 0.65));">
+                    <div style="width: 38px; height: 38px; border-radius: 50% 50% 50% 0; background: linear-gradient(135deg, #10B981 0%, #059669 100%); transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2.5px solid #FFFFFF; box-shadow: 0 0 14px rgba(16, 185, 129, 0.85);">
+                        <span style="transform: rotate(45deg); font-size: 18px; line-height: 1; user-select: none;">🚀</span>
+                    </div>
+                    <div style="width: 12px; height: 5px; background: rgba(0, 0, 0, 0.4); border-radius: 50%; filter: blur(1.5px); margin-top: 5px;"></div>
+                </div>
+            `
+        });
+
+        routeStartMarker = L.marker([lat, lon], { icon: originIcon, zIndexOffset: 950 })
+            .addTo(map)
+            .bindTooltip("Origem / Ponto de Partida", { className: 'route-marker-tooltip', direction: 'top', offset: [0, -48], opacity: 1.0 })
+            .bindPopup(`
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; line-height: 1.4; min-width: 180px;">
+                    <div style="font-weight: 800; color: #10B981; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                        <span>🚀</span> Origem / Ponto de Partida
+                    </div>
+                    <div style="color: #334155; font-weight: 600;">${escapeHtml(item.nome)}</div>
+                </div>
+            `);
+
+        if (!routeLayers.includes(routeStartMarker)) {
+            routeLayers.push(routeStartMarker);
+        }
+    } else {
+        if (routeEndMarker && map) {
+            try { map.removeLayer(routeEndMarker); } catch (_) {}
+            routeEndMarker = null;
+        }
+
+        const destinationIcon = L.divIcon({
+            className: 'custom-route-marker marker-destination',
+            iconSize: [40, 50],
+            iconAnchor: [20, 50],
+            popupAnchor: [0, -48],
+            tooltipAnchor: [0, -48],
+            html: `
+                <div style="position: relative; width: 40px; height: 50px; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 4px 10px rgba(239, 68, 68, 0.65));">
+                    <div style="width: 38px; height: 38px; border-radius: 50% 50% 50% 0; background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2.5px solid #FFFFFF; box-shadow: 0 0 14px rgba(239, 68, 68, 0.85);">
+                        <span style="transform: rotate(45deg); font-size: 18px; line-height: 1; user-select: none;">🏁</span>
+                    </div>
+                    <div style="width: 12px; height: 5px; background: rgba(0, 0, 0, 0.4); border-radius: 50%; filter: blur(1.5px); margin-top: 5px;"></div>
+                </div>
+            `
+        });
+
+        routeEndMarker = L.marker([lat, lon], { icon: destinationIcon, zIndexOffset: 950 })
+            .addTo(map)
+            .bindTooltip("Destino / Chegada", { className: 'route-marker-tooltip', direction: 'top', offset: [0, -48], opacity: 1.0 })
+            .bindPopup(`
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; line-height: 1.4; min-width: 180px;">
+                    <div style="font-weight: 800; color: #EF4444; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                        <span>🏁</span> Destino / Chegada
+                    </div>
+                    <div style="color: #334155; font-weight: 600;">${escapeHtml(item.nome)}</div>
+                </div>
+            `);
+
+        if (!routeLayers.includes(routeEndMarker)) {
+            routeLayers.push(routeEndMarker);
+        }
+    }
+
+    // Se ambos os marcadores já foram colocados, ajusta os limites do mapa para enquadrar ambos
+    if (routeStartMarker && routeEndMarker) {
+        const bounds = L.latLngBounds([routeStartMarker.getLatLng(), routeEndMarker.getLatLng()]);
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    } else {
+        map.flyTo([lat, lon], 15, { duration: 1.0 });
+    }
+
+    // ── Atualização Dinâmica: Busca dados do clima e força renderização dos cards de chuva instantaneamente ──
+    updateRouteWeatherCards(lat, lon, item.nome);
+}
+
+async function updateRouteWeatherCards(lat, lon, nome = '') {
+    try {
+        const weatherData = await fetchWeatherData(lat, lon);
+        if (weatherData) {
+            const analysis = processRiskAnalysis(weatherData, 745, lat, lon);
+            const elCurrent = document.getElementById('kpi-rain-current');
+            const elAcc24 = document.getElementById('kpi-rain-acc24');
+            const elForecast = document.getElementById('kpi-rain-forecast-sub');
+            if (elCurrent) elCurrent.textContent = `${analysis.dailyRainTotal.toFixed(1)} mm`;
+            if (elAcc24) elAcc24.textContent = `${analysis.acc24h.toFixed(1)} mm`;
+            if (elForecast) elForecast.textContent = `Chance máxima hoje: ${Math.round(analysis.dailyRainChance)}%`;
+        }
+    } catch (e) {
+        console.warn("[FloodGuard] Erro ao atualizar cards de chuva da rota:", e);
+    }
 }
 
 function selectMyLocationForField(inputId, dropdownId) {
@@ -1889,6 +3341,9 @@ function selectMyLocationForField(inputId, dropdownId) {
 
 function useCurrentLocationForRoute(fieldId = 'route-origem') {
     const input = document.getElementById(fieldId);
+    const fieldType = (fieldId.includes('dest') || fieldId.includes('destination')) ? 'destination' : 'origin';
+    const dropdownId = `${fieldId}-dropdown`;
+
     if (!navigator.geolocation) {
         alert("Geolocalização não suportada neste navegador.");
         return;
@@ -1896,11 +3351,18 @@ function useCurrentLocationForRoute(fieldId = 'route-origem') {
 
     if (currentLocationCoords && currentLocationCoords.lat && (currentLocationCoords.lng || currentLocationCoords.lon)) {
         const lat = currentLocationCoords.lat;
-        const lng = currentLocationCoords.lng ?? currentLocationCoords.lon;
-        if (input) input.value = `Minha Localização (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-    } else {
-        if (input) input.value = "Minha Localização (Obtendo GPS...)";
+        const lon = currentLocationCoords.lng ?? currentLocationCoords.lon;
+        selectRouteItem(fieldId, dropdownId, fieldType, {
+            nome: `Minha Localização (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
+            lat,
+            lon,
+            display_name: 'Posição atual detectada via GPS do navegador',
+            icon: '🎯'
+        });
+        return;
     }
+
+    if (input) input.value = "Minha Localização (Obtendo GPS...)";
 
     navigator.geolocation.getCurrentPosition(
         pos => {
@@ -1909,9 +3371,13 @@ function useCurrentLocationForRoute(fieldId = 'route-origem') {
                 lng: pos.coords.longitude,
                 lon: pos.coords.longitude
             };
-            if (input) {
-                input.value = `Minha Localização (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
-            }
+            selectRouteItem(fieldId, dropdownId, fieldType, {
+                nome: `Minha Localização (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`,
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+                display_name: 'Posição atual detectada via GPS do navegador',
+                icon: '🎯'
+            });
         },
         err => {
             console.warn("Falha ao obter coordenadas GPS:", err);
@@ -1959,8 +3425,10 @@ function isMyLocationText(str) {
 
 // ─── CÁLCULO DE RISCO DE ROTA ──────────────────────────────────────────────────
 async function calculateRouteRisk() {
-    const origemVal = (document.getElementById('route-origem')?.value || '').trim();
-    const destinoVal = (document.getElementById('route-destino')?.value || '').trim();
+    const originInput = document.getElementById('route-origem') || document.getElementById('route-origin');
+    const destInput = document.getElementById('route-destino') || document.getElementById('route-destination');
+    const origemVal = (originInput?.value || '').trim();
+    const destinoVal = (destInput?.value || '').trim();
 
     if (!origemVal || !destinoVal) {
         alert("Preencha ponto de partida e destino!");
@@ -1973,8 +3441,8 @@ async function calculateRouteRisk() {
     setRouteStatus('loading', 'Calculando a rota pelas ruas e analisando os riscos...');
 
     const [origem, destino] = await Promise.all([
-        resolveLocation(origemVal),
-        resolveLocation(destinoVal)
+        resolveLocation(origemVal, originInput?.id || 'route-origem'),
+        resolveLocation(destinoVal, destInput?.id || 'route-destino')
     ]);
 
     if (!origem || !destino) {
@@ -1999,48 +3467,150 @@ async function calculateRouteRisk() {
 
 async function runFecapDemoRoute() {
     switchDashboardTab('rota');
-    document.getElementById('route-origem').value = "FECAP — Campus Liberdade";
-    document.getElementById('route-destino').value = "Viaduto do Chá / Anhangabaú";
+    const originInput = document.getElementById('route-origem') || document.getElementById('route-origin');
+    const destInput = document.getElementById('route-destino') || document.getElementById('route-destination');
+    if (originInput) originInput.value = "FECAP — Campus Liberdade";
+    if (destInput) destInput.value = "Viaduto do Chá / Anhangabaú";
 
     const origem = { lat: -23.5574, lon: -46.6367, lng: -46.6367, nome: "FECAP — Campus Liberdade" };
     const destino = { lat: -23.5475, lon: -46.6378, lng: -46.6378, nome: "Viaduto do Chá / Anhangabaú" };
+    if (originInput) selectedRoutePoints[originInput.id] = origem;
+    if (destInput) selectedRoutePoints[destInput.id] = destino;
+
     clearExplorationLayers();
     clearCurrentRoute();
     setRouteStatus('loading', 'Calculando a rota de demonstração pelas ruas...');
     await processRouteTrajectory(origem, destino);
 }
 
-async function resolveLocation(query) {
+async function resolveLocation(query, fieldId = null) {
     if (!query || typeof query !== 'string') return null;
     const trimmed = query.trim();
     if (!trimmed) return null;
 
-    const normalizedQuery = normalizeText(trimmed);
-    const isMinhaLoc = isMyLocationText(trimmed);
+    // Helper: remove emojis e símbolos de qualquer string
+    const stripEmojis = (str) => {
+        return String(str || '')
+            .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
 
-    // 1. Validação Inteligente: Verifica se contém padrão de coordenadas explícito (lat, lng)
-    // Exemplos: (-23.5384, -46.5895), -23.5384, -46.5895, Lat: -23.5384, Lng: -46.5895
+    // 1. PRIORIDADE MÁXIMA: Coordenadas salvas no objeto cacheado ou dataset do campo
+    if (fieldId) {
+        const cached = selectedRoutePoints[fieldId];
+        const inputEl = document.getElementById(fieldId);
+        if (cached && !isNaN(Number(cached.lat)) && !isNaN(Number(cached.lon))) {
+            const cleanName = cached.cleanAddress || stripEmojis(cached.nome) || trimmed;
+            return {
+                lat: Number(cached.lat),
+                lon: Number(cached.lon),
+                lng: Number(cached.lon),
+                nome: cleanName,
+                rawNome: cleanName
+            };
+        }
+        if (inputEl && inputEl.dataset.lat && inputEl.dataset.lon) {
+            const lat = parseFloat(inputEl.dataset.lat);
+            const lon = parseFloat(inputEl.dataset.lon);
+            if (!isNaN(lat) && !isNaN(lon)) {
+                const cleanName = inputEl.dataset.cleanAddress || stripEmojis(inputEl.dataset.selectedNome) || trimmed;
+                return {
+                    lat,
+                    lon,
+                    lng: lon,
+                    nome: cleanName,
+                    rawNome: cleanName
+                };
+            }
+        }
+    }
+
+    // Se fieldId não foi fornecido ou não encontrou, verifica se algum input de rota coincide com o texto
+    const candidateInputIds = ['route-origem', 'route-destino', 'route-origin', 'route-destination'];
+    for (const cid of candidateInputIds) {
+        const inputEl = document.getElementById(cid);
+        if (inputEl && inputEl.value.trim() === trimmed) {
+            const cached = selectedRoutePoints[cid];
+            if (cached && !isNaN(Number(cached.lat)) && !isNaN(Number(cached.lon))) {
+                const cleanName = cached.cleanAddress || stripEmojis(cached.nome) || trimmed;
+                return {
+                    lat: Number(cached.lat),
+                    lon: Number(cached.lon),
+                    lng: Number(cached.lon),
+                    nome: cleanName,
+                    rawNome: cleanName
+                };
+            }
+            if (inputEl.dataset.lat && inputEl.dataset.lon) {
+                const lat = parseFloat(inputEl.dataset.lat);
+                const lon = parseFloat(inputEl.dataset.lon);
+                if (!isNaN(lat) && !isNaN(lon)) {
+                    const cleanName = inputEl.dataset.cleanAddress || stripEmojis(inputEl.dataset.selectedNome) || trimmed;
+                    return {
+                        lat,
+                        lon,
+                        lng: lon,
+                        nome: cleanName,
+                        rawNome: cleanName
+                    };
+                }
+            }
+        }
+    }
+
+    // 2. ATALHOS DE CASA E TRABALHO: Extração direta das coordenadas do perfil (getUserPlace)
+    // Evita refazer geocoding e resolve instantaneamente se o usuário digitou ou selecionou Casa/Trabalho
+    const normalizedQuery = normalizeText(trimmed);
+    const hasHomeKeyword = normalizedQuery.includes('casa') || trimmed.includes('🏠');
+    const hasWorkKeyword = normalizedQuery.includes('trabalh') || normalizedQuery.includes('trampo') || normalizedQuery.includes('servico') || trimmed.includes('💼');
+
+    if (hasHomeKeyword) {
+        const home = typeof getUserPlace === 'function' ? getUserPlace('home') : null;
+        if (home && !isNaN(Number(home.lat)) && !isNaN(Number(home.lon))) {
+            const cleanName = home.address || home.nome || 'Casa';
+            return {
+                lat: Number(home.lat),
+                lon: Number(home.lon),
+                lng: Number(home.lon),
+                nome: cleanName,
+                rawNome: cleanName
+            };
+        }
+    }
+
+    if (hasWorkKeyword) {
+        const work = typeof getUserPlace === 'function' ? getUserPlace('work') : null;
+        if (work && !isNaN(Number(work.lat)) && !isNaN(Number(work.lon))) {
+            const cleanName = work.address || work.nome || 'Trabalho';
+            return {
+                lat: Number(work.lat),
+                lon: Number(work.lon),
+                lng: Number(work.lon),
+                nome: cleanName,
+                rawNome: cleanName
+            };
+        }
+    }
+
+    // 3. Validação Inteligente: Verifica se contém padrão de coordenadas explícito (lat, lng)
     const coordPattern = /(-?\d{1,2}\.\d+)[,\s/]+(-?\d{1,3}\.\d+)/;
     const coordMatch = trimmed.match(coordPattern);
     if (coordMatch) {
         const parsedLat = parseFloat(coordMatch[1]);
         const parsedLng = parseFloat(coordMatch[2]);
         if (!isNaN(parsedLat) && !isNaN(parsedLng) && Math.abs(parsedLat) <= 90 && Math.abs(parsedLng) <= 180) {
-            if (isMinhaLoc) {
-                currentLocationCoords = { lat: parsedLat, lng: parsedLng, lon: parsedLng };
-            }
             return {
                 lat: parsedLat,
                 lng: parsedLng,
                 lon: parsedLng,
-                nome: isMinhaLoc ? 'Minha Localização' : `Coordenadas (${parsedLat.toFixed(4)}, ${parsedLng.toFixed(4)})`
+                nome: `Coordenadas (${parsedLat.toFixed(4)}, ${parsedLng.toFixed(4)})`
             };
         }
     }
 
-    // 2. Se for identificada a opção 'Minha Localização':
-    // NÃO envie o texto para a API de busca de endereços (Photon/Nominatim).
-    // Utilize diretamente o objeto de coordenadas salvas no GPS do navegador (currentLocationCoords).
+    // 4. Opção 'Minha Localização' (GPS do navegador)
+    const isMinhaLoc = isMyLocationText(trimmed);
     if (isMinhaLoc) {
         if (currentLocationCoords && currentLocationCoords.lat && (currentLocationCoords.lng || currentLocationCoords.lon)) {
             const lng = currentLocationCoords.lng ?? currentLocationCoords.lon;
@@ -2052,7 +3622,6 @@ async function resolveLocation(query) {
             };
         }
 
-        // Tenta obter do GPS do navegador se ainda não foi salvo
         const gpsCoords = await getBrowserLocation();
         if (gpsCoords && gpsCoords.lat && (gpsCoords.lng || gpsCoords.lon)) {
             const lng = gpsCoords.lng ?? gpsCoords.lon;
@@ -2064,12 +3633,16 @@ async function resolveLocation(query) {
             };
         }
 
-        // Se o usuário não concedeu permissão ou o GPS falhou
         return null;
     }
 
-    // 3. Busca na base local de bairros e pontos conhecidos de SP
-    const local = SP_NEIGHBORHOODS.find(n => normalizeText(n.nome).includes(normalizedQuery));
+    // 5. Busca na base local de bairros e pontos conhecidos de SP (com query limpa)
+    const cleanSearchText = stripEmojis(trimmed)
+        .replace(/^(sua\s+casa|seu\s+trabalho|casa|trabalho)\s*[-–—:]\s*/i, '')
+        .trim();
+    const cleanNormalized = normalizeText(cleanSearchText || trimmed);
+
+    const local = SP_NEIGHBORHOODS.find(n => normalizeText(n.nome).includes(cleanNormalized) || cleanNormalized.includes(normalizeText(n.nome)));
     if (local) {
         return {
             lat: local.lat,
@@ -2080,9 +3653,14 @@ async function resolveLocation(query) {
         };
     }
 
-    // 4. Se for um endereço comum (ex: 'FECAP — Campus Liberdade'), aí sim envia para a API de busca (Nominatim)
+    // 6. Geocoding no Nominatim sem emojis e com endereço real limpo
+    if (!cleanSearchText || cleanSearchText.length < 2) {
+        return null;
+    }
+
     try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedQuery + ', Sao Paulo, SP, Brasil')}&bounded=1&viewbox=-46.826,-23.383,-46.365,-23.723&limit=1&countrycodes=br`;
+        const queryTerm = `${cleanSearchText}, Sao Paulo, SP, Brasil`;
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryTerm)}&bounded=1&viewbox=-46.826,-23.383,-46.365,-23.723&limit=1&countrycodes=br`;
         const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
         const data = await res.json();
         if (data && data.length > 0) {
@@ -2092,7 +3670,7 @@ async function resolveLocation(query) {
                 lat: lat,
                 lng: lon,
                 lon: lon,
-                nome: data[0].display_name.split(',')[0] || trimmed
+                nome: data[0].display_name.split(',')[0] || cleanSearchText
             };
         }
     } catch (err) {
@@ -2128,6 +3706,11 @@ function clearCurrentRoute() {
         });
         routeLayers = [];
     }
+    // Limpar também a rota alternativa e resetar painel
+    clearAltRouteLayers();
+    altRouteData = null;
+    mainRouteVisible = true;
+    updateAltRoutePanel('hide');
 }
 
 function setRouteStatus(type, message) {
@@ -2179,6 +3762,258 @@ async function fetchOsrmRoute(origem, destino) {
 
     return data.routes[0];
 }
+
+/**
+ * Busca a rota principal + até 3 alternativas via OSRM.
+ * Retorna array de routes (a principal é [0]).
+ */
+async function fetchOsrmRouteWithAlternatives(origem, destino) {
+    const origLon = Number(origem.lon ?? origem.lng);
+    const origLat = Number(origem.lat);
+    const destLon = Number(destino.lon ?? destino.lng);
+    const destLat = Number(destino.lat);
+
+    const coordinates = `${origLon.toFixed(6)},${origLat.toFixed(6)};${destLon.toFixed(6)},${destLat.toFixed(6)}`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&alternatives=3`;
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (data.code !== 'Ok' || !data.routes?.length) return null;
+        return data.routes; // array com principal + alternativas
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Gera uma rota DIFERENTE forçando um waypoint perpendicular ao eixo origem-destino.
+ * Tenta os dois lados (esquerdo e direito) e retorna o que tiver melhor risco.
+ * offsetKm: distância do desvio lateral em km (padrão 0.6 km).
+ */
+async function fetchOsrmRouteViaOffset(origem, destino, offsetKm = 0.6) {
+    const origLon = Number(origem.lon ?? origem.lng);
+    const origLat = Number(origem.lat);
+    const destLon = Number(destino.lon ?? destino.lng);
+    const destLat = Number(destino.lat);
+
+    // Vetor direcional
+    const dLat = destLat - origLat;
+    const dLon = destLon - origLon;
+    const dist = Math.sqrt(dLat * dLat + dLon * dLon) || 0.001;
+
+    // Vetor perpendicular normalizado (ambos lados)
+    const perpLatN =  -dLon / dist;
+    const perpLonN =   dLat / dist;
+
+    // 1 grau ≈ 111 km; converter offsetKm para graus
+    const offsetDeg = offsetKm / 111;
+
+    // Ponto de desvio no terço do trajeto (não no meio exato — mais natural)
+    const fracLat = origLat + dLat * 0.40;
+    const fracLon = origLon + dLon * 0.40;
+
+    const routeResults = await Promise.all([+1, -1].map(async (side) => {
+        const wLat = fracLat + perpLatN * offsetDeg * side;
+        const wLon = fracLon + perpLonN * offsetDeg * side;
+        const coords = [
+            `${origLon.toFixed(6)},${origLat.toFixed(6)}`,
+            `${wLon.toFixed(6)},${wLat.toFixed(6)}`,
+            `${destLon.toFixed(6)},${destLat.toFixed(6)}`
+        ].join(';');
+        try {
+            const res = await fetch(
+                `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (data.code !== 'Ok' || !data.routes?.[0]) return null;
+            return data.routes[0];
+        } catch { return null; }
+    }));
+
+    // Retorna ambas (filtradas de nulas) para avaliação de risco posterior
+    return routeResults.filter(Boolean);
+}
+
+/**
+ * Avalia uma rota alternativa e retorna {maxRisk, avgRisk, avgElevation, samples, environments, elevations, sampleRisks}.
+ * Reutiliza as mesmas funções de análise da rota principal.
+ */
+async function scoreAltRoute(routeGeometry) {
+    const coordinates = routeGeometry.coordinates;
+    const samples = selectRouteSamples(coordinates);
+    if (!samples.length) return null;
+
+    try {
+        const environments = await fetchRouteEnvironment(samples);
+        if (environments.length !== samples.length) return null;
+
+        const elevations = environments.map(w =>
+            Number.isFinite(Number(w?.elevation)) ? Number(w.elevation) : 745
+        );
+        const terrainContexts = samples.map((_, i) => getRouteTerrainContext(samples, elevations, i));
+        const sampleRisks = samples.map((point, i) => {
+            const analysis = processRiskAnalysis(environments[i], elevations[i], point.lat, point.lon);
+            const adjusted = baseRouteRiskWithTerrainCap(analysis, terrainContexts[i].adjustment);
+            return Math.round(clamp(adjusted, 0, 100));
+        });
+
+        const maxRisk = Math.max(...sampleRisks);
+        const avgRisk = Math.round(sampleRisks.reduce((a, b) => a + b, 0) / sampleRisks.length);
+        const avgElevation = Math.round(elevations.reduce((a, b) => a + b, 0) / elevations.length);
+
+        return { maxRisk, avgRisk, avgElevation, samples, environments, elevations, sampleRisks, coordinates };
+    } catch {
+        return null;
+    }
+}
+
+function baseRouteRiskWithTerrainCap(analysis, terrainAdjustment) {
+    const relevantRain = Math.max(analysis.currentRain || 0, analysis.maxForecastRain || 0);
+    const relevantAccumulated = (analysis.acc24h || 0) + (analysis.forecastRainTotal || 0);
+    return applyRainRiskCap(analysis.maxForecastRisk + terrainAdjustment, relevantRain, relevantAccumulated);
+}
+
+// Estado global da rota alternativa
+let altRouteData = null;       // { coordinates, maxRisk, avgRisk, avgElevation, distanceKm, durationSec }
+let altRouteLayers = [];       // polylines desenhadas da rota alternativa
+let mainRouteVisible = true;   // controla comparação
+
+function clearAltRouteLayers() {
+    altRouteLayers.forEach(l => { try { map.removeLayer(l); } catch {} });
+    altRouteLayers = [];
+}
+
+/**
+ * Seleciona a melhor alternativa: menor maxRisk, desempate por maior altitudemédia.
+ */
+function pickBestAltRoute(scored) {
+    return scored
+        .filter(s => s !== null)
+        .sort((a, b) => {
+            if (a.maxRisk !== b.maxRisk) return a.maxRisk - b.maxRisk;
+            return b.avgElevation - a.avgElevation; // altitude maior = mais seguro
+        })[0] || null;
+}
+
+/**
+ * Atualiza o painel de rota alternativa segura no sidebar.
+ */
+function updateAltRoutePanel(state, data) {
+    const panel = document.getElementById('alt-route-panel');
+    const subtitle = document.getElementById('alt-route-subtitle');
+    const badge = document.getElementById('alt-route-badge');
+    const details = document.getElementById('alt-route-details');
+    const warning = document.getElementById('alt-route-warning');
+
+    if (!panel) return;
+
+    if (state === 'hide') {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+
+    if (state === 'loading') {
+        subtitle.textContent = 'Calculando rota alternativa segura...';
+        badge.textContent = '⏳';
+        details.textContent = 'Analisando riscos nas rotas alternativas disponíveis...';
+        warning.style.display = 'none';
+        return;
+    }
+
+    if (state === 'found') {
+        const { maxRisk, avgElevation, distanceKm, durationSec, mainMaxRisk, isFallback } = data;
+        const style = getRouteRiskStyle(maxRisk);
+        const savings = mainMaxRisk - maxRisk;
+        const durationMin = Math.max(1, Math.round((durationSec || 0) / 60));
+        subtitle.textContent = isFallback
+            ? `Rota estimada: risco reduzido de ${mainMaxRisk}% → ${maxRisk}% (${style.level})`
+            : `Risco reduzido de ${mainMaxRisk}% → ${maxRisk}% (${style.level})`;
+        badge.textContent = `${maxRisk}%`;
+        badge.style.color = style.color;
+        badge.style.background = `${style.color}22`;
+        details.innerHTML = `
+            <span style="display:block;">📏 <strong>Distância:</strong> ${distanceKm} km</span>
+            <span style="display:block;">⏱️ <strong>Tempo estimado:</strong> ~${durationMin} min</span>
+            <span style="display:block;">⛰️ <strong>Altitude média:</strong> ${avgElevation} m (terreno mais elevado)</span>
+            <span style="display:block; margin-top:4px; color:#34D399;">✅ Risco estimado reduzido em <strong>${savings}%</strong> vs. rota principal</span>
+            ${isFallback ? '<span style="display:block; margin-top:4px; font-size:10px; color:#94A3B8;">⚠ Rota baseada na geometria principal com cálculo de desvio estimado</span>' : ''}
+        `;
+        if (maxRisk > 50) {
+            warning.style.display = 'block';
+            warning.textContent = `⚠️ Mesmo a rota alternativa apresenta risco ${style.level.toLowerCase()} (${maxRisk}%). Considere aguardar a chuva passar.`;
+        } else {
+            warning.style.display = 'none';
+        }
+        return;
+    }
+
+    if (state === 'none') {
+        subtitle.textContent = 'Nenhuma alternativa segura encontrada';
+        badge.textContent = '⚠️';
+        badge.style.color = '#FCD34D';
+        badge.style.background = 'rgba(234,179,8,0.2)';
+        details.textContent = 'O OSRM não retornou alternativas para este percurso, ou todas apresentam risco similar. Considere aguardar ou usar transporte público.';
+        warning.style.display = 'none';
+    }
+}
+
+/**
+ * Desenha a rota alternativa no mapa (em verde/azul tracejado).
+ */
+function showAltRouteOnMap() {
+    if (!altRouteData) return;
+    clearAltRouteLayers();
+
+    const latlngs = altRouteData.coordinates.map(([lon, lat]) => [lat, lon]);
+
+    const outline = L.polyline(latlngs, {
+        color: '#0F172A', weight: 10, opacity: 0.7,
+        lineJoin: 'round', lineCap: 'round', dashArray: '1, 1'
+    }).addTo(map);
+
+    const line = L.polyline(latlngs, {
+        color: '#10B981', weight: 7, opacity: 0.95,
+        lineJoin: 'round', lineCap: 'round',
+        dashArray: '14, 8'
+    }).addTo(map).bindTooltip(
+        `🛡️ Rota Alternativa Segura — Risco Máx: ${altRouteData.maxRisk}%`,
+        { sticky: true }
+    );
+
+    altRouteLayers.push(outline, line);
+
+    // Ajusta o mapa para incluir ambas as rotas
+    if (currentRoutePolyline) {
+        const bounds = L.polyline([...latlngs]).getBounds();
+        map.fitBounds(bounds.extend(currentRoutePolyline.getBounds()), { padding: [50, 50] });
+    } else {
+        map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [50, 50] });
+    }
+}
+
+/**
+ * Alterna entre mostrar apenas a rota principal ou ambas (comparação).
+ */
+function compareRoutes() {
+    if (altRouteLayers.length === 0) {
+        showAltRouteOnMap();
+        return;
+    }
+    // Alterna visibilidade
+    mainRouteVisible = !mainRouteVisible;
+    routeLayers.forEach(l => {
+        try {
+            if (mainRouteVisible) map.addLayer(l); else map.removeLayer(l);
+        } catch {}
+    });
+}
+
+
 
 function routeDistanceMeters(a, b) {
     const earthRadius = 6371000;
@@ -2314,10 +4149,15 @@ function formatRouteDuration(durationSeconds) {
     return minutes > 0 ? `${hours}h ${minutes} min` : `${hours}h`;
 }
 
-function buildRouteMetrics(distanceKm) {
+function buildRouteMetrics(distanceKm, durationSeconds, maxRisk) {
+    const duration = formatRouteDuration(durationSeconds);
+    const risk = Math.round(clamp(Number(maxRisk) || 0, 0, 100));
+    const riskStyle = getRouteRiskStyle(risk);
     return `
         <span style="display:block;color:#E2E8F0;margin-top:7px;line-height:1.65;">
             <span style="display:block;"><strong>Distância Total:</strong> ${distanceKm} km</span>
+            <span style="display:block;"><strong>Tempo Estimado:</strong> ${duration}</span>
+            <span style="display:block;"><strong>Risco Máximo:</strong> <span style="color:${riskStyle.color};font-weight:800;">${risk}% — ${riskStyle.level}</span></span>
         </span>
     `;
 }
@@ -2344,8 +4184,8 @@ async function processRouteTrajectory(origem, destino) {
         );
         const terrainContexts = samples.map((_, index) => getRouteTerrainContext(samples, elevations, index));
         const sampleRisks = samples.map((point, index) => {
-            const baseRisk = processRiskAnalysis(environments[index], elevations[index], point.lat, point.lon).maxForecastRisk;
-            return Math.round(clamp(baseRisk + terrainContexts[index].adjustment, 1, 100));
+            const analysis = processRiskAnalysis(environments[index], elevations[index], point.lat, point.lon);
+            return Math.round(clamp(baseRouteRiskWithTerrainCap(analysis, terrainContexts[index].adjustment), 0, 100));
         });
         const vertexRisks = interpolateRouteRisks(coordinates, samples, sampleRisks);
         const groups = groupRouteSegments(coordinates, vertexRisks);
@@ -2472,17 +4312,140 @@ async function processRouteTrajectory(origem, destino) {
         routeLayers.push(routeMaxRiskMarker);
 
         if (maxRisk < 30) {
+            // ─── RISCO BAIXO: trajeto seguro, sem alternativa ───────────────────
             setRouteStatus('safe', `<strong>Trajeto Limpo e Seguro.</strong> Nenhuma área de risco crítico identificada nos trechos analisados. <span style="display:block;color:#E2E8F0;margin-top:4px;"><strong>Risco Máximo: ${maxRisk}%</strong> em ${escapeHtml(locationLabel)} • ${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
-        } else if (maxRisk <= 50) {
-            setRouteStatus('moderate', `<strong>Atenção moderada.</strong> <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)}. Dirija com atenção. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            updateAltRoutePanel('hide');
         } else {
-            const trechoLabel = dangerousGroups.length === 1 ? '1 trecho' : `${dangerousGroups.length} trechos`;
-            setRouteStatus('danger', `<strong>Atenção:</strong> Seu trajeto passa por ${trechoLabel} com índice de risco elevado. <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)} (nível ${worstStyle.level}). Mantenha cautela ou altere seu trajeto. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            // ─── RISCO MODERADO / ALTO / CRÍTICO: sugerir rota alternativa ────────
+            if (maxRisk <= 50) {
+                setRouteStatus('moderate', `<strong>⚠️ Atenção moderada.</strong> <strong>Risco Máximo: ${maxRisk}%</strong> no trecho de ${escapeHtml(locationLabel)}. Dirija com atenção. <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            } else {
+                const trechoLabel = dangerousGroups.length === 1 ? '1 trecho' : `${dangerousGroups.length} trechos`;
+                setRouteStatus('danger', `<strong>🚨 Perigo:</strong> Seu trajeto passa por ${trechoLabel} com risco elevado de alagamento. <strong>Risco Máximo: ${maxRisk}%</strong> em ${escapeHtml(locationLabel)} (${worstStyle.level}). <span style="display:block;color:#E2E8F0;margin-top:4px;">${terrainText}${historicalText}${drainageText}</span>${routeMetrics}`);
+            }
+
+            // Mostrar painel em modo "carregando"
+            altRouteData = null;
+            clearAltRouteLayers();
+            mainRouteVisible = true;
+            updateAltRoutePanel('loading');
+
+            (async () => {
+                if (requestId !== routeRequestId) return;
+                try {
+                    // 1ª tentativa: alternativas nativas do OSRM
+                    const allRoutes = await fetchOsrmRouteWithAlternatives(origem, destino);
+                    if (requestId !== routeRequestId) return;
+
+                    const altRoutes = allRoutes ? allRoutes.slice(1) : [];
+
+                    if (!altRoutes.length) {
+                        updateAltRoutePanel('none');
+                        return;
+                    }
+
+                    // Avaliar cada alternativa com o motor de risco completo
+                    const scored = await Promise.all(
+                        altRoutes.map(r => scoreAltRoute(r.geometry))
+                    );
+
+                    // Associar distância/duração de cada rota alternativa ao score
+                    scored.forEach((s, i) => {
+                        if (s && altRoutes[i]) {
+                            s.distanceKm = (altRoutes[i].distance / 1000).toFixed(1);
+                            s.durationSec = altRoutes[i].duration;
+                        }
+                    });
+
+                    if (requestId !== routeRequestId) return;
+
+                    const best = pickBestAltRoute(scored);
+
+                    // ── Se OSRM não retornou nada melhor, gerar rota via desvio perpendicular ──
+                    if (!best || best.maxRisk >= maxRisk) {
+                        if (requestId !== routeRequestId) return;
+                        setRouteStatus(maxRisk <= 50 ? 'moderate' : 'danger',
+                            document.getElementById('route-alert-box')?.querySelector('div')?.textContent || '');
+                        updateAltRoutePanel('loading');
+
+                        // Buscar rota via waypoint perpendicular (geometria diferente)
+                        const offsetRoutes = await fetchOsrmRouteViaOffset(origem, destino);
+                        if (requestId !== routeRequestId) return;
+
+                        if (!offsetRoutes.length) {
+                            updateAltRoutePanel('none');
+                            return;
+                        }
+
+                        // Avaliar as duas rotas offset (esquerda e direita)
+                        const offsetScored = await Promise.all(
+                            offsetRoutes.map(async r => {
+                                const s = await scoreAltRoute(r.geometry);
+                                if (s) {
+                                    s.distanceKm = (r.distance / 1000).toFixed(1);
+                                    s.durationSec = r.duration;
+                                }
+                                return s;
+                            })
+                        );
+                        if (requestId !== routeRequestId) return;
+
+                        const bestOffset = pickBestAltRoute(offsetScored);
+                        if (!bestOffset || bestOffset.maxRisk >= maxRisk) {
+                            updateAltRoutePanel('none');
+                            return;
+                        }
+
+                        altRouteData = {
+                            coordinates: bestOffset.coordinates,
+                            maxRisk: bestOffset.maxRisk,
+                            avgRisk: bestOffset.avgRisk,
+                            avgElevation: bestOffset.avgElevation,
+                            distanceKm: bestOffset.distanceKm,
+                            durationSec: bestOffset.durationSec
+                        };
+                        updateAltRoutePanel('found', {
+                            maxRisk: bestOffset.maxRisk,
+                            avgElevation: bestOffset.avgElevation,
+                            distanceKm: bestOffset.distanceKm,
+                            durationSec: bestOffset.durationSec,
+                            mainMaxRisk: maxRisk
+                        });
+                        showAltRouteOnMap();
+                        return;
+                    }
+
+                    // Salvar para uso pelos botões "Ver no Mapa" e "Comparar"
+                    altRouteData = {
+                        coordinates: best.coordinates,
+                        maxRisk: best.maxRisk,
+                        avgRisk: best.avgRisk,
+                        avgElevation: best.avgElevation,
+                        distanceKm: best.distanceKm,
+                        durationSec: best.durationSec
+                    };
+
+                    updateAltRoutePanel('found', {
+                        maxRisk: best.maxRisk,
+                        avgElevation: best.avgElevation,
+                        distanceKm: best.distanceKm,
+                        durationSec: best.durationSec,
+                        mainMaxRisk: maxRisk
+                    });
+
+                    // Desenhar automaticamente a alternativa no mapa sempre que for melhor
+                    showAltRouteOnMap();
+                } catch (altErr) {
+                    console.warn('[FloodGuard] Falha ao calcular rota alternativa:', altErr.message);
+                    updateAltRoutePanel('none');
+                }
+            })();
         }
     } catch (error) {
         if (requestId !== routeRequestId) return;
         console.error('Falha ao calcular rota real:', error);
         setRouteStatus('error', 'Não foi possível calcular a rota pelas ruas agora. Verifique sua conexão e tente novamente.');
+        updateAltRoutePanel('hide');
     }
 }
 
@@ -2495,112 +4458,8 @@ function flyToFECAP() {
     selectSearchResult(-23.5574, -46.6367, "FECAP — Campus Liberdade", "Liberdade", 735);
 }
 
-// ─── GEOLOCALIZAÇÃO EM TEMPO REAL (GPS DO USUÁRIO) ───────────────────────────
-let isGeolocating = false;
-let geoToastTimeout = null;
 
-async function triggerUserGeolocation() {
-    if (isGeolocating) return;
 
-    const btnGeo = document.getElementById('btn-geolocate');
-    const btnMapGps = document.getElementById('btn-map-gps');
-
-    // 1. Verificação de suporte a Geolocation API no navegador
-    if (!navigator.geolocation) {
-        showGeoToast(
-            'error',
-            'Não foi possível acessar sua localização. Por favor, digite seu endereço na barra de pesquisa.'
-        );
-        focusSearchInput();
-        return;
-    }
-
-    // 2. Atualizar estado visual para carregando
-    isGeolocating = true;
-    if (btnGeo) {
-        btnGeo.classList.add('is-locating');
-        const label = btnGeo.querySelector('.gps-btn-label');
-        if (label) label.textContent = 'GPS...';
-    }
-    if (btnMapGps) {
-        btnMapGps.classList.add('is-locating');
-        btnMapGps.innerHTML = '🛰️ Localizando...';
-    }
-
-    showGeoToast('info', '🛰️ Solicitando sinal de GPS e obtendo suas coordenadas exatas...');
-
-    const geoOptions = {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-    };
-
-    navigator.geolocation.getCurrentPosition(
-        async (position) => {
-            isGeolocating = false;
-            resetGeoButtons();
-
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            const accuracy = Math.round(position.coords.accuracy || 0);
-            currentLocationCoords = { lat: lat, lng: lon, lon: lon };
-
-            showGeoToast('success', `📍 Localização GPS obtida! (Precisão: ±${accuracy}m)`);
-
-            // Exibe estado transitório no card
-            document.getElementById('hero-location-name').innerHTML = `
-                <span class="location-pin-badge" style="background: rgba(56, 189, 248, 0.25); border-color: #38BDF8; color: #38BDF8;">🎯</span>
-                <span class="location-title-text">Sua Localização Atual <span style="font-size: 10px; background: rgba(56,189,248,0.22); color: #38BDF8; padding: 2px 7px; border-radius: 4px; font-weight: 800; margin-left: 6px; border: 1px solid rgba(56,189,248,0.4); vertical-align: middle;">GPS</span></span>
-            `;
-            const elBairro = document.getElementById('hero-location-bairro');
-            if (elBairro) elBairro.innerHTML = `🛰️ Identificando bairro e região...`;
-            const elAddress = document.getElementById('hero-location-address');
-            if (elAddress) elAddress.innerHTML = `📌 Coordenadas: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-
-            // Busca nome reverso e altitude em paralelo
-            const [locationInfo, realAlt] = await Promise.all([
-                reverseGeocode(lat, lon),
-                getElevation(lat, lon)
-            ]);
-
-            const displayName = locationInfo.display_name || `${locationInfo.nome} — ${locationInfo.bairro}`;
-            const localNome = locationInfo.nome && locationInfo.nome !== 'São Paulo'
-                ? `Você está em ${locationInfo.nome}`
-                : 'Sua Posição Atual';
-
-            await analyzePoint(lat, lon, localNome, locationInfo.bairro, realAlt, displayName, true);
-        },
-        (error) => {
-            isGeolocating = false;
-            resetGeoButtons();
-
-            console.warn('Geolocation error:', error);
-
-            // Alerta amigável e bonito conforme solicitado
-            showGeoToast(
-                'error',
-                'Não foi possível acessar sua localização. Por favor, digite seu endereço na barra de pesquisa.'
-            );
-            focusSearchInput();
-        },
-        geoOptions
-    );
-}
-
-function resetGeoButtons() {
-    const btnGeo = document.getElementById('btn-geolocate');
-    const btnMapGps = document.getElementById('btn-map-gps');
-
-    if (btnGeo) {
-        btnGeo.classList.remove('is-locating');
-        const label = btnGeo.querySelector('.gps-btn-label');
-        if (label) label.textContent = 'GPS';
-    }
-    if (btnMapGps) {
-        btnMapGps.classList.remove('is-locating');
-        btnMapGps.innerHTML = '🎯 Minha Localização';
-    }
-}
 
 function focusSearchInput() {
     const input = document.getElementById('universal-search-input');
@@ -2676,9 +4535,11 @@ function getFallbackAnalysis() {
     return {
         currentRain: 0.0,
         acc24h: 2.0,
+        dailyRainTotal: 0.0,
+        dailyRainChance: 0,
         forecastRainTotal: 0.0,
-        currentRisk: 12,
-        maxForecastRisk: 12,
+        currentRisk: 0,
+        maxForecastRisk: 0,
         labels: ["-24h", "-18h", "-12h", "-6h", "Agora", "+1h", "+2h", "+3h"],
         historyRisks: [8, 10, 12, 11, 12, null, null, null],
         forecastRisks: [null, null, null, null, 12, 12, 12, 12]

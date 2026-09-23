@@ -10,6 +10,7 @@ Estratégia em 3 camadas:
 """
 
 from fastapi import APIRouter
+from ..config import settings
 from typing import List, Optional
 import math
 import time
@@ -18,8 +19,17 @@ import urllib.request
 import urllib.error
 import json
 import hashlib
+import logging
+import re
+import unicodedata
+from pathlib import Path
+import requests
+from shapely.geometry import LineString, Point
+from shapely.ops import transform
+from pyproj import Transformer
 
 router = APIRouter(prefix="/api/rivers", tags=["rivers"])
+logger = logging.getLogger(__name__)
 
 # ─── ESTAÇÕES TELEMÉTRIAS ─────────────────────────────────────────────────────
 # Dados reais das estações DAEE/CGE/SAISP de São Paulo.
@@ -164,12 +174,107 @@ def _cache_set(key: str, data):
 
 
 # ─── INTEGRAÇÃO TELEMÉTRICA ──────────────────────────────────────────────────
-def _try_fetch_real_data(station_id: str) -> Optional[float]:
+SAISP_REPORT_URL = "https://www.saisp.br/online/"
+_saisp_report_cache = {"ts": 0.0, "statuses": None, "error": None}
+_SAISP_STATION_ALIASES = {
+    "D2-024": ["Rio Tietê - Ponte do Piqueri", "Rio Tietê - Barragem Móvel"],
+    "D2-025": ["Rio Tietê - Estaleiro", "Rio Tietê - Barragem Móvel"],
+    "D2-026": ["Rio Tietê - Anhembi", "Rio Tietê - Belenzinho"],
+    "D2-027": ["Rio Tietê - Barragem da Penha Montante", "Rio Tietê - Barragem da Penha Jusante"],
+    "D2-040": ["Rio Pinheiros - Ponte Cid. Universitária"],
+    "D2-041": ["Rio Pinheiros - Ponte João Dias"],
+    "D2-060": ["Rio Tamanduateí - Mercado Municipal"],
+    "D2-080": ["Rio Aricanduva - Av. Ragueb Chohfi", "Rio Aricanduva - Shopping"],
+    "D2-081": ["Rio Aricanduva - Av. Itaquera"],
+}
+
+
+def _normalize_station_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value or "")
+    return " ".join("".join(ch for ch in normalized if not unicodedata.combining(ch)).casefold().split())
+
+
+def _fetch_saisp_statuses() -> dict[str, str]:
+    now = time.time()
+    if _saisp_report_cache["statuses"] is not None and now - _saisp_report_cache["ts"] < CACHE_TTL:
+        return _saisp_report_cache["statuses"]
+    if _saisp_report_cache["error"] and now - _saisp_report_cache["ts"] < 60:
+        raise RuntimeError(_saisp_report_cache["error"])
+
+    try:
+        response = requests.get(
+            SAISP_REPORT_URL,
+            timeout=12,
+            headers={"User-Agent": "FloodGuardAI/1.0 (+telemetria SAISP)"},
+            verify=settings.VERIFY_SSL,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        _saisp_report_cache.update({"ts": now, "statuses": None, "error": str(exc)})
+        raise
+    response.encoding = "utf-8"
+
+    statuses: dict[str, str] = {}
+    scripts = re.findall(
+        r'<script[^>]+type="application/json"[^>]*>(.*?)</script>',
+        response.text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    for raw_json in scripts:
+        try:
+            widget = json.loads(raw_json)
+        except (TypeError, ValueError):
+            continue
+        payload = widget.get("x") or {}
+        container = payload.get("container") or ""
+        data = payload.get("data") or []
+        if "Alerta" not in container or len(data) < 2:
+            continue
+        names, states = data[0], data[1]
+        if not isinstance(names, list) or not isinstance(states, list):
+            continue
+        for name, state in zip(names, states):
+            statuses[_normalize_station_name(str(name))] = str(state).strip().upper()
+
+    if not statuses:
+        raise ValueError("Relatório SAISP não trouxe a tabela de estados fluviométricos")
+    _saisp_report_cache.update({"ts": now, "statuses": statuses, "error": None})
+    return statuses
+
+
+def _try_fetch_real_data(station: dict) -> Optional[dict]:
+    """Obtém o estado fluviométrico oficial publicado no relatório do SAISP.
+
+    O relatório público divulga estado (normal/atenção/alerta/extravasamento),
+    não uma cota numérica aberta. A cota abaixo é uma estimativa conservadora
+    dentro da faixa oficial e é identificada como estimativa na resposta.
     """
-    Tenta buscar dados reais de cota em metros de APIs públicas.
-    Retorna None para acionar a simulação calibrada de alta precisão em tempo real.
-    """
-    return None
+    statuses = _fetch_saisp_statuses()
+    aliases = _SAISP_STATION_ALIASES.get(station.get("_saisp_id"), [station.get("nome", "")])
+    matched_name = None
+    official_state = "NORMAL"
+    for alias in aliases:
+        normalized_alias = _normalize_station_name(alias)
+        if normalized_alias in statuses:
+            matched_name = alias
+            official_state = statuses[normalized_alias]
+            break
+
+    state_ratio = {
+        "NORMAL": 0.40,
+        "ATENÇÃO": 0.60,
+        "ATENCAO": 0.60,
+        "ALERTA": 0.80,
+        "EMERGÊNCIA": 0.90,
+        "EMERGENCIA": 0.90,
+        "EXTRAVASAMENTO": 0.96,
+    }.get(official_state, 0.40)
+    return {
+        "cota": round(station["cota_maxima_m"] * state_ratio, 2),
+        "estado": official_state,
+        "posto": matched_name or aliases[0],
+        "cota_estimada": True,
+    }
 
 
 # ─── MOCK PREMIUM PSEUDO-DINÂMICO ─────────────────────────────────────────────
@@ -267,6 +372,7 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
 
     cota = None
     fonte = "mock"
+    saisp_data = None
 
     if scenario == "tempestade":
         cota = round(st["cota_maxima_m"] * 0.94, 2)
@@ -279,14 +385,35 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
         fonte = "Simulação Nível Seguro"
     else:
         if st.get("_saisp_id"):
-            cota = _try_fetch_real_data(st["_saisp_id"])
-            if cota is not None:
-                fonte = "SAISP/CGE (tempo real)"
+            try:
+                saisp_data = _try_fetch_real_data(st)
+                if saisp_data is not None:
+                    cota = saisp_data["cota"]
+                    fonte = "SAISP (estado fluviométrico oficial)"
+            except Exception as exc:
+                logger.warning("Falha ao consultar SAISP para %s: %s", st["nome"], exc)
 
         if cota is None:
-            cota = _get_mock_cota(st)
+            try:
+                cota = _get_mock_cota(st)
+                logger.warning("Usando fallback simulado para %s; telemetria oficial indisponível", st["nome"])
+            except Exception as exc:
+                logger.warning("Falha também no fallback de %s: %s", st["nome"], exc)
+                cota = round(st["cota_maxima_m"] * 0.35, 2)
 
     classificacao = _classify_level(cota, st)
+    # Uma estimativa sintética nunca deve ser apresentada nem ponderada como
+    # alerta hidrológico real. Mantemos o valor apenas para demonstração visual.
+    if fonte == "mock":
+        classificacao = {
+            **classificacao,
+            "nivel": "indisponivel",
+            "cor": "cinza",
+            "emoji": "⚪",
+            "label": "Telemetria real indisponível",
+            "multiplicador": 1.0,
+            "risco_minimo_forca": None,
+        }
     result = {
         "id": st["id"],
         "nome": st["nome"],
@@ -298,6 +425,10 @@ def _get_station_data(st: dict, scenario: Optional[str] = None) -> dict:
         "cota_atencao_m": st["cota_atencao_m"],
         "cota_alerta_m": st["cota_alerta_m"],
         "fonte_dados": fonte,
+        "dados_simulados": fonte == "mock" or fonte.startswith("Simulação"),
+        "estado_saisp": saisp_data.get("estado") if saisp_data else None,
+        "posto_saisp": saisp_data.get("posto") if saisp_data else None,
+        "cota_estimada_pelo_estado": bool(saisp_data and saisp_data.get("cota_estimada")),
         "nome_estacao": st["nome"],
         "rio_nome": st["rio"],
         "altura_atual_m": round(cota, 2),
@@ -338,189 +469,313 @@ def get_rivers_status():
     }
 
 
-# ─── REDE HIDROGRÁFICA COMPLETA DE SÃO PAULO (polilinhas densas) ──────────────
-# Vértices espaçados ~200–400m ao longo de cada calha para garantir que
-# qualquer ponto na margem/avenida de fundo de vale retorne ≤ 50m.
-# O campo-chave em RIVER_STATIONS["rio"] mapeia para a entrada correta aqui.
+# --- REDE HIDROGRÁFICA COMPLETA DE SÃO PAULO (polilinhas de alta densidade) ---
+# Vértices espaçados ~150-200m ao longo de cada calha.
+# Buffer de 150m garante que as faixas das Marginais Tietê e Pinheiros
+# sejam sempre identificadas como distância zero.
+# Formato: (lat, lon) - WGS84
 RIVER_POLYLINES: dict[str, list[tuple[float, float]]] = {
 
-    # ── RIO TIETÊ ──────────────────────────────────────────────────────────────
-    # Nascente (Salesópolis) → Barragem Edgard de Souza (Santana de Parnaíba)
-    # Trecho urbano de SP: Zona Leste → Zona Norte → Zona Oeste
+    # -- RIO TIETÊ -----------------------------------------------------------------
+    # Trecho urbano: Borda Leste (Guarulhos) -> Perus (Zona Noroeste)
+    # Curva da Penha corrigida: o rio desce para sul em Itaquera
+    # e volta ao norte a partir de Belém/Brás.
     "Rio Tietê": [
-        # Zona Leste — Itaquera / Penha / Tatuapé
-        (-23.540, -46.390), (-23.538, -46.400), (-23.536, -46.410),
-        (-23.534, -46.420), (-23.531, -46.430), (-23.528, -46.440),
-        (-23.525, -46.450), (-23.522, -46.460), (-23.519, -46.470),
-        (-23.516, -46.480), (-23.514, -46.492), (-23.513, -46.504),
-        # Ponte da Penha / Belém / Brás
-        (-23.512, -46.516), (-23.511, -46.528), (-23.511, -46.540),
-        (-23.510, -46.552), (-23.510, -46.564), (-23.510, -46.576),
-        (-23.510, -46.588), (-23.510, -46.600), (-23.510, -46.610),
-        # Anhembi / Ponte das Bandeiras / Centro
-        (-23.510, -46.620), (-23.510, -46.628), (-23.511, -46.636),
-        (-23.511, -46.644), (-23.512, -46.652), (-23.512, -46.660),
-        (-23.513, -46.668), (-23.514, -46.676), (-23.514, -46.684),
-        # Lapa / Pompéia / Casa Verde
-        (-23.515, -46.692), (-23.515, -46.700), (-23.516, -46.708),
-        (-23.517, -46.716), (-23.518, -46.724), (-23.519, -46.732),
-        (-23.521, -46.740), (-23.523, -46.748), (-23.525, -46.756),
-        # Freguesia do Ó / Limão / Perus / Jaraguá
-        (-23.527, -46.764), (-23.529, -46.772), (-23.532, -46.780),
-        (-23.535, -46.788), (-23.538, -46.796), (-23.541, -46.804),
-        (-23.544, -46.812), (-23.547, -46.820), (-23.550, -46.828),
+        # Entrada leste / Ermelino Matarazzo
+        (-23.484, -46.388), (-23.485, -46.397), (-23.487, -46.406),
+        (-23.489, -46.415), (-23.492, -46.423), (-23.495, -46.431),
+        (-23.498, -46.438), (-23.501, -46.445),
+        # Descida sul - Itaquera / São Miguel / Penha ("curva do Tietê")
+        (-23.505, -46.451), (-23.509, -46.456), (-23.513, -46.461),
+        (-23.517, -46.465), (-23.521, -46.469), (-23.525, -46.473),
+        (-23.528, -46.478), (-23.531, -46.483), (-23.534, -46.488),
+        (-23.536, -46.494), (-23.537, -46.500), (-23.537, -46.507),
+        # Inversão - sobe de volta ao norte (Penha / Belém)
+        (-23.536, -46.514), (-23.534, -46.520), (-23.531, -46.526),
+        (-23.528, -46.531), (-23.525, -46.537), (-23.521, -46.542),
+        (-23.518, -46.547), (-23.515, -46.553), (-23.513, -46.559),
+        # Tatuapé / Brás - troço quase horizontal
+        (-23.511, -46.565), (-23.510, -46.571), (-23.510, -46.578),
+        (-23.509, -46.584), (-23.509, -46.590), (-23.508, -46.597),
+        (-23.508, -46.603), (-23.508, -46.609), (-23.508, -46.616),
+        # Anhembi / Ponte das Bandeiras
+        (-23.508, -46.622), (-23.508, -46.628), (-23.509, -46.634),
+        (-23.509, -46.640), (-23.510, -46.646), (-23.510, -46.652),
+        (-23.511, -46.658), (-23.511, -46.664), (-23.512, -46.670),
+        # Barra Funda / Lapa
+        (-23.512, -46.676), (-23.513, -46.682), (-23.513, -46.688),
+        (-23.514, -46.694), (-23.514, -46.699), (-23.514, -46.705),
+        (-23.514, -46.710), (-23.514, -46.715),
+        # Viragem noroeste: Casa Verde / Freq. do O
+        (-23.513, -46.720), (-23.511, -46.724), (-23.509, -46.728),
+        (-23.506, -46.731), (-23.503, -46.734), (-23.499, -46.737),
+        (-23.495, -46.739), (-23.491, -46.741), (-23.487, -46.743),
+        (-23.483, -46.746), (-23.479, -46.749), (-23.475, -46.752),
+        # Freguesia do O -> Pirituba -> Jaraguá
+        (-23.472, -46.757), (-23.469, -46.762), (-23.466, -46.768),
+        (-23.463, -46.774), (-23.460, -46.780), (-23.457, -46.787),
+        (-23.454, -46.794), (-23.451, -46.801), (-23.449, -46.809),
+        (-23.447, -46.817), (-23.445, -46.825), (-23.443, -46.833),
     ],
 
-    # ── RIO PINHEIROS ──────────────────────────────────────────────────────────
-    # Represa Guarapiranga (sul) → Foz no Tietê (norte, Ceagesp)
+    # -- RIO PINHEIROS -------------------------------------------------------------
+    # Represa Guarapiranga (Capão Redondo) -> Foz Tietê (Ceagesp / Lapa)
     "Rio Pinheiros": [
-        (-23.710, -46.694), (-23.700, -46.698), (-23.690, -46.703),
-        (-23.680, -46.708), (-23.670, -46.712), (-23.660, -46.714),
-        (-23.650, -46.714), (-23.640, -46.713), (-23.630, -46.711),
-        (-23.620, -46.709), (-23.610, -46.707), (-23.600, -46.704),
-        (-23.592, -46.701), (-23.584, -46.699), (-23.576, -46.698),
-        (-23.568, -46.698), (-23.560, -46.699), (-23.552, -46.701),
-        (-23.545, -46.703), (-23.539, -46.708), (-23.534, -46.714),
-        (-23.530, -46.720), (-23.526, -46.728), (-23.522, -46.736),
-        (-23.519, -46.744), (-23.517, -46.752),
+        # Sul - borda Guarapiranga / Interlagos
+        (-23.714, -46.692), (-23.707, -46.694), (-23.700, -46.696),
+        (-23.693, -46.699), (-23.686, -46.702), (-23.679, -46.705),
+        (-23.672, -46.708), (-23.665, -46.710), (-23.658, -46.712),
+        (-23.651, -46.713), (-23.644, -46.714), (-23.637, -46.714),
+        (-23.630, -46.713), (-23.623, -46.711), (-23.616, -46.709),
+        # Santo Amaro / Brooklin / Vila Olímpia
+        (-23.610, -46.707), (-23.604, -46.706), (-23.598, -46.704),
+        (-23.593, -46.703), (-23.588, -46.702), (-23.583, -46.701),
+        (-23.578, -46.700), (-23.573, -46.700), (-23.568, -46.699),
+        (-23.563, -46.699), (-23.558, -46.700), (-23.553, -46.701),
+        # Pinheiros / Butantã (rio vira levemente W)
+        (-23.548, -46.702), (-23.543, -46.704), (-23.538, -46.707),
+        (-23.534, -46.710), (-23.530, -46.714), (-23.526, -46.718),
+        (-23.523, -46.723), (-23.520, -46.728), (-23.518, -46.734),
+        (-23.517, -46.739), (-23.516, -46.744), (-23.516, -46.749),
+        (-23.516, -46.754),  # foz no Tietê (Ceagesp)
     ],
 
-    # ── RIO TAMANDUATEÍ ────────────────────────────────────────────────────────
-    # Santo André (ABC) → Av. do Estado → foz no Tietê
+    # -- RIO TAMANDUATEI -----------------------------------------------------------
     "Rio Tamanduateí": [
-        (-23.670, -46.565), (-23.660, -46.572), (-23.650, -46.578),
-        (-23.640, -46.582), (-23.630, -46.585), (-23.620, -46.587),
-        (-23.610, -46.589), (-23.600, -46.592), (-23.590, -46.596),
-        (-23.580, -46.601), (-23.571, -46.607), (-23.562, -46.614),
-        (-23.556, -46.619), (-23.550, -46.623), (-23.544, -46.625),
-        (-23.538, -46.624), (-23.532, -46.622), (-23.525, -46.621),
-        (-23.518, -46.620), (-23.512, -46.619),
+        (-23.673, -46.563), (-23.666, -46.568), (-23.659, -46.573),
+        (-23.652, -46.577), (-23.645, -46.580), (-23.638, -46.583),
+        (-23.631, -46.585), (-23.624, -46.587), (-23.617, -46.589),
+        (-23.610, -46.590), (-23.603, -46.592), (-23.596, -46.594),
+        (-23.589, -46.597), (-23.582, -46.601), (-23.575, -46.606),
+        (-23.568, -46.611), (-23.562, -46.615), (-23.557, -46.618),
+        (-23.552, -46.621), (-23.546, -46.623), (-23.540, -46.623),
+        (-23.534, -46.622), (-23.528, -46.621), (-23.521, -46.620),
+        (-23.515, -46.620), (-23.510, -46.620),
     ],
 
-    # ── RIO ARICANDUVA ─────────────────────────────────────────────────────────
-    # Nascente (Guaianases, Zona Leste) → foz no Tietê
+    # -- RIO ARICANDUVA -----------------------------------------------------------
     "Rio Aricanduva": [
-        (-23.615, -46.478), (-23.607, -46.488), (-23.600, -46.498),
-        (-23.592, -46.507), (-23.584, -46.515), (-23.576, -46.522),
-        (-23.568, -46.529), (-23.560, -46.535), (-23.552, -46.540),
-        (-23.545, -46.545), (-23.538, -46.550), (-23.531, -46.556),
-        (-23.524, -46.561), (-23.518, -46.567), (-23.513, -46.574),
+        (-23.618, -46.475), (-23.612, -46.483), (-23.606, -46.491),
+        (-23.600, -46.498), (-23.594, -46.505), (-23.588, -46.511),
+        (-23.582, -46.517), (-23.576, -46.523), (-23.570, -46.528),
+        (-23.564, -46.533), (-23.557, -46.537), (-23.551, -46.541),
+        (-23.545, -46.545), (-23.539, -46.549), (-23.533, -46.553),
+        (-23.527, -46.558), (-23.521, -46.563), (-23.516, -46.568),
+        (-23.512, -46.574),
     ],
 
-    # ── CÓRREGO ANHANGABAÚ / VALE DO ANHANGABAÚ ────────────────────────────────
+    # -- CÓRREGO ANHANGABAÚ -------------------------------------------------------
     "Córrego Anhangabaú": [
-        (-23.574, -46.648), (-23.570, -46.645), (-23.566, -46.642),
-        (-23.562, -46.640), (-23.558, -46.639), (-23.554, -46.638),
-        (-23.550, -46.637), (-23.546, -46.636), (-23.542, -46.635),
-        (-23.538, -46.634), (-23.534, -46.633),
+        (-23.576, -46.651), (-23.573, -46.648), (-23.570, -46.645),
+        (-23.567, -46.643), (-23.563, -46.641), (-23.560, -46.640),
+        (-23.556, -46.639), (-23.553, -46.638), (-23.549, -46.637),
+        (-23.546, -46.636), (-23.542, -46.636), (-23.539, -46.635),
+        (-23.535, -46.634), (-23.532, -46.633),
     ],
 
-    # ── CÓRREGO IPIRANGA (Zona Sul) ─────────────────────────────────────────────
+    # -- CÓRREGO DO IPIRANGA (Zona Sul) -------------------------------------------
     "Córrego do Ipiranga": [
-        (-23.610, -46.615), (-23.606, -46.611), (-23.602, -46.608),
-        (-23.598, -46.605), (-23.594, -46.602), (-23.590, -46.599),
-        (-23.586, -46.597), (-23.582, -46.595),
+        (-23.613, -46.617), (-23.609, -46.613), (-23.605, -46.610),
+        (-23.601, -46.607), (-23.597, -46.605), (-23.593, -46.603),
+        (-23.589, -46.601), (-23.585, -46.599), (-23.581, -46.597),
+        (-23.577, -46.595),
     ],
 
-    # ── CÓRREGO JAGUARÉ (Zona Oeste / Pinheiros) ────────────────────────────────
+    # -- CÓRREGO JAGUARÉ (Zona Oeste) ---------------------------------------------
     "Córrego Jaguaré": [
-        (-23.578, -46.752), (-23.572, -46.748), (-23.567, -46.744),
-        (-23.562, -46.740), (-23.557, -46.737), (-23.552, -46.734),
-        (-23.547, -46.731),
+        (-23.580, -46.755), (-23.575, -46.751), (-23.570, -46.747),
+        (-23.566, -46.743), (-23.561, -46.740), (-23.557, -46.737),
+        (-23.552, -46.734), (-23.548, -46.731), (-23.543, -46.729),
     ],
 
-    # ── CÓRREGO PIRAJUÇARA (Butantã / Taboão) ──────────────────────────────────
+    # -- CÓRREGO PIRAJUÇARA (Butantã / Taboão) ------------------------------------
     "Córrego Pirajuçara": [
-        (-23.630, -46.745), (-23.622, -46.742), (-23.614, -46.739),
-        (-23.607, -46.737), (-23.600, -46.735), (-23.593, -46.733),
-        (-23.586, -46.732), (-23.579, -46.731),
+        (-23.636, -46.747), (-23.629, -46.745), (-23.622, -46.743),
+        (-23.615, -46.741), (-23.609, -46.739), (-23.603, -46.737),
+        (-23.597, -46.736), (-23.591, -46.735), (-23.585, -46.734),
+        (-23.579, -46.733),
     ],
 
-    # ── CÓRREGO MANDAQUI (Zona Norte) ──────────────────────────────────────────
+    # -- CÓRREGO MANDAQUI (Zona Norte) --------------------------------------------
     "Córrego Mandaqui": [
-        (-23.468, -46.625), (-23.474, -46.622), (-23.480, -46.620),
-        (-23.486, -46.619), (-23.492, -46.619), (-23.498, -46.620),
-        (-23.504, -46.621), (-23.509, -46.623),
+        (-23.466, -46.627), (-23.471, -46.624), (-23.476, -46.622),
+        (-23.481, -46.620), (-23.486, -46.619), (-23.491, -46.619),
+        (-23.496, -46.619), (-23.501, -46.620), (-23.506, -46.621),
+        (-23.510, -46.623),
     ],
 
-    # ── CÓRREGO CABUÇU DE CIMA (Zona Norte / Tucuruvi) ─────────────────────────
+    # -- CÓRREGO CABUÇU DE CIMA (Zona Norte / Tucuruvi) ---------------------------
     "Córrego Cabuçu de Cima": [
-        (-23.462, -46.605), (-23.468, -46.608), (-23.473, -46.611),
-        (-23.479, -46.613), (-23.485, -46.615), (-23.491, -46.616),
-        (-23.497, -46.617),
+        (-23.460, -46.604), (-23.465, -46.607), (-23.470, -46.609),
+        (-23.475, -46.611), (-23.480, -46.613), (-23.485, -46.614),
+        (-23.490, -46.615), (-23.495, -46.616), (-23.500, -46.617),
     ],
 
-    # ── CÓRREGO ÁGUA BRANCA / LAPA ──────────────────────────────────────────────
+    # -- CÓRREGO ÁGUA BRANCA / LAPA -----------------------------------------------
     "Córrego Água Branca": [
-        (-23.528, -46.704), (-23.525, -46.708), (-23.522, -46.712),
-        (-23.519, -46.716), (-23.516, -46.720), (-23.514, -46.724),
+        (-23.530, -46.703), (-23.527, -46.707), (-23.524, -46.711),
+        (-23.521, -46.715), (-23.518, -46.718), (-23.515, -46.722),
+        (-23.513, -46.725),
     ],
 
-    # ── CÓRREGO SARACURA (Bixiga / Bela Vista) ─────────────────────────────────
+    # -- CÓRREGO SARACURA (Bixiga / Bela Vista) -----------------------------------
     "Córrego Saracura": [
-        (-23.566, -46.651), (-23.562, -46.648), (-23.558, -46.646),
-        (-23.554, -46.644), (-23.550, -46.642), (-23.546, -46.640),
+        (-23.568, -46.653), (-23.564, -46.650), (-23.560, -46.648),
+        (-23.556, -46.646), (-23.552, -46.644), (-23.548, -46.642),
+        (-23.544, -46.640),
     ],
 
-    # ── CÓRREGO ZAVUVUS / ACLIMAÇÃO ────────────────────────────────────────────
+    # -- CÓRREGO ZAVUVUS / ACLIMAÇÃO ----------------------------------------------
     "Córrego Zavuvus": [
-        (-23.575, -46.638), (-23.572, -46.635), (-23.568, -46.633),
-        (-23.564, -46.631), (-23.560, -46.630), (-23.556, -46.629),
+        (-23.577, -46.640), (-23.573, -46.637), (-23.570, -46.635),
+        (-23.566, -46.633), (-23.562, -46.631), (-23.558, -46.630),
+        (-23.554, -46.629),
     ],
 
-    # ── CÓRREGO GUAPIRA / TREMEMBÉ (Zona Norte) ────────────────────────────────
+    # -- CÓRREGO GUAPIRA / TREMEMBÉ (Zona Norte) ----------------------------------
     "Córrego Guapira": [
-        (-23.448, -46.638), (-23.454, -46.635), (-23.460, -46.632),
-        (-23.466, -46.630), (-23.472, -46.629), (-23.478, -46.628),
-        (-23.484, -46.627),
+        (-23.446, -46.639), (-23.451, -46.636), (-23.456, -46.634),
+        (-23.461, -46.632), (-23.466, -46.630), (-23.471, -46.629),
+        (-23.476, -46.628), (-23.481, -46.627), (-23.486, -46.627),
     ],
 
-    # ── CÓRREGO DO ORATÓRIO / MOOCA ────────────────────────────────────────────
+    # -- CÓRREGO DO ORATÓRIO / MOOCA ----------------------------------------------
     "Córrego do Oratório": [
-        (-23.568, -46.598), (-23.564, -46.595), (-23.560, -46.593),
-        (-23.556, -46.591), (-23.552, -46.590), (-23.548, -46.589),
+        (-23.570, -46.600), (-23.566, -46.597), (-23.562, -46.594),
+        (-23.558, -46.592), (-23.554, -46.591), (-23.550, -46.590),
+        (-23.546, -46.589),
     ],
 
-    # ── RIO EMBU-MIRIM / SANTO AMARO ───────────────────────────────────────────
+    # -- CÓRREGO EMBU-MIRIM / SANTO AMARO -----------------------------------------
     "Córrego Embu-Mirim": [
-        (-23.650, -46.760), (-23.643, -46.755), (-23.636, -46.750),
-        (-23.629, -46.746), (-23.622, -46.742), (-23.615, -46.739),
-        (-23.608, -46.736),
+        (-23.653, -46.762), (-23.646, -46.757), (-23.639, -46.752),
+        (-23.632, -46.748), (-23.625, -46.744), (-23.618, -46.741),
+        (-23.611, -46.738),
     ],
 
-    # ── CANAL DO IBIRAPUERA / SAÚDE ────────────────────────────────────────────
+    # -- CANAL DO IBIRAPUERA / SAÚDE ----------------------------------------------
     "Canal Ibirapuera": [
-        (-23.590, -46.660), (-23.587, -46.655), (-23.584, -46.650),
-        (-23.581, -46.645), (-23.578, -46.641),
+        (-23.592, -46.662), (-23.589, -46.657), (-23.586, -46.652),
+        (-23.583, -46.647), (-23.580, -46.643), (-23.577, -46.639),
     ],
 
-    # ── CÓRREGO ITAQUERA (Zona Leste) ──────────────────────────────────────────
+    # -- CÓRREGO ITAQUERA (Zona Leste) --------------------------------------------
     "Córrego Itaquera": [
-        (-23.555, -46.478), (-23.549, -46.470), (-23.543, -46.463),
-        (-23.537, -46.457), (-23.531, -46.452), (-23.525, -46.448),
+        (-23.557, -46.479), (-23.551, -46.472), (-23.545, -46.465),
+        (-23.539, -46.459), (-23.533, -46.454), (-23.527, -46.450),
+        (-23.521, -46.447),
     ],
 
-    # ── CÓRREGO DO CARMO / IPIRANGA ────────────────────────────────────────────
+    # -- CÓRREGO DO CARMO / IPIRANGA -----------------------------------------------
     "Córrego do Carmo": [
-        (-23.590, -46.608), (-23.585, -46.604), (-23.580, -46.601),
-        (-23.575, -46.598), (-23.570, -46.596),
+        (-23.592, -46.610), (-23.587, -46.607), (-23.582, -46.604),
+        (-23.577, -46.601), (-23.572, -46.598), (-23.567, -46.596),
     ],
 
-    # ── CÓRREGO PACAEMBU ────────────────────────────────────────────────────────
+    # -- CÓRREGO PACAEMBU ----------------------------------------------------------
     "Córrego Pacaembu": [
-        (-23.546, -46.668), (-23.549, -46.663), (-23.551, -46.658),
-        (-23.553, -46.654), (-23.555, -46.650), (-23.557, -46.646),
+        (-23.544, -46.670), (-23.547, -46.665), (-23.549, -46.660),
+        (-23.551, -46.656), (-23.554, -46.651), (-23.556, -46.647),
+        (-23.558, -46.643),
+    ],
+
+    # -- CANAIS E CÓRREGOS COMPLEMENTARES -----------------------------------------
+    "Córrego da Lapa": [
+        (-23.549, -46.718), (-23.544, -46.717), (-23.538, -46.716),
+        (-23.532, -46.715), (-23.526, -46.714), (-23.520, -46.713),
+        (-23.515, -46.712),
+    ],
+    "Córrego Cabuçu de Baixo": [
+        (-23.470, -46.682), (-23.476, -46.678), (-23.482, -46.675),
+        (-23.488, -46.671), (-23.494, -46.668), (-23.500, -46.665),
+        (-23.506, -46.661),
+    ],
+    "Canal da Traição": [
+        (-23.608, -46.695), (-23.604, -46.689), (-23.601, -46.682),
+        (-23.598, -46.676), (-23.595, -46.669), (-23.592, -46.663),
+    ],
+    "Córrego Morro do S": [
+        (-23.651, -46.750), (-23.645, -46.744), (-23.639, -46.738),
+        (-23.633, -46.732), (-23.627, -46.726), (-23.621, -46.720),
+    ],
+    "Córrego do Sapateiro": [
+        (-23.606, -46.668), (-23.601, -46.665), (-23.596, -46.662),
+        (-23.591, -46.659), (-23.586, -46.655), (-23.581, -46.651),
+        (-23.576, -46.648),
+    ],
+    "Córrego Verde": [
+        (-23.577, -46.699), (-23.572, -46.694), (-23.567, -46.689),
+        (-23.562, -46.684), (-23.557, -46.679), (-23.552, -46.674),
+    ],
+    "Córrego Tiquatira": [
+        (-23.530, -46.554), (-23.527, -46.547), (-23.524, -46.540),
+        (-23.521, -46.533), (-23.518, -46.526), (-23.515, -46.519),
+        (-23.512, -46.512),
+    ],
+    "Córrego Jacu": [
+        (-23.587, -46.464), (-23.580, -46.467), (-23.573, -46.470),
+        (-23.566, -46.473), (-23.559, -46.476), (-23.552, -46.479),
+        (-23.545, -46.481),
     ],
 }
 
-# Conjunto plano de todos os segmentos: list[(lat1,lon1,lat2,lon2,nome_rio)]
-# Pré-computado no carregamento do módulo para máxima performance em runtime.
-_ALL_SEGMENTS: list[tuple[float, float, float, float, str]] = []
-for _rname, _coords in RIVER_POLYLINES.items():
-    for _i in range(len(_coords) - 1):
-        _ALL_SEGMENTS.append((_coords[_i][0], _coords[_i][1],
-                               _coords[_i+1][0], _coords[_i+1][1],
-                               _rname))
+# A base cartográfica fica em GeoJSON para não manter arrays gigantes neste
+# módulo. O arquivo é lido uma única vez quando o router é importado pelo
+# FastAPI; cada trecho é densificado em segmentos de no máximo 25 m antes do
+# índice espacial ser criado, evitando que curvas sejam cortadas por retas.
+_RIVER_GEOJSON = Path(__file__).resolve().parents[1] / "data" / "sp_hydrography_highres.json"
+
+
+def _densify_line(coords: list[list[float]], max_segment_m: float = 15.0) -> list[tuple[float, float]]:
+    dense: list[tuple[float, float]] = []
+    for first, second in zip(coords, coords[1:]):
+        lon1, lat1 = float(first[0]), float(first[1])
+        lon2, lat2 = float(second[0]), float(second[1])
+        segment_m = math.hypot((lon2 - lon1) * 102000.0, (lat2 - lat1) * 111000.0)
+        steps = max(1, math.ceil(segment_m / max_segment_m))
+        for index in range(steps):
+            ratio = index / steps
+            dense.append((lat1 + (lat2 - lat1) * ratio, lon1 + (lon2 - lon1) * ratio))
+    if coords:
+        dense.append((float(coords[-1][1]), float(coords[-1][0])))
+    return dense
+
+
+def _load_river_geojson() -> None:
+    """Carrega a malha estática sem downloads externos durante o startup."""
+    try:
+        with _RIVER_GEOJSON.open("r", encoding="utf-8") as stream:
+            payload = json.load(stream)
+        loaded = {}
+        for feature in payload.get("features", []):
+            geometry = feature.get("geometry") or {}
+            name = (feature.get("properties") or {}).get("name")
+            if name and geometry.get("type") == "LineString":
+                loaded[name] = _densify_line(geometry.get("coordinates", []))
+        if loaded:
+            RIVER_POLYLINES.update(loaded)
+    except (OSError, ValueError, TypeError):
+        return
+
+
+_load_river_geojson()
+
+# --- ÍNDICE ESPACIAL PRÉ-COMPUTADO ------------------------------------------------
+# Geometrias em WGS84 projetadas para SIRGAS 2000 / UTM 23S (EPSG:31983)
+# para que buffer e distância sejam calculados em metros reais.
+# Buffer aumentado para 150m -> cobre faixas de rodagem das Marginais.
+RIVER_BUFFER_METERS = 150.0
+_TO_METRIC = Transformer.from_crs("EPSG:4326", "EPSG:31983", always_xy=True).transform
+_RIVER_SPATIAL_INDEX: dict[str, dict] = {}
+for _river_name, _lat_lon_coords in RIVER_POLYLINES.items():
+    _gps_line = LineString([(lon, lat) for lat, lon in _lat_lon_coords])
+    _metric_line = transform(_TO_METRIC, _gps_line)
+    _RIVER_SPATIAL_INDEX[_river_name] = {
+        "gps_line": _gps_line,
+        "metric_line": _metric_line,
+        "buffer_100m": _metric_line.buffer(RIVER_BUFFER_METERS),
+    }
+
 
 
 def _dist_to_segment_m(lat: float, lon: float,
@@ -540,17 +795,13 @@ def _dist_to_segment_m(lat: float, lon: float,
 
 
 def _min_dist_to_river_polyline(lat: float, lon: float, river_name: str) -> float:
-    """Distância ortogonal mínima em metros até o traçado de um rio pelo nome."""
-    coords = RIVER_POLYLINES.get(river_name, [])
-    if len(coords) < 2:
+    """Distância Shapely em metros até o eixo do curso d'água."""
+    river_geometry = _RIVER_SPATIAL_INDEX.get(river_name)
+    if not river_geometry:
         return float("inf")
-    best = float("inf")
-    for i in range(len(coords) - 1):
-        d = _dist_to_segment_m(lat, lon, coords[i][0], coords[i][1],
-                                coords[i+1][0], coords[i+1][1])
-        if d < best:
-            best = d
-    return best
+    gps_point = Point(lon, lat)
+    metric_point = transform(_TO_METRIC, gps_point)
+    return float(metric_point.distance(river_geometry["metric_line"]))
 
 
 def _min_dist_to_any_polyline(lat: float, lon: float) -> tuple[float, str]:
@@ -559,21 +810,26 @@ def _min_dist_to_any_polyline(lat: float, lon: float) -> tuple[float, str]:
     (distância_mínima_m, nome_do_rio_mais_próximo).
     Usado como fallback universal para identificar o corpo d'água mais próximo.
     """
-    best_dist = float("inf")
-    best_name = "Bacia Hidrográfica de SP"
-    for lat1, lon1, lat2, lon2, rname in _ALL_SEGMENTS:
-        d = _dist_to_segment_m(lat, lon, lat1, lon1, lat2, lon2)
-        if d < best_dist:
-            best_dist = d
-            best_name = rname
+    # Point(lon, lat): nenhuma informação de rua/geocoding participa da busca.
+    gps_point = Point(lon, lat)
+    metric_point = transform(_TO_METRIC, gps_point)
+    containing = []
+    nearest = (float("inf"), "Bacia Hidrográfica de SP")
 
-    # Regra de Tolerância Zero (Snap-to-Water)
-    if best_dist <= 100.0:
-        best_dist = 0.0
-    else:
-        best_dist = float(round(best_dist))
+    for river_name, geometry in _RIVER_SPATIAL_INDEX.items():
+        distance = float(metric_point.distance(geometry["metric_line"]))
+        buffer_polygon = geometry["buffer_100m"]
+        if metric_point.within(buffer_polygon) or buffer_polygon.covers(metric_point):
+            containing.append((distance, river_name))
+        if distance < nearest[0]:
+            nearest = (distance, river_name)
 
-    return best_dist, best_name
+    # Em buffers sobrepostos, identifica a linha efetivamente mais próxima.
+    if containing:
+        _, river_name = min(containing, key=lambda item: item[0])
+        return 0.0, river_name
+
+    return float(round(nearest[0], 1)), nearest[1]
 
 
 
@@ -659,7 +915,7 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, 
         "dentro_raio": within_radius,
         "distancia_m": round(best_dist, 1) if best_data else None,
         "nome_estacao": best_data["nome"] if best_data else None,
-        "rio_nome": best_data["rio"] if best_data else None,
+        "rio_nome": nome_calha_real,
         "porcentagem_calha": best_data["percentual_ocupacao"] if best_data else 0.0,
         "percentual_ocupacao": best_data["percentual_ocupacao"] if best_data else 0.0,
         "estacao": {
@@ -687,4 +943,8 @@ def get_nearest_river_status(lat: float, lon: float, radius_m: float = 25000.0, 
         # Use estes dois campos nos KPIs do frontend (#kpi-river-dist / #kpi-river-name)
         "distancia_calha_m": round(dist_calha_real, 1),
         "calha_nome": nome_calha_real,
+        "dentro_buffer_100m": dist_calha_real == 0.0,
+        "metodo_espacial": "shapely_point_in_polygon_utm23s",
+        "buffer_metros": RIVER_BUFFER_METERS,
+        "total_corpos_agua_indexados": len(_RIVER_SPATIAL_INDEX),
     }
