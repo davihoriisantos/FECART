@@ -2,7 +2,7 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "floodguard.db")
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY", "floodguard-development-secret-key-2026")
 VERIFY_SSL = os.getenv("ENVIRONMENT", "production").lower() == "production"
 
 class Settings:

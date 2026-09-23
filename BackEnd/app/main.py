@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -66,9 +66,19 @@ def serve_profile():
 def serve_map():
     return FileResponse(os.path.join(static_dir, "map.html"))
 
+@app.get("/dashboard")
+def serve_dashboard():
+    return FileResponse(os.path.join(static_dir, "dashboard.html"))
+
 @app.get("/{filename:path}")
 def serve_static(filename: str):
+    if filename.startswith("api/") or filename == "api":
+        raise HTTPException(status_code=404, detail="Endpoint não encontrado")
     file_path = os.path.join(static_dir, filename)
     if os.path.isfile(file_path):
         return FileResponse(file_path)
+    html_path = file_path + ".html"
+    if os.path.isfile(html_path):
+        return FileResponse(html_path)
     return FileResponse(os.path.join(static_dir, "index.html"))
+

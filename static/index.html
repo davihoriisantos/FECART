@@ -31,11 +31,11 @@
                 <a href="#como-fazemos" class="nav-link">Como Fazemos Isso</a>
             </nav>
 
-            <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
-                <a href="/profile" class="btn btn-outline" style="padding: 8px 18px; font-size: 13px; font-weight: 700; gap: 6px; display: inline-flex; align-items: center;">
-                    👤 Perfil
+            <div class="header-actions" style="display: flex; gap: 10px; align-items: center; flex-shrink: 0;">
+                <a href="/profile" id="btn-header-profile" class="btn btn-outline" style="padding: 8px 18px; font-size: 13px; font-weight: 700; gap: 6px; display: inline-flex; align-items: center; border: 1.5px solid rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.12); color: #38BDF8;">
+                    👤 <span id="header-user-label">Perfil</span>
                 </a>
-                <a href="/static/map.html" class="btn btn-primary" style="padding: 8px 20px; font-size: 13px; font-weight: 700; gap: 8px; display: inline-flex; align-items: center;">
+                <a href="/map" class="btn btn-primary" style="padding: 8px 20px; font-size: 13px; font-weight: 700; gap: 8px; display: inline-flex; align-items: center;">
                     🗺️ Mapa
                 </a>
             </div>
@@ -56,7 +56,7 @@
         </p>
         
         <div class="flex-center" style="gap: 16px; margin-bottom: 50px;">
-            <a href="/static/map.html" class="btn btn-primary" style="padding: 16px 36px; font-size: 16px;">
+            <a href="/map" class="btn btn-primary" style="padding: 16px 36px; font-size: 16px;">
                 🗺️ Ver Mapa de Risco ao Vivo
             </a>
         </div>
@@ -204,7 +204,20 @@
                 window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
                 history.replaceState(null, '', `#${targetId}`);
             });
-        });
+        (function() {
+            var token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+            var label = document.getElementById('header-user-label');
+            if (token && label) {
+                fetch('/api/user/profile', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                }).then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (data && data.user && data.user.nome) {
+                        label.textContent = data.user.nome.split(' ')[0];
+                    }
+                }).catch(function() {});
+            }
+        })();
     </script>
 </body>
 </html>

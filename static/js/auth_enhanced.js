@@ -14,7 +14,7 @@ const AUTH_CONFIG = {
     API_BASE:    '/api/auth',
     TOKEN_KEY:   'fg_token',
     USER_KEY:    'fg_user',
-    REDIRECT_AFTER_LOGIN:    '/static/map.html',
+    REDIRECT_AFTER_LOGIN:    '/map',
     REDIRECT_AFTER_LOGOUT:   '/login',
     REDIRECT_TO_LOGIN:       '/login',
 };

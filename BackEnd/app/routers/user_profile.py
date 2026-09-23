@@ -13,15 +13,16 @@ router = APIRouter(prefix="/api/user", tags=["user-profile"])
 
 
 def _place(user: User, prefix: str):
+    address = getattr(user, f"{prefix}_address")
     lat = getattr(user, f"{prefix}_lat")
     lon = getattr(user, f"{prefix}_lon")
-    if lat is None or lon is None:
+    if not address and (lat is None or lon is None):
         return None
     return {
         "type": prefix,
-        "address": getattr(user, f"{prefix}_address"),
-        "lat": lat,
-        "lon": lon,
+        "address": address or ("Casa" if prefix == "home" else "Trabalho"),
+        "lat": lat if lat is not None else -23.5505,
+        "lon": lon if lon is not None else -46.6333,
     }
 
 
@@ -63,9 +64,20 @@ def update_saved_place(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    setattr(current_user, f"{place.type}_address", place.address)
-    setattr(current_user, f"{place.type}_lat", place.lat)
-    setattr(current_user, f"{place.type}_lon", place.lon)
+    addr = (place.address or "").strip()
+    if not addr:
+        # Se endereço estiver vazio, remove o local
+        setattr(current_user, f"{place.type}_address", None)
+        setattr(current_user, f"{place.type}_lat", None)
+        setattr(current_user, f"{place.type}_lon", None)
+    else:
+        lat = place.lat if place.lat is not None else -23.5505
+        lon = place.lon if place.lon is not None else -46.6333
+
+        setattr(current_user, f"{place.type}_address", addr)
+        setattr(current_user, f"{place.type}_lat", lat)
+        setattr(current_user, f"{place.type}_lon", lon)
+
     db.commit()
     db.refresh(current_user)
     return {"saved_place": _place(current_user, place.type)}

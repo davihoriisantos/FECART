@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Painel do Usuário - FloodGuard AI</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <script>
+        (function() {
+            var token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+            if (!token) {
+                window.location.replace('/login');
+            }
+        })();
+    </script>
     <style>
         /* ══════════════════════════════════════════════
            VARIÁVEIS E BASE
@@ -315,14 +323,14 @@
 
     <!-- ─── Header Geral ─── -->
     <header class="profile-header">
-        <a href="/static/map.html" class="profile-header-brand" title="Voltar ao mapa">
+        <a href="/map" class="profile-header-brand" title="Voltar ao mapa">
             <div class="logo-icon">
                 <img src="/static/img/logo.jpg" alt="FloodGuard AI">
             </div>
             <span>FloodGuard <b>AI</b></span>
         </a>
         <div style="display:flex; align-items:center; gap: 10px;">
-            <a href="/static/map.html" style="color:#38BDF8; font-size:13px; font-weight:700; text-decoration:none; padding: 6px 12px; background: rgba(56,189,248,0.1); border-radius: 6px; border: 1px solid rgba(56,189,248,0.25);">
+            <a href="/map" style="color:#38BDF8; font-size:13px; font-weight:700; text-decoration:none; padding: 6px 12px; background: rgba(56,189,248,0.1); border-radius: 6px; border: 1px solid rgba(56,189,248,0.25);">
                 🗺️ Ir ao Mapa
             </a>
             <button class="btn-logout" id="btn-header-logout" onclick="logout()" style="display:none;">⏏️ Sair</button>

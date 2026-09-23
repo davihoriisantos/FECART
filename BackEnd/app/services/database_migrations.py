@@ -2,6 +2,9 @@ from sqlalchemy import inspect, text
 
 
 USER_PLACE_COLUMNS = {
+    "celular": "VARCHAR(20)",
+    "data_nascimento": "DATE",
+    "last_login": "DATETIME",
     "home_address": "VARCHAR(500)",
     "home_lat": "DOUBLE PRECISION",
     "home_lon": "DOUBLE PRECISION",

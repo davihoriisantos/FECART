@@ -5,7 +5,7 @@
 
 // ─── Helpers de Autenticação ─────────────────────────────────────────────────
 function getAuthToken() {
-    return localStorage.getItem('fg_token') || null;
+    return localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token') || null;
 }
 
 function isUserAuthenticated() {

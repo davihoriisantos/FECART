@@ -251,14 +251,25 @@ function getActiveLocationForSave() {
 
     const heroTitleEl = document.getElementById('hero-location-name');
     const heroText = heroTitleEl ? heroTitleEl.innerText.trim() : '';
-    if (heroText && !heroText.includes('FECAP') && !heroText.includes('Localizando') && !heroText.includes('Carregando') && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+    if (heroText && !heroText.includes('Localizando') && !heroText.includes('Carregando') && currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
         return {
             lat: Number(currentSelectedPoint.lat),
             lon: Number(currentSelectedPoint.lon),
-            nome: heroText,
+            nome: currentSelectedPoint.nome || heroText,
             bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
             alt: currentSelectedPoint.alt ?? null,
             address: currentSelectedPoint.address || heroText
+        };
+    }
+
+    if (currentSelectedPoint && currentSelectedPoint.lat && currentSelectedPoint.lon) {
+        return {
+            lat: Number(currentSelectedPoint.lat),
+            lon: Number(currentSelectedPoint.lon),
+            nome: currentSelectedPoint.nome || 'Local Selecionado',
+            bairro: currentSelectedPoint.bairro || 'São Paulo - SP',
+            alt: currentSelectedPoint.alt ?? null,
+            address: currentSelectedPoint.address || currentSelectedPoint.nome || 'São Paulo - SP'
         };
     }
 
@@ -525,29 +536,59 @@ async function submitSimplePlaceModal() {
     }
 
     let target = currentSimplePickedPoint;
+    const qLower = query.toLowerCase();
 
-    if (!target || target.nome !== query) {
+    if (qLower.includes('fecart') || qLower.includes('fecap')) {
+        target = {
+            lat: -23.5574,
+            lon: -46.6367,
+            nome: query.toUpperCase().includes('FECART') ? 'FECART' : 'FECAP — Campus Liberdade',
+            bairro: 'Liberdade',
+            alt: 735,
+            address: query.toUpperCase().includes('FECART') ? 'FECART — FECAP Liberdade, São Paulo - SP' : 'Av. da Liberdade, 532 - Liberdade, São Paulo - SP'
+        };
+    } else if (!target || target.nome !== query) {
         const localMatches = filterLocalNeighborhoods(query);
         const nomMatches = await searchNominatim(query);
         const best = nomMatches[0] || localMatches[0];
 
-        if (!best || !best.lat || !best.lon) {
-            showGeoToast('error', 'Endereço não encontrado em São Paulo. Tente especificar rua e número.');
-            return;
+        if (best && best.lat && best.lon) {
+            target = {
+                lat: Number(best.lat),
+                lon: Number(best.lon),
+                nome: best.nome || query,
+                bairro: best.bairro || 'São Paulo - SP',
+                alt: best.alt ?? null,
+                address: best.display_name || query
+            };
+        } else {
+            // Fallback inteligente: preserva o endereço digitado com as coordenadas atuais do mapa
+            const fallbackLat = currentSelectedPoint?.lat ?? (map ? map.getCenter().lat : -23.5574);
+            const fallbackLon = currentSelectedPoint?.lon ?? (map ? map.getCenter().lng : -46.6367);
+            target = {
+                lat: Number(fallbackLat),
+                lon: Number(fallbackLon),
+                nome: query,
+                bairro: currentSelectedPoint?.bairro || 'São Paulo - SP',
+                alt: currentSelectedPoint?.alt ?? 730,
+                address: query
+            };
         }
-
-        target = {
-            lat: Number(best.lat),
-            lon: Number(best.lon),
-            nome: best.nome || query,
-            bairro: best.bairro || 'São Paulo - SP',
-            alt: best.alt ?? null,
-            address: best.display_name || query
-        };
     }
 
     const saved = await setUserPlace(type, target);
-    if (saved) closeSimplePlaceModal();
+    if (saved) {
+        closeSimplePlaceModal();
+        if (typeof salvarBuscaHistorico === 'function') {
+            salvarBuscaHistorico({
+                nome: target.nome,
+                lat: target.lat,
+                lon: target.lon,
+                bairro: target.bairro,
+                display_name: target.address
+            });
+        }
+    }
     showGeoToast(saved ? 'success' : 'error', saved
         ? `📍 Endereço salvo como ${typeLabel} com sucesso!`
         : 'Não foi possível salvar o endereço. Tente novamente.');
@@ -1539,6 +1580,17 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
 
     // 6. Atualizar Gráfico Chart.js
     renderTrendChart(analysis.labels, analysis.historyRisks, analysis.forecastRisks, analysis.maxForecastRisk);
+
+    // 7. Salvar busca/consulta no histórico permanente do banco de dados
+    if (typeof salvarBuscaHistorico === 'function' && nome && !nome.includes('Localizando') && !nome.includes('Carregando')) {
+        salvarBuscaHistorico({
+            nome,
+            lat,
+            lon,
+            bairro,
+            display_name: enderecoCompleto
+        });
+    }
 }
 
 // ─── BUSCA DE CLIMA NA OPEN-METEO (API REAL EM TEMPO REAL) ───────────────────
@@ -2537,7 +2589,7 @@ function showSearchEmpty() {
     const dropdown = document.getElementById('universal-search-dropdown');
     if (!dropdown) return;
     dropdown.innerHTML = `
-        <div class="search-empty">
+        <div class="search-empty" style="text-align:center; width:100%; display:block;">
             📍 Local não encontrado em SP.<br>
             <span style="color:#38BDF8;">Tente adicionar o número da rua ou o nome do bairro.</span>
         </div>
@@ -3038,9 +3090,15 @@ function positionRouteDropdown(inputId, dropdownId) {
     const dropdown = document.getElementById(dropdownId);
     if (!input || !dropdown) return;
     const rect = input.getBoundingClientRect();
-    dropdown.style.left = rect.left + 'px';
+    const vw = window.innerWidth;
+    const dropdownWidth = Math.min(Math.max(rect.width, 280), vw - 16);
+    const centerX = rect.left + rect.width / 2;
+    // Clamp so it stays fully within the viewport
+    const rawLeft = centerX - dropdownWidth / 2;
+    const clampedLeft = Math.max(8, Math.min(rawLeft, vw - dropdownWidth - 8));
+    dropdown.style.width = dropdownWidth + 'px';
+    dropdown.style.left = clampedLeft + 'px';
     dropdown.style.top = (rect.bottom + 6) + 'px';
-    dropdown.style.width = rect.width + 'px';
 }
 
 function showRouteSearchLoading(dropdownId, query) {
@@ -3063,7 +3121,7 @@ function showRouteSearchEmpty(dropdownId) {
     const dropdown = document.getElementById(dropdownId);
     if (!dropdown) return;
     dropdown.innerHTML = `
-        <div class="search-empty">
+        <div class="search-empty" style="text-align:center; width:100%; display:block;">
             📍 Local não encontrado em SP.<br>
             <span style="color:#38BDF8;">Tente digitar o nome da rua, número ou bairro.</span>
         </div>

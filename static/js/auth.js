@@ -81,12 +81,7 @@ function clearSession() {
 function logout() {
     if (!confirm('Deseja realmente sair da sua conta?')) return;
     clearSession();
-    // Re-renderiza a página de perfil imediatamente no estado de visitante
-    if (typeof initProfileView === 'function') {
-        initProfileView();
-    } else {
-        window.location.href = '/login';
-    }
+    window.location.href = '/login';
 }
 
 // ─── REQUISIÇÕES AUTENTICADAS COM PRESERVAÇÃO DE SESSÃO ──────────────────────
@@ -127,67 +122,158 @@ function renderSavedPlaces(user) {
     if (!container) return;
 
     const places = getSavedPlaces(user);
-    const hasHome = !!places.home;
-    const hasWork = !!places.work;
 
-    if (!hasHome && !hasWork) {
-        container.innerHTML = `
-            <div style="text-align: center; padding: 32px 18px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.12); border-radius: 12px;">
-                <div style="font-size: 28px; margin-bottom: 6px;">📍</div>
-                <div style="font-weight: 700; color: #F1F5F9; font-size: 14px;">Nenhum local salvo ainda</div>
-                <div style="font-size: 12px; color: #94A3B8; margin-top: 4px; margin-bottom: 14px;">
-                    No mapa, você pode favoritar os botões <b>🏠 Casa</b> e <b>💼 Trabalho</b> para monitoramento rápido de enchentes.
+    let html = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 24px;">
+            <!-- CARD CASA -->
+            <div class="info-card" style="padding: 20px; border-radius: 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                    <div style="font-weight: 800; font-size: 16px; color: #FFFFFF; display: flex; align-items: center; gap: 8px;">
+                        <span>🏠</span> Casa
+                    </div>
+                    ${places.home ? '<span style="font-size: 11px; background: rgba(16,185,129,0.15); color: #10B981; border: 1px solid rgba(16,185,129,0.3); padding: 3px 8px; border-radius: 6px; font-weight: 700;">🟢 Ativo</span>' : '<span style="font-size: 11px; background: rgba(255,255,255,0.05); color: #94A3B8; padding: 3px 8px; border-radius: 6px;">Não definido</span>'}
                 </div>
-                <a href="/static/map.html" class="btn-save" style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none; padding: 8px 18px; font-size: 12px;">
-                    🗺️ Abrir Mapa e Salvar Locais
-                </a>
+                <div style="font-size: 13px; color: ${places.home ? '#38BDF8' : '#64748B'}; font-weight: 600; margin-bottom: 4px;">
+                    ${places.home ? (places.home.nome || places.home.address) : 'Nenhum endereço de Casa configurado'}
+                </div>
+                <div style="font-size: 11px; color: #94A3B8; margin-bottom: 16px;">
+                    ${places.home ? (places.home.bairro || 'São Paulo - SP') : 'Defina sua casa para monitoramento de risco contínuo'}
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <input type="text" id="pf-input-home" placeholder="Ex: Rua Manoel Dutra, 536" value="${places.home ? (places.home.nome || places.home.address || '') : ''}" class="form-input" style="padding: 8px 12px; font-size: 12px; flex: 1;">
+                    <button type="button" onclick="salvarLocalPeloPerfil('home')" class="btn-save" style="padding: 8px 14px; font-size: 12px; white-space: nowrap;">
+                        💾 Salvar
+                    </button>
+                </div>
+
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    ${places.home ? `
+                        <a href="/map" onclick="sessionStorage.setItem('fg_target_search', '${JSON.stringify({ lat: places.home.lat, lon: places.home.lon, nome: places.home.nome || 'Casa', bairro: places.home.bairro }).replace(/"/g, '&quot;')}')" class="btn-save" style="text-decoration:none; padding: 6px 12px; font-size: 11px; display:inline-flex; align-items:center; gap:4px;">
+                            🗺️ Ver no Mapa
+                        </a>
+                        <button type="button" onclick="removerLocalPeloPerfil('home')" style="background: transparent; border: 1px solid rgba(239,68,68,0.3); color: #FCA5A5; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 8px; cursor: pointer;">
+                            🗑️ Remover
+                        </button>
+                    ` : ''}
+                </div>
             </div>
-        `;
+
+            <!-- CARD TRABALHO -->
+            <div class="info-card" style="padding: 20px; border-radius: 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                    <div style="font-weight: 800; font-size: 16px; color: #FFFFFF; display: flex; align-items: center; gap: 8px;">
+                        <span>💼</span> Trabalho
+                    </div>
+                    ${places.work ? '<span style="font-size: 11px; background: rgba(16,185,129,0.15); color: #10B981; border: 1px solid rgba(16,185,129,0.3); padding: 3px 8px; border-radius: 6px; font-weight: 700;">🟢 Ativo</span>' : '<span style="font-size: 11px; background: rgba(255,255,255,0.05); color: #94A3B8; padding: 3px 8px; border-radius: 6px;">Não definido</span>'}
+                </div>
+                <div style="font-size: 13px; color: ${places.work ? '#38BDF8' : '#64748B'}; font-weight: 600; margin-bottom: 4px;">
+                    ${places.work ? (places.work.nome || places.work.address) : 'Nenhum endereço de Trabalho configurado'}
+                </div>
+                <div style="font-size: 11px; color: #94A3B8; margin-bottom: 16px;">
+                    ${places.work ? (places.work.bairro || 'São Paulo - SP') : 'Ex: Digite FECART para monitorar o trajeto e local'}
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <input type="text" id="pf-input-work" placeholder="Ex: FECART ou Av. Paulista, 1000" value="${places.work ? (places.work.nome || places.work.address || '') : ''}" class="form-input" style="padding: 8px 12px; font-size: 12px; flex: 1;">
+                    <button type="button" onclick="salvarLocalPeloPerfil('work')" class="btn-save" style="padding: 8px 14px; font-size: 12px; white-space: nowrap;">
+                        💾 Salvar
+                    </button>
+                </div>
+
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    ${places.work ? `
+                        <a href="/map" onclick="sessionStorage.setItem('fg_target_search', '${JSON.stringify({ lat: places.work.lat, lon: places.work.lon, nome: places.work.nome || 'Trabalho', bairro: places.work.bairro }).replace(/"/g, '&quot;')}')" class="btn-save" style="text-decoration:none; padding: 6px 12px; font-size: 11px; display:inline-flex; align-items:center; gap:4px;">
+                            🗺️ Ver no Mapa
+                        </a>
+                        <button type="button" onclick="removerLocalPeloPerfil('work')" style="background: transparent; border: 1px solid rgba(239,68,68,0.3); color: #FCA5A5; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 8px; cursor: pointer;">
+                            🗑️ Remover
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// ─── SALVAR / REMOVER LOCAIS DIRETAMENTE PELO PERFIL COM PERSISTÊNCIA NO BANCO ─
+async function salvarLocalPeloPerfil(type) {
+    const input = document.getElementById(`pf-input-${type}`);
+    const val = input ? input.value.trim() : '';
+    const label = type === 'home' ? 'Casa' : 'Trabalho';
+
+    if (!val) {
+        alert(`Por favor, digite o endereço de ${label}.`);
         return;
     }
 
-    let html = '<div class="info-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">';
+    let lat = -23.5505;
+    let lon = -46.6333;
+    const vLower = val.toLowerCase();
 
-    if (hasHome) {
-        const p = places.home;
-        const targetData = JSON.stringify({ lat: p.lat, lon: p.lon, nome: p.nome || 'Casa', bairro: p.bairro || 'São Paulo - SP' }).replace(/"/g, '&quot;');
-        html += `
-            <div class="info-card" style="display:flex; justify-content:space-between; align-items:center; padding:16px;">
-                <div>
-                    <div style="font-weight:800; font-size:15px; color:#FFFFFF; display:flex; align-items:center; gap:6px;">
-                        <span>🏠</span> Casa
-                    </div>
-                    <div style="font-size:12px; color:#38BDF8; margin-top:4px; font-weight:600;">${p.nome || 'Local Definido'}</div>
-                    <div style="font-size:11px; color:#94A3B8; margin-top:2px;">${p.bairro || 'São Paulo - SP'}</div>
-                </div>
-                <a href="/static/map.html" onclick="sessionStorage.setItem('fg_target_search', '${targetData}')" class="btn-save" style="text-decoration:none; padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
-                    🗺️ Ver no Mapa
-                </a>
-            </div>
-        `;
+    if (vLower.includes('fecart') || vLower.includes('fecap')) {
+        lat = -23.5574;
+        lon = -46.6367;
     }
 
-    if (hasWork) {
-        const p = places.work;
-        const targetData = JSON.stringify({ lat: p.lat, lon: p.lon, nome: p.nome || 'Trabalho', bairro: p.bairro || 'São Paulo - SP' }).replace(/"/g, '&quot;');
-        html += `
-            <div class="info-card" style="display:flex; justify-content:space-between; align-items:center; padding:16px;">
-                <div>
-                    <div style="font-weight:800; font-size:15px; color:#FFFFFF; display:flex; align-items:center; gap:6px;">
-                        <span>💼</span> Trabalho
-                    </div>
-                    <div style="font-size:12px; color:#38BDF8; margin-top:4px; font-weight:600;">${p.nome || 'Local Definido'}</div>
-                    <div style="font-size:11px; color:#94A3B8; margin-top:2px;">${p.bairro || 'São Paulo - SP'}</div>
-                </div>
-                <a href="/static/map.html" onclick="sessionStorage.setItem('fg_target_search', '${targetData}')" class="btn-save" style="text-decoration:none; padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
-                    🗺️ Ver no Mapa
-                </a>
-            </div>
-        `;
-    }
+    try {
+        const res = await authFetch('/api/user/saved-places', {
+            method: 'PUT',
+            body: JSON.stringify({
+                type,
+                address: val,
+                lat,
+                lon
+            })
+        });
 
-    html += '</div>';
-    container.innerHTML = html;
+        if (res && res.ok) {
+            // Atualiza o perfil fresco da API
+            const profRes = await authFetch('/api/user/profile');
+            if (profRes && profRes.ok) {
+                const profile = await profRes.json();
+                currentProfileState = profile;
+                renderSavedPlaces(profile.user);
+            }
+            alert(`✅ ${label} salva com sucesso no banco de dados!`);
+        } else {
+            alert(`Não foi possível salvar ${label}.`);
+        }
+    } catch (e) {
+        console.error('Erro ao salvar local pelo perfil:', e);
+        alert('Erro ao conectar com o servidor.');
+    }
+}
+
+async function removerLocalPeloPerfil(type) {
+    const label = type === 'home' ? 'Casa' : 'Trabalho';
+    if (!confirm(`Deseja remover ${label} dos seus locais salvos?`)) return;
+
+    try {
+        const res = await authFetch('/api/user/saved-places', {
+            method: 'PUT',
+            body: JSON.stringify({
+                type,
+                address: null,
+                lat: null,
+                lon: null
+            })
+        });
+
+        if (res && res.ok) {
+            const profRes = await authFetch('/api/user/profile');
+            if (profRes && profRes.ok) {
+                const profile = await profRes.json();
+                currentProfileState = profile;
+                renderSavedPlaces(profile.user);
+            }
+            alert(`🗑️ ${label} removida com sucesso.`);
+        }
+    } catch (e) {
+        console.error('Erro ao remover local:', e);
+    }
 }
 
 // ─── RENDERIZAÇÃO DE DADOS DO PERFIL ─────────────────────────────────────────
@@ -290,53 +376,58 @@ function toggleEye(inputId, btn) {
 
 // ─── INICIALIZADOR PRINCIPAL DA TELA DE PERFIL ──────────────────────────────
 async function initProfileView() {
+    // 1. Se não houver token no localStorage, redireciona diretamente para fazer login ou criar conta
+    if (!isLoggedIn()) {
+        window.location.replace('/login');
+        return;
+    }
+
     const loggedInView = document.getElementById('profile-logged-view');
     const guestView = document.getElementById('profile-guest-view');
     const btnLogoutHeader = document.getElementById('btn-header-logout');
 
-    if (!loggedInView || !guestView) return;
+    if (!loggedInView) return;
 
-    // 1. VERIFICA SE HÁ SESSÃO ATIVA NO LOCALSTORAGE
-    if (isLoggedIn()) {
-        // Exibe DIRETO o Painel do Usuário sem mostrar tela de login
+    // Preenche com dados locais em cache se existirem
+    const cachedUser = getCurrentUser();
+    if (cachedUser) {
+        fillProfileUI(cachedUser);
+    }
+
+    // Tenta validar a sessão e buscar dados da API
+    try {
+        const res = await authFetch('/api/user/profile');
+        if (!res || !res.ok) {
+            // Token inválido, expirado ou usuário inexistente: limpa a sessão e vai para login/cadastro
+            clearSession();
+            window.location.replace('/login');
+            return;
+        }
+
+        const profile = await res.json();
+        if (!profile || !profile.user) {
+            clearSession();
+            window.location.replace('/login');
+            return;
+        }
+
+        const updatedUser = profile.user;
+        currentProfileState = profile;
+        saveSession(getToken(), updatedUser);
+        fillProfileUI(updatedUser);
+        if (typeof renderProfileHistory === 'function') {
+            renderProfileHistory(profile.history || []);
+        }
+
+        // Exibe a tela de perfil autenticada
         loggedInView.style.display = 'block';
-        guestView.style.display = 'none';
+        if (guestView) guestView.style.display = 'none';
         if (btnLogoutHeader) btnLogoutHeader.style.display = 'inline-block';
 
-        // Preenche imediatamente com os dados salvos em cache
-        const cachedUser = getCurrentUser();
-        if (cachedUser) {
-            fillProfileUI(cachedUser);
-        }
-
-        // Tenta buscar dados atualizados da API em background (sem deslogar em caso de erro)
-        try {
-            const res = await authFetch('/api/user/profile');
-            if (res && res.ok) {
-                const profile = await res.json();
-                const updatedUser = profile.user;
-                currentProfileState = profile;
-                saveSession(getToken(), updatedUser);
-                fillProfileUI(updatedUser);
-                if (typeof renderProfileHistory === 'function') renderProfileHistory(profile.history || []);
-            }
-            // NOTA: Se res for 401 ou erro de rede, NÃO deslogamos o usuário automaticamente.
-            // Mantemos a conta e o histórico salvos até o clique explícito em Sair.
-        } catch (e) {
-            console.debug('[Profile] Mantendo sessão local cached:', e);
-        }
-
-    } else {
-        // 2. USUÁRIO NÃO LOGADO: Exibe formulário com campos vazios por padrão
-        loggedInView.style.display = 'none';
-        guestView.style.display = 'block';
-        if (btnLogoutHeader) btnLogoutHeader.style.display = 'none';
-
-        // Limpa explicitamente os campos por segurança
-        ['guest-login-email', 'guest-login-senha', 'guest-reg-nome', 'guest-reg-email', 'guest-reg-senha'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-        });
+    } catch (e) {
+        console.error('[Profile] Erro ao validar perfil:', e);
+        clearSession();
+        window.location.replace('/login');
     }
 }
 
