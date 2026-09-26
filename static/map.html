@@ -400,6 +400,22 @@
             z-index: 99999;
             box-shadow: 0 15px 35px rgba(0,0,0,0.7);
             display: none;
+            box-sizing: border-box;
+        }
+
+        .search-dropdown::-webkit-scrollbar {
+            width: 6px;
+        }
+        .search-dropdown::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 4px;
+        }
+        .search-dropdown::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.35);
+            border-radius: 4px;
+        }
+        .search-dropdown::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.6);
         }
 
         /* Dropdown principal e dropdowns de rota: âncora relativa aos campos pais */
@@ -411,6 +427,8 @@
             left: 0;
             right: 0;
             width: 100%;
+            margin: 0 auto;
+            box-sizing: border-box;
             z-index: 99999;
         }
 
