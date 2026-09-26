@@ -130,8 +130,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (_) {}
 
-    // Carrega dados iniciais da FECAP
-    await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
+    // Prioridade máxima: se o usuário possui Casa salva, abre e foca diretamente nela
+    const userHome = getUserPlace('home');
+    if (userHome && userHome.lat && userHome.lon) {
+        currentSelectedPoint = {
+            lat: Number(userHome.lat),
+            lon: Number(userHome.lon),
+            nome: userHome.nome || 'Casa',
+            bairro: userHome.bairro || 'São Paulo - SP',
+            alt: userHome.alt ?? 730,
+            address: userHome.address || userHome.nome
+        };
+        hasActiveUserSelection = true;
+        if (map) {
+            map.setView([Number(userHome.lat), Number(userHome.lon)], 16);
+        }
+        await analyzePoint(userHome.lat, userHome.lon, userHome.nome, userHome.bairro, userHome.alt, userHome.address, false);
+    } else {
+        // Fallback para usuários sem casa salva: carrega ponto inicial padrão (FECAP)
+        await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
+    }
 });
 
 // ─── ATALHOS CASA / TRABALHO VINCULADOS À CONTA ─────────────────────────────
@@ -153,15 +171,33 @@ let currentSimplePlaceType = null; // 'home' | 'work'
 let currentSimplePickedPoint = null;
 let simplePlaceSearchTimeout = null;
 
-// ─── ESTADO INICIAL OBRIGATÓRIO: NULL (SEM DADOS PRÉ-DEFINIDOS) ─────────────
+// ─── ESTADO INICIAL OBRIGATÓRIO: LÊ CACHE OU INICIA COM NULL ─────────────
 function getUserPlace(type) {
+    if (!savedPlacesState[type]) {
+        try {
+            const cached = JSON.parse(localStorage.getItem('fg_saved_places') || 'null');
+            if (cached && cached[type]) {
+                savedPlacesState[type] = cached[type];
+            }
+        } catch (_) {}
+    }
     return savedPlacesState[type] || null;
 }
 
 async function syncSavedPlacesFromServer() {
+    // 1. Tenta carregar imediatamente do cache local para resposta instantânea
+    try {
+        const localCached = JSON.parse(localStorage.getItem('fg_saved_places') || 'null');
+        if (localCached && typeof localCached === 'object') {
+            savedPlacesState = {
+                home: localCached.home || null,
+                work: localCached.work || null
+            };
+        }
+    } catch (_) {}
+
     const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
     if (!token) {
-        savedPlacesState = { home: null, work: null };
         return;
     }
     try {
@@ -170,7 +206,7 @@ async function syncSavedPlacesFromServer() {
         });
         if (!response.ok) return;
         const profile = await response.json();
-        const normalize = (place, label) => place ? {
+        const normalize = (place, label) => (place && (place.address || (place.lat !== null && place.lat !== undefined))) ? {
             lat: Number(place.lat), lon: Number(place.lon),
             nome: place.address || label, address: place.address || label,
             bairro: 'São Paulo - SP'
@@ -179,6 +215,7 @@ async function syncSavedPlacesFromServer() {
             home: normalize(profile.saved_places?.home, 'Casa'),
             work: normalize(profile.saved_places?.work, 'Trabalho')
         };
+        localStorage.setItem('fg_saved_places', JSON.stringify(savedPlacesState));
         const labelEl = document.getElementById('header-user-label');
         if (labelEl && profile.user?.nome) labelEl.textContent = profile.user.nome.split(' ')[0];
     } catch (error) {
@@ -187,11 +224,21 @@ async function syncSavedPlacesFromServer() {
 }
 
 async function setUserPlace(type, placeData) {
-    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
-    if (!token) return false;
     const previous = savedPlacesState[type];
     savedPlacesState[type] = placeData;
+    try {
+        localStorage.setItem('fg_saved_places', JSON.stringify(savedPlacesState));
+    } catch (_) {}
     refreshSavedPlaceButtons();
+
+    if (type === 'home' && placeData) {
+        currentSelectedPoint = { ...placeData };
+        hasActiveUserSelection = true;
+    }
+
+    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
+    if (!token) return true;
+
     try {
         const response = await fetch('/api/user/saved-places', {
             method: 'PUT',
@@ -208,10 +255,8 @@ async function setUserPlace(type, placeData) {
         checkSavedPlacesRiskAlerts();
         return true;
     } catch (error) {
-        savedPlacesState[type] = previous;
-        refreshSavedPlaceButtons();
-        console.warn('[Locais salvos] Falha ao persistir:', error);
-        return false;
+        console.warn('[Locais salvos] Falha ao persistir no servidor:', error);
+        return true; // Retorna true pois já foi salvo no localStorage com sucesso
     }
 }
 
@@ -588,6 +633,11 @@ async function submitSimplePlaceModal() {
                 display_name: target.address
             });
         }
+        // Foca e analisa imediatamente o ponto salvo
+        if (map && target.lat && target.lon) {
+            map.flyTo([Number(target.lat), Number(target.lon)], 16, { duration: 1.2 });
+        }
+        analyzePoint(target.lat, target.lon, target.nome, target.bairro, target.alt, target.address, false);
     }
     showGeoToast(saved ? 'success' : 'error', saved
         ? `📍 Endereço salvo como ${typeLabel} com sucesso!`
@@ -3086,19 +3136,12 @@ function setupRouteAutocomplete() {
 }
 
 function positionRouteDropdown(inputId, dropdownId) {
-    const input = document.getElementById(inputId);
     const dropdown = document.getElementById(dropdownId);
-    if (!input || !dropdown) return;
-    const rect = input.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const dropdownWidth = Math.min(Math.max(rect.width, 280), vw - 16);
-    const centerX = rect.left + rect.width / 2;
-    // Clamp so it stays fully within the viewport
-    const rawLeft = centerX - dropdownWidth / 2;
-    const clampedLeft = Math.max(8, Math.min(rawLeft, vw - dropdownWidth - 8));
-    dropdown.style.width = dropdownWidth + 'px';
-    dropdown.style.left = clampedLeft + 'px';
-    dropdown.style.top = (rect.bottom + 6) + 'px';
+    if (!dropdown) return;
+    dropdown.style.left = '0';
+    dropdown.style.right = '0';
+    dropdown.style.width = '100%';
+    dropdown.style.top = 'calc(100% + 6px)';
 }
 
 function showRouteSearchLoading(dropdownId, query) {

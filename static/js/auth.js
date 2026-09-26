@@ -216,6 +216,20 @@ async function salvarLocalPeloPerfil(type) {
     if (vLower.includes('fecart') || vLower.includes('fecap')) {
         lat = -23.5574;
         lon = -46.6367;
+    } else {
+        // Tenta geocodificação real no Nominatim para o endereço digitado
+        try {
+            const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val + ' São Paulo')}&limit=1&countrycodes=br`, {
+                headers: { 'Accept-Language': 'pt-BR' }
+            });
+            if (nomRes.ok) {
+                const nomData = await nomRes.json();
+                if (nomData && nomData.length > 0 && nomData[0].lat && nomData[0].lon) {
+                    lat = Number(nomData[0].lat);
+                    lon = Number(nomData[0].lon);
+                }
+            }
+        } catch (_) {}
     }
 
     try {
@@ -228,6 +242,19 @@ async function salvarLocalPeloPerfil(type) {
                 lon
             })
         });
+
+        // Atualiza imediatamente o cache no localStorage
+        try {
+            const currentCache = JSON.parse(localStorage.getItem('fg_saved_places') || '{"home":null,"work":null}');
+            currentCache[type] = {
+                lat,
+                lon,
+                nome: val,
+                address: val,
+                bairro: 'São Paulo - SP'
+            };
+            localStorage.setItem('fg_saved_places', JSON.stringify(currentCache));
+        } catch (_) {}
 
         if (res && res.ok) {
             // Atualiza o perfil fresco da API
@@ -261,6 +288,13 @@ async function removerLocalPeloPerfil(type) {
                 lon: null
             })
         });
+
+        // Atualiza imediatamente o cache no localStorage
+        try {
+            const currentCache = JSON.parse(localStorage.getItem('fg_saved_places') || '{"home":null,"work":null}');
+            currentCache[type] = null;
+            localStorage.setItem('fg_saved_places', JSON.stringify(currentCache));
+        } catch (_) {}
 
         if (res && res.ok) {
             const profRes = await authFetch('/api/user/profile');

@@ -402,19 +402,16 @@
             display: none;
         }
 
-        /* Dropdown principal: âncora relativa ao wrapper */
-        #universal-search-dropdown {
+        /* Dropdown principal e dropdowns de rota: âncora relativa aos campos pais */
+        #universal-search-dropdown,
+        #route-origem-dropdown,
+        #route-destino-dropdown {
             position: absolute;
             top: calc(100% + 6px);
             left: 0;
             right: 0;
             width: 100%;
-        }
-
-        /* Dropdowns de rota: posicionados via JS (fixed) */
-        #route-origem-dropdown,
-        #route-destino-dropdown {
-            position: fixed;
+            z-index: 99999;
         }
 
         .search-status-bar {
