@@ -32,11 +32,10 @@ def _validate_password(v: str) -> str:
 # ─── Schemas de entrada ────────────────────────────────────────────────────────
 
 class UserCreate(BaseModel):
-    nome:            str
-    email:           EmailStr
-    senha:           str
-    celular:         Optional[str] = None
-    data_nascimento: Optional[date] = None
+    nome:    str
+    email:   EmailStr
+    senha:   str
+    celular: Optional[str] = None
 
     @field_validator('senha')
     @classmethod
@@ -64,9 +63,8 @@ class UserLogin(BaseModel):
 
 class UserUpdate(BaseModel):
     """Campos permitidos para edição do perfil."""
-    nome:            Optional[str]  = None
-    celular:         Optional[str]  = None
-    data_nascimento: Optional[date] = None
+    nome:    Optional[str] = None
+    celular: Optional[str] = None
 
     @field_validator('celular')
     @classmethod
@@ -97,11 +95,10 @@ class PasswordChange(BaseModel):
 # ─── Schemas de saída ─────────────────────────────────────────────────────────
 
 class UserResponse(BaseModel):
+    """Resposta básica (usado internamente)."""
     id:         int
     email:      str
     nome:       str
-    role:       str
-    ativo:      bool
     created_at: datetime
 
     class Config:
@@ -109,16 +106,22 @@ class UserResponse(BaseModel):
 
 
 class UserProfile(BaseModel):
-    """Resposta completa com todos os campos do perfil."""
+    """
+    Resposta completa do perfil.
+    Campos não presentes na tabela Supabase recebem defaults compatíveis
+    com o frontend existente.
+    """
     id:              int
     email:           str
     nome:            str
-    celular:         Optional[str]
-    data_nascimento: Optional[date]
-    role:            str
-    ativo:           bool
+    celular:         Optional[str] = None
+    # Campos não existentes no Supabase — mantidos com defaults para compatibilidade
+    data_nascimento: Optional[date] = None
+    role:            str = 'cidadao'
+    ativo:           bool = True
+    last_login:      Optional[datetime] = None
+    # Campos reais do Supabase
     created_at:      datetime
-    last_login:      Optional[datetime]
     home_address:    Optional[str] = None
     home_lat:        Optional[float] = None
     home_lon:        Optional[float] = None
@@ -137,10 +140,10 @@ class Token(BaseModel):
 
 
 class SavedPlaceUpdate(BaseModel):
-    type: str
+    type:    str
     address: Optional[str] = None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    lat:     Optional[float] = None
+    lon:     Optional[float] = None
 
     @field_validator('type')
     @classmethod
