@@ -12,4 +12,7 @@ for p in [parent_dir, backend_dir]:
 
 os.environ["VERCEL"] = "1"
 
-from BackEnd.app.main import app
+try:
+    from app.main import app
+except ImportError:
+    from BackEnd.app.main import app

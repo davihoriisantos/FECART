@@ -1,15 +1,27 @@
 import os
+import sys
 from contextlib import asynccontextmanager
+
+# ─── Configuração de caminhos absolutos no sys.path ───────────────────────────
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+for p in [BASE_DIR, ROOT_DIR]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .config import SECRET_KEY, SUPABASE_URL, SUPABASE_KEY
-from .database import engine, Base, SessionLocal
-from .routers import auth, sensors, zones, alerts, dashboard, user_profile
-from .seed_data import seed_database
-from .routers import confirmations, river_sensors, historico
+# ─── Imports absolutos (sem pontos relativos para evitar erros em Serverless) ─
+from app.config import SECRET_KEY, SUPABASE_URL, SUPABASE_KEY
+from app.database import engine, Base, SessionLocal
+from app.seed_data import seed_database
+from app.routers import (
+    auth, sensors, zones, alerts, dashboard,
+    user_profile, river_sensors, confirmations, historico
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
