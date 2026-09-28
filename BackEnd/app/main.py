@@ -1,27 +1,38 @@
-import os
 import sys
+import os
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 from contextlib import asynccontextmanager
-
-# ─── Configuração de caminhos absolutos no sys.path ───────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROOT_DIR = os.path.dirname(BASE_DIR)
-for p in [BASE_DIR, ROOT_DIR]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-# ─── Imports absolutos (sem pontos relativos para evitar erros em Serverless) ─
-from app.config import SECRET_KEY, SUPABASE_URL, SUPABASE_KEY
-from app.database import engine, Base, SessionLocal
-from app.seed_data import seed_database
-from app.routers import (
-    auth, sensors, zones, alerts, dashboard,
-    user_profile, river_sensors, confirmations, historico
-)
+# ─── Imports sem ponto (compatibilidade Serverless Vercel) ────────────────────
+try:
+    from config import SECRET_KEY, SUPABASE_URL, SUPABASE_KEY
+    from database import engine, Base, SessionLocal
+    from seed_data import seed_database
+    from routers import (
+        auth, sensors, zones, alerts, dashboard,
+        user_profile, river_sensors, confirmations, historico
+    )
+except ImportError:
+    from app.config import SECRET_KEY, SUPABASE_URL, SUPABASE_KEY
+    from app.database import engine, Base, SessionLocal
+    from app.seed_data import seed_database
+    from app.routers import (
+        auth, sensors, zones, alerts, dashboard,
+        user_profile, river_sensors, confirmations, historico
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
