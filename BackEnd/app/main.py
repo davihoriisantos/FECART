@@ -11,21 +11,20 @@ from .routers import auth, sensors, zones, alerts, dashboard, user_profile
 from .seed_data import seed_database
 from .routers import confirmations, river_sensors, historico
 
-# ─── Validação de segurança no arranque ───────────────────────────────────────
-if not SECRET_KEY:
-    raise RuntimeError("FATAL: SECRET_KEY não configurada no ambiente.")
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError(
-        "FATAL: SUPABASE_URL e SUPABASE_KEY não configuradas no ambiente."
-    )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Startup: carrega dados de seed (sensores, zonas) do SQLite local.
-    Os dados de utilizador são geridos exclusivamente pelo Supabase.
+    Startup: validação das chaves e carregamento de seed estático.
+    A validação dentro do lifespan garante segurança no arranque sem quebrar
+    a inspeção de importação do runtime Serverless da Vercel.
     """
+    if not SECRET_KEY:
+        raise RuntimeError("FATAL: SECRET_KEY não configurada no ambiente.")
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError(
+            "FATAL: SUPABASE_URL e SUPABASE_KEY não configuradas no ambiente."
+        )
+
     try:
         Base.metadata.create_all(bind=engine)
         db = SessionLocal()
