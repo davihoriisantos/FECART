@@ -11,7 +11,7 @@
 // CONFIGURAÇÃO
 // ══════════════════════════════════════════════════════════════════
 const AUTH_CONFIG = {
-    API_BASE:    '/api/auth',
+    API_BASE:    (window.API_BASE_URL || 'https://fecart-1-2rff.onrender.com') + '/api/auth',
     TOKEN_KEY:   'fg_token',
     USER_KEY:    'fg_user',
     REDIRECT_AFTER_LOGIN:    '/map',

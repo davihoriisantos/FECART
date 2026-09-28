@@ -8,6 +8,10 @@
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "https://fecart-1-2rff.onrender.com/api/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "api/index.py"
     }

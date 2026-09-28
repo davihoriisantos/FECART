@@ -1,5 +1,17 @@
+const API_BASE_URL = 'https://fecart-1-2rff.onrender.com';
+window.API_BASE_URL = API_BASE_URL;
+
+// Redireciona transparentemente qualquer fetch relativo a /api/ para o backend no Render
+const _origFetch = window.fetch;
+window.fetch = function(resource, init) {
+  if (typeof resource === 'string' && resource.startsWith('/api/')) {
+    resource = API_BASE_URL + resource;
+  }
+  return _origFetch.call(this, resource, init);
+};
+
 const API = {
-  baseUrl: '',
+  baseUrl: API_BASE_URL,
   
   getToken() { return localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token'); },
   
@@ -8,8 +20,10 @@ const API = {
     const headers = { 'Content-Type': 'application/json', ...options.headers };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     
+    const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+
     try {
-      const response = await fetch(`${this.baseUrl}${endpoint}`, { ...options, headers });
+      const response = await fetch(url, { ...options, headers });
       
       if (response.status === 401) {
         // Preservação de dados: Não desloga o usuário automaticamente
