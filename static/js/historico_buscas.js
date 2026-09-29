@@ -74,9 +74,11 @@ async function salvarBuscaHistorico(item) {
     const userId = await _resolveSupabaseUID();
     if (!userId) return null;
 
+    const termo = item.nome || item.query_text || item.termo_busca || '';
     const payload = {
         user_id:          userId,
-        termo_busca:      item.nome,
+        termo_busca:      termo,
+        query_text:       termo,
         lat:              item.lat  !== undefined ? Number(item.lat)  : null,
         lon:              item.lon  !== undefined ? Number(item.lon)  : (item.lng !== undefined ? Number(item.lng) : null),
         bairro:           item.bairro || null,
@@ -90,7 +92,7 @@ async function salvarBuscaHistorico(item) {
             .from('search_history')
             .select('id')
             .eq('user_id', userId)
-            .eq('termo_busca', payload.termo_busca)
+            .or(`termo_busca.eq."${termo}",query_text.eq."${termo}"`)
             .gte('criado_em', twoHoursAgo)
             .limit(1);
 
@@ -123,7 +125,7 @@ async function carregarHistorico(limit = 10) {
     try {
         const { data, error } = await _supabase
             .from('search_history')
-            .select('id, termo_busca, lat, lon, bairro, dados_adicionais, criado_em')
+            .select('*')
             .eq('user_id', userId)
             .order('criado_em', { ascending: false })
             .limit(limit);
@@ -219,7 +221,7 @@ async function showRecentSearches() {
     `;
 
     html += historico.map((item) => {
-        const safeNome   = (item.termo_busca || '').replace(/"/g, '&quot;');
+        const safeNome   = (item.termo_busca || item.query_text || '').replace(/"/g, '&quot;');
         const safeBairro = (item.bairro || '').replace(/"/g, '&quot;');
         const timeAgo    = formatRelativeTime(item.criado_em || item.created_at);
 
@@ -329,12 +331,12 @@ async function renderProfileHistory(preloadedItems = null) {
 
     container.innerHTML = items.map(item => {
         const timeAgo    = formatRelativeTime(item.criado_em || item.created_at);
-        const safeNome   = (item.termo_busca || '').replace(/"/g, '&quot;');
+        const safeNome   = (item.termo_busca || item.query_text || '').replace(/"/g, '&quot;');
         const safeBairro = (item.bairro || '').replace(/"/g, '&quot;');
         const targetData = JSON.stringify({
             lat: item.lat,
             lon: item.lon,
-            nome: item.termo_busca,
+            nome: item.termo_busca || item.query_text,
             bairro: item.bairro
         }).replace(/"/g, '&quot;');
 
