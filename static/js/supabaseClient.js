@@ -12,7 +12,7 @@
  */
 
 const SUPABASE_URL = 'https://fvfkrhmyqdymqywwlkon.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZmtyaG15cWR5bXF5d3dsa29uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTA5MzE0NDYsImV4cCI6MjAyNjUwNzQ0Nn0.sFPLwKPT9-3TqC1ULfDAWAPkMJv3mdUEP4NzWb6K0Vk';
+const SUPABASE_KEY = 'sb_publishable_iF_NuRm9aCAV2C-aCWOqBQ_G44M3Gdg';
 
 // Obtém o construtor do SDK de forma segura (global ou window)
 const _sbSdk = (typeof supabase !== 'undefined' && supabase?.createClient) 

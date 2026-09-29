@@ -273,11 +273,13 @@ function initLoginForm() {
             });
 
             if (error) {
-                // Traduz mensagens comuns do Supabase
-                const msg = error.message.toLowerCase().includes('invalid')
-                    ? '❌ E-mail ou senha incorretos.'
-                    : `❌ ${error.message}`;
-                showMsg('loginMsg', msg);
+                let msg = error.message;
+                if (msg.toLowerCase().includes('invalid')) {
+                    msg = 'E-mail ou senha incorretos.';
+                } else if (msg.toLowerCase().includes('not confirmed')) {
+                    msg = 'E-mail ainda não confirmado. Verifique sua caixa de entrada/spam ou desative a confirmação de e-mail no painel do Supabase.';
+                }
+                showMsg('loginMsg', `❌ ${msg}`);
                 return;
             }
 
@@ -374,14 +376,26 @@ function initRegisterForm() {
 
             // 3. Auto-login após cadastro
             if (signUpData.session) {
-                // Supabase retornou sessão imediata (confirm email desabilitado)
                 syncSupabaseTokenToLocal(signUpData.session.access_token);
                 showMsg('registerMsg', '🎉 Conta criada! Redirecionando...', 'success');
                 setTimeout(() => { window.location.href = AUTH_CONFIG.REDIRECT_AFTER_LOGIN; }, 1000);
             } else {
-                // Email de confirmação ativado — orientar o utilizador
-                showMsg('registerMsg', '✅ Conta criada! Verifique seu e-mail para confirmar o cadastro.', 'success');
-                setTimeout(() => switchAuthTab('login'), 3000);
+                // Como o banco auto-confirma, fazemos o login na hora!
+                try {
+                    const { data: autoLoginData } = await _supabase.auth.signInWithPassword({
+                        email,
+                        password: senha,
+                    });
+                    if (autoLoginData?.session) {
+                        syncSupabaseTokenToLocal(autoLoginData.session.access_token);
+                        showMsg('registerMsg', '🎉 Conta criada com sucesso! Redirecionando...', 'success');
+                        setTimeout(() => { window.location.href = AUTH_CONFIG.REDIRECT_AFTER_LOGIN; }, 1000);
+                        return;
+                    }
+                } catch (_) {}
+
+                showMsg('registerMsg', '✅ Conta criada com sucesso! Faça login.', 'success');
+                setTimeout(() => switchAuthTab('login'), 1500);
             }
 
         } catch (err) {

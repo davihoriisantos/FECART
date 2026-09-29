@@ -2,7 +2,7 @@ import os
 
 # ─── Supabase ─────────────────────────────────────────────────────────────────
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://fvfkrhmyqdymqywwlkon.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZmtyaG15cWR5bXF5d3dsa29uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTA5MzE0NDYsImV4cCI6MjAyNjUwNzQ0Nn0.sFPLwKPT9-3TqC1ULfDAWAPkMJv3mdUEP4NzWb6K0Vk")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_iF_NuRm9aCAV2C-aCWOqBQ_G44M3Gdg")
 
 # ─── JWT / Auth ───────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "floodguard-development-secret-key-2026")
