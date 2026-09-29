@@ -1,8 +1,12 @@
 /**
  * auth_enhanced.js — FloodGuard AI
- * Lógica completa de autenticação e gerenciamento de perfil.
+ * Lógica completa de autenticação via Supabase Auth (client-side).
  * Inclui: validações client-side, máscara de celular, força de senha,
- * gerenciamento de token JWT, detecção de dispositivo e redirect inteligente.
+ * gerenciamento de sessão Supabase, detecção de dispositivo e redirect inteligente.
+ *
+ * Dependências (carregadas antes deste ficheiro):
+ *   1. https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2
+ *   2. /static/js/supabaseClient.js  (expõe _supabase, syncSupabaseTokenToLocal)
  */
 
 'use strict';
@@ -11,9 +15,8 @@
 // CONFIGURAÇÃO
 // ══════════════════════════════════════════════════════════════════
 const AUTH_CONFIG = {
-    API_BASE:    (window.API_BASE_URL || 'https://fecart-1-2rff.onrender.com') + '/api/auth',
-    TOKEN_KEY:   'fg_token',
-    USER_KEY:    'fg_user',
+    TOKEN_KEY:               'fg_token',
+    USER_KEY:                'fg_user',
     REDIRECT_AFTER_LOGIN:    '/map',
     REDIRECT_AFTER_LOGOUT:   '/login',
     REDIRECT_TO_LOGIN:       '/login',
@@ -31,17 +34,19 @@ const Device = (() => {
     return { isMobile, isTouch, isIOS };
 })();
 
-// Adiciona classe ao <html> para uso via CSS
 if (Device.isMobile) document.documentElement.classList.add('is-mobile');
 if (Device.isIOS)    document.documentElement.classList.add('is-ios');
 
 // ══════════════════════════════════════════════════════════════════
-// GERENCIAMENTO DE TOKEN / SESSÃO
+// GERENCIAMENTO DE SESSÃO
 // ══════════════════════════════════════════════════════════════════
-function saveSession(token, user) {
-    localStorage.setItem(AUTH_CONFIG.TOKEN_KEY, token);
-    // Mantém compatibilidade com módulos antigos que ainda usam esta chave.
-    localStorage.setItem('floodguard_token', token);
+function saveSession(token, _user) {
+    // O Supabase persiste a sessão automaticamente.
+    // Apenas sincronizamos o access_token para compatibilidade com api.js.
+    if (token) {
+        localStorage.setItem(AUTH_CONFIG.TOKEN_KEY, token);
+        localStorage.setItem('floodguard_token', token);
+    }
     localStorage.removeItem(AUTH_CONFIG.USER_KEY);
 }
 
@@ -66,6 +71,7 @@ function isLoggedIn() {
 function extractApiError(data, fallback = 'Não foi possível concluir a operação.') {
     if (!data) return fallback;
     if (typeof data === 'string') return data;
+    if (typeof data.message === 'string') return data.message;
     if (typeof data.detail === 'string') return data.detail;
     if (Array.isArray(data.detail) && data.detail.length > 0) {
         return data.detail.map(error => {
@@ -76,27 +82,7 @@ function extractApiError(data, fallback = 'Não foi possível concluir a operaç
             return `${location}: ${error?.msg || 'valor inválido'}`;
         }).join(' | ');
     }
-    if (data.detail && typeof data.detail.msg === 'string') return data.detail.msg;
-    if (typeof data.message === 'string') return data.message;
     return fallback;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// REQUISIÇÕES AUTENTICADAS
-// ══════════════════════════════════════════════════════════════════
-async function authFetch(endpoint, options = {}) {
-    const token = getToken();
-    const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        ...(options.headers || {}),
-    };
-    const res = await fetch(AUTH_CONFIG.API_BASE + endpoint, { ...options, headers });
-    if (res.status === 401) {
-        // Preservação de Dados: Não desloga automaticamente até clique em Sair
-        return null;
-    }
-    return res;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -239,13 +225,16 @@ function setLoading(btnId, loading, originalText) {
 // ══════════════════════════════════════════════════════════════════
 // LOGOUT
 // ══════════════════════════════════════════════════════════════════
-function logout() {
+async function logout() {
+    try {
+        await _supabase.auth.signOut();
+    } catch (_) {}
     clearSession();
     window.location.href = AUTH_CONFIG.REDIRECT_AFTER_LOGOUT;
 }
 
 // ══════════════════════════════════════════════════════════════════
-// FORMULÁRIO DE LOGIN
+// FORMULÁRIO DE LOGIN — Supabase Auth
 // ══════════════════════════════════════════════════════════════════
 function initLoginForm() {
     const form = document.getElementById('loginForm');
@@ -257,10 +246,10 @@ function initLoginForm() {
         return;
     }
 
-    // Evita que o navegador preencha automaticamente o último email cadastrado na tela
+    // Limpa autocomplete do navegador
     setTimeout(() => {
         const emailInput = document.getElementById('login-email');
-        const passInput = document.getElementById('login-senha');
+        const passInput  = document.getElementById('login-senha');
         if (emailInput && document.activeElement !== emailInput) emailInput.value = '';
         if (passInput) passInput.value = '';
     }, 50);
@@ -278,21 +267,28 @@ function initLoginForm() {
 
         setLoading('btn-submit-login', true, '🔐 Entrar no Sistema');
         try {
-            const res  = await fetch(AUTH_CONFIG.API_BASE + '/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, senha }),
+            const { data, error } = await _supabase.auth.signInWithPassword({
+                email,
+                password: senha,
             });
-            const data = await res.json();
-            if (!res.ok) {
-                showMsg('loginMsg', '❌ ' + extractApiError(data, 'Erro ao fazer login.'));
+
+            if (error) {
+                // Traduz mensagens comuns do Supabase
+                const msg = error.message.toLowerCase().includes('invalid')
+                    ? '❌ E-mail ou senha incorretos.'
+                    : `❌ ${error.message}`;
+                showMsg('loginMsg', msg);
                 return;
             }
-            saveSession(data.access_token, data.user);
+
+            // Sincroniza token para compatibilidade com api.js (FastAPI Render)
+            syncSupabaseTokenToLocal(data.session.access_token);
             showMsg('loginMsg', '✅ Login realizado! Redirecionando...', 'success');
             setTimeout(() => { window.location.href = AUTH_CONFIG.REDIRECT_AFTER_LOGIN; }, 900);
-        } catch {
+
+        } catch (err) {
             showMsg('loginMsg', '❌ Erro de conexão. Tente novamente.');
+            console.error('[FloodGuard Auth] Login error:', err);
         } finally {
             setLoading('btn-submit-login', false, '🔐 Entrar no Sistema');
         }
@@ -300,13 +296,12 @@ function initLoginForm() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// FORMULÁRIO DE CADASTRO
+// FORMULÁRIO DE CADASTRO — Supabase Auth + tabela profiles
 // ══════════════════════════════════════════════════════════════════
 function initRegisterForm() {
     const form = document.getElementById('registerForm');
     if (!form) return;
 
-    // Máscara e força de senha
     applyPhoneMask(document.getElementById('reg-celular'));
     setupPasswordStrength('reg-senha', 'pw-strength-fill', 'pw-strength-label', 'pw-strength-container');
 
@@ -322,7 +317,7 @@ function initRegisterForm() {
         const senha   = document.getElementById('reg-senha')?.value;
         const confirm = document.getElementById('reg-confirm')?.value;
 
-        // Validações
+        // Validações client-side
         let hasError = false;
         if (!nome || nome.length < 2) {
             showFieldError('err-nome', 'Nome muito curto.');
@@ -348,37 +343,50 @@ function initRegisterForm() {
 
         setLoading('btn-submit-reg', true, '✨ Criar Conta e Acessar');
         try {
-            const payload = { nome, email, senha };
-            if (celular) payload.celular = celular;
-            if (nasc)    payload.data_nascimento = nasc;
-
-            const res  = await fetch(AUTH_CONFIG.API_BASE + '/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+            // 1. Criar conta no Supabase Auth
+            const { data: signUpData, error: signUpError } = await _supabase.auth.signUp({
+                email,
+                password: senha,
+                options: {
+                    data: { nome }, // Armazenado em raw_user_meta_data (usado pelo trigger)
+                }
             });
-            const data = await res.json();
-            if (!res.ok) {
-                showMsg('registerMsg', '❌ ' + extractApiError(data, 'Erro ao criar conta.'));
+
+            if (signUpError) {
+                let errMsg = signUpError.message;
+                if (errMsg.toLowerCase().includes('already registered')) {
+                    errMsg = 'Este e-mail já está cadastrado. Faça login.';
+                }
+                showMsg('registerMsg', `❌ ${errMsg}`);
                 return;
             }
-            // Auto-login após cadastro
-            const loginRes  = await fetch(AUTH_CONFIG.API_BASE + '/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, senha }),
-            });
-            const loginData = await loginRes.json();
-            if (loginRes.ok) {
-                saveSession(loginData.access_token, loginData.user);
+
+            const userId = signUpData.user?.id;
+
+            // 2. Salvar dados extras na tabela profiles (celular, data_nascimento)
+            if (userId) {
+                const profilePayload = { id: userId, nome };
+                if (celular) profilePayload.celular = celular.replace(/\D/g, '');
+                if (nasc)    profilePayload.data_nascimento = nasc;
+
+                await _supabase.from('profiles').upsert(profilePayload);
+            }
+
+            // 3. Auto-login após cadastro
+            if (signUpData.session) {
+                // Supabase retornou sessão imediata (confirm email desabilitado)
+                syncSupabaseTokenToLocal(signUpData.session.access_token);
                 showMsg('registerMsg', '🎉 Conta criada! Redirecionando...', 'success');
                 setTimeout(() => { window.location.href = AUTH_CONFIG.REDIRECT_AFTER_LOGIN; }, 1000);
             } else {
-                showMsg('registerMsg', '✅ Conta criada! Faça login.', 'success');
-                setTimeout(() => switchAuthTab('login'), 1500);
+                // Email de confirmação ativado — orientar o utilizador
+                showMsg('registerMsg', '✅ Conta criada! Verifique seu e-mail para confirmar o cadastro.', 'success');
+                setTimeout(() => switchAuthTab('login'), 3000);
             }
-        } catch {
+
+        } catch (err) {
             showMsg('registerMsg', '❌ Erro de conexão. Tente novamente.');
+            console.error('[FloodGuard Auth] Register error:', err);
         } finally {
             setLoading('btn-submit-reg', false, '✨ Criar Conta e Acessar');
         }
@@ -400,42 +408,51 @@ function switchProfileTab(tab) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// PÁGINA DE PERFIL — INIT
+// PÁGINA DE PERFIL — INIT (Supabase profiles)
 // ══════════════════════════════════════════════════════════════════
 async function initProfilePage() {
-    // Proteção: redireciona se não logado
     if (!isLoggedIn()) {
         window.location.href = AUTH_CONFIG.REDIRECT_TO_LOGIN;
         return;
     }
 
-    // Preencher com dados do cache enquanto carrega
-    const cached = getCurrentUser();
-    if (cached) fillProfileUI(cached);
-
-    // Buscar dados frescos da API
     try {
-        const res  = await authFetch('/me');
-        if (!res) return;
-        const user = await res.json();
-        if (!res.ok) { logout(); return; }
-        saveSession(getToken(), user);
-        fillProfileUI(user);
-    } catch {
-        if (!cached) logout();
+        // Obtém o utilizador autenticado do Supabase
+        const { data: { user }, error: userError } = await _supabase.auth.getUser();
+        if (userError || !user) { logout(); return; }
+
+        // Busca dados da tabela profiles
+        const { data: profile, error: profileError } = await _supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+        // Mescla dados do auth com o profile
+        const merged = {
+            id:              user.id,
+            email:           user.email,
+            nome:            profile?.nome || user.user_metadata?.nome || user.email,
+            celular:         profile?.celular || null,
+            data_nascimento: profile?.data_nascimento || null,
+            role:            user.user_metadata?.role || 'cidadão',
+            ativo:           true,
+            created_at:      user.created_at,
+            last_login:      user.last_sign_in_at,
+        };
+
+        fillProfileUI(merged);
+    } catch (err) {
+        console.error('[FloodGuard Auth] initProfilePage error:', err);
+        if (!isLoggedIn()) logout();
     }
 
-    // Inicializar formulários da página de perfil
     initProfileForm();
-    initPasswordForm();
-
-    // Máscara de celular no perfil
     applyPhoneMask(document.getElementById('pf-celular'));
     setupPasswordStrength('pw-nova', 'pw2-strength-fill', 'pw2-strength-label', 'pw2-strength-container');
 }
 
 function fillProfileUI(user) {
-    // Hero
     const initial = (user.nome || '?')[0].toUpperCase();
     const avatar  = document.getElementById('hero-avatar');
     const name    = document.getElementById('hero-name');
@@ -444,22 +461,20 @@ function fillProfileUI(user) {
     if (avatar) avatar.textContent = initial;
     if (name)   name.textContent  = user.nome || '—';
     if (email)  email.textContent = user.email || '—';
-    if (roleEl) roleEl.innerHTML  = `<span class="role-badge">⚙️ ${user.role || 'cidadao'}</span>`;
+    if (roleEl) roleEl.innerHTML  = `<span class="role-badge">⚙️ ${user.role || 'cidadão'}</span>`;
 
-    // Formulário dados
     setVal('pf-nome',    user.nome);
     setVal('pf-email',   user.email);
     setVal('pf-celular', user.celular || '');
     setVal('pf-nasc',    user.data_nascimento || '');
-    setVal('pf-role',    user.role || 'cidadao');
+    setVal('pf-role',    user.role || 'cidadão');
 
-    // Atividade
-    setTxt('act-id',         '#' + (user.id || '—'));
+    setTxt('act-id',         '#' + (user.id?.toString().slice(0, 8) || '—'));
     setTxt('act-created',    formatDate(user.created_at));
     setTxt('act-last-login', formatDate(user.last_login));
     setTxt('act-nasc',       formatDateBR(user.data_nascimento));
     setTxt('act-celular',    user.celular || 'Não cadastrado');
-    setTxt('act-role',       user.role || 'cidadao');
+    setTxt('act-role',       user.role || 'cidadão');
 
     const statusEl = document.getElementById('act-status');
     if (statusEl) {
@@ -492,7 +507,7 @@ function formatDateBR(dateStr) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// FORMULÁRIO DE EDIÇÃO DE PERFIL
+// FORMULÁRIO DE EDIÇÃO DE PERFIL (Supabase profiles)
 // ══════════════════════════════════════════════════════════════════
 function initProfileForm() {
     const form = document.getElementById('profileForm');
@@ -520,25 +535,37 @@ function initProfileForm() {
 
         setLoading('btn-save-profile', true, '💾 Salvar Alterações');
         try {
-            const payload = { nome };
-            if (celular !== null) payload.celular = celular;
+            const { data: { user } } = await _supabase.auth.getUser();
+            if (!user) { showMsg('profileMsg', '❌ Sessão expirada. Faça login novamente.'); return; }
+
+            const payload = { id: user.id, nome };
+            if (celular !== null) payload.celular = celular.replace(/\D/g, '');
             if (nasc !== null)    payload.data_nascimento = nasc;
 
-            const res  = await authFetch('/me', {
-                method: 'PUT',
-                body: JSON.stringify(payload),
-            });
-            if (!res) return;
-            const data = await res.json();
-            if (!res.ok) {
-                showMsg('profileMsg', '❌ ' + extractApiError(data, 'Erro ao salvar.'));
+            const { error } = await _supabase.from('profiles').upsert(payload);
+
+            if (error) {
+                showMsg('profileMsg', `❌ ${error.message || 'Erro ao salvar.'}`);
                 return;
             }
-            saveSession(getToken(), data);
-            fillProfileUI(data);
+
             showMsg('profileMsg', '✅ Perfil atualizado com sucesso!', 'success');
-        } catch {
+
+            // Atualiza a UI com os novos dados
+            fillProfileUI({
+                id:              user.id,
+                email:           user.email,
+                nome,
+                celular:         payload.celular || null,
+                data_nascimento: nasc || null,
+                role:            user.user_metadata?.role || 'cidadão',
+                ativo:           true,
+                created_at:      user.created_at,
+                last_login:      user.last_sign_in_at,
+            });
+        } catch (err) {
             showMsg('profileMsg', '❌ Erro de conexão.');
+            console.error('[FloodGuard Auth] Profile update error:', err);
         } finally {
             setLoading('btn-save-profile', false, '💾 Salvar Alterações');
         }
@@ -546,84 +573,21 @@ function initProfileForm() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// FORMULÁRIO DE TROCA DE SENHA
+// initPasswordForm — mantido como stub seguro (pwForm foi removido do HTML)
 // ══════════════════════════════════════════════════════════════════
 function initPasswordForm() {
-    const form = document.getElementById('pwForm');
-    if (!form) return;
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        clearFieldErrors('err-pw-atual', 'err-pw-nova', 'err-pw-confirm');
-        hideMsg('pwMsg');
-
-        const atual   = document.getElementById('pw-atual')?.value;
-        const nova    = document.getElementById('pw-nova')?.value;
-        const confirm = document.getElementById('pw-confirm')?.value;
-
-        let hasError = false;
-        if (!atual) {
-            showFieldError('err-pw-atual', 'Informe a senha atual.');
-            hasError = true;
-        }
-        if (!validatePassword(nova)) {
-            showFieldError('err-pw-nova', 'Mínimo 8 caracteres com letra e número.');
-            markInput('pw-nova', false); hasError = true;
-        }
-        if (nova !== confirm) {
-            showFieldError('err-pw-confirm', 'As senhas não coincidem.');
-            markInput('pw-confirm', false); hasError = true;
-        }
-        if (hasError) return;
-
-        setLoading('btn-save-pw', true, '🔐 Alterar Senha');
-        try {
-            const res  = await authFetch('/me/password', {
-                method: 'PUT',
-                body: JSON.stringify({ senha_atual: atual, nova_senha: nova }),
-            });
-            if (!res) return;
-            const data = await res.json();
-            if (!res.ok) {
-                showMsg('pwMsg', '❌ ' + extractApiError(data, 'Erro ao alterar senha.'));
-                return;
-            }
-            showMsg('pwMsg', '✅ Senha alterada! Faça login novamente.', 'success');
-            setTimeout(() => logout(), 2500);
-        } catch {
-            showMsg('pwMsg', '❌ Erro de conexão.');
-        } finally {
-            setLoading('btn-save-pw', false, '🔐 Alterar Senha');
-        }
-    });
-}
-
-// ══════════════════════════════════════════════════════════════════
-// DESATIVAR CONTA
-// ══════════════════════════════════════════════════════════════════
-function confirmDeactivate() {
-    if (!confirm('⚠️ Tem certeza que deseja desativar sua conta?\n\nVocê perderá o acesso ao sistema.')) return;
-    authFetch('/me', { method: 'DELETE' }).then(res => {
-        if (res && res.ok) {
-            alert('Conta desativada. Até logo!');
-            logout();
-        } else {
-            alert('Erro ao desativar conta. Tente novamente.');
-        }
-    }).catch(() => alert('Erro de conexão.'));
+    // O formulário pwForm foi descontinuado. Esta função existe por compatibilidade.
 }
 
 // ══════════════════════════════════════════════════════════════════
 // AUTO-INIT ao carregar DOM
 // ══════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-    // Detectar qual página estamos
     const path = window.location.pathname;
 
     if (path.includes('login')) {
         initLoginForm();
         initRegisterForm();
-        // Verificar se deve abrir aba de cadastro
         if (new URLSearchParams(window.location.search).get('tab') === 'register') {
             switchAuthTab('register');
         }

@@ -1,8 +1,8 @@
 import os
 
 # ─── Supabase ─────────────────────────────────────────────────────────────────
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://fvfkrhmyqdymqywwlkon.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZmtyaG15cWR5bXF5d3dsa29uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTA5MzE0NDYsImV4cCI6MjAyNjUwNzQ0Nn0.sFPLwKPT9-3TqC1ULfDAWAPkMJv3mdUEP4NzWb6K0Vk")
 
 # ─── JWT / Auth ───────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "floodguard-development-secret-key-2026")
@@ -29,6 +29,7 @@ class Settings:
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
     SUPABASE_URL: str | None = SUPABASE_URL
     SUPABASE_KEY: str | None = SUPABASE_KEY
+    VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "false").lower() in ("true", "1", "yes")
 
 
 settings = Settings()

@@ -196,35 +196,49 @@ async function syncSavedPlacesFromServer() {
         }
     } catch (_) {}
 
-    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
-    if (!token) {
-        return;
-    }
+    // 2. Sincroniza com Supabase (tabela profiles)
     try {
-        const response = await fetch('/api/user/profile', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!response.ok) return;
-        const profile = await response.json();
-        const normalize = (place, label) => (place && (place.address || (place.lat !== null && place.lat !== undefined))) ? {
-            lat: Number(place.lat), lon: Number(place.lon),
-            nome: place.address || label, address: place.address || label,
-            bairro: 'São Paulo - SP'
-        } : null;
+        const { data: { user } } = await _supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: profile, error } = await _supabase
+            .from('profiles')
+            .select('home_address, home_lat, home_lon, home_nome, home_bairro, home_alt, work_address, work_lat, work_lon, work_nome, work_bairro, work_alt, nome')
+            .eq('id', user.id)
+            .single();
+
+        if (error || !profile) return;
+
+        const buildPlace = (prefix, label) => {
+            const lat = profile[`${prefix}_lat`];
+            const lon = profile[`${prefix}_lon`];
+            if (lat === null || lat === undefined) return null;
+            return {
+                lat:     Number(lat),
+                lon:     Number(lon),
+                nome:    profile[`${prefix}_nome`]    || profile[`${prefix}_address`] || label,
+                bairro:  profile[`${prefix}_bairro`]  || 'São Paulo - SP',
+                address: profile[`${prefix}_address`] || profile[`${prefix}_nome`] || label,
+                alt:     profile[`${prefix}_alt`]     ?? null,
+            };
+        };
+
         savedPlacesState = {
-            home: normalize(profile.saved_places?.home, 'Casa'),
-            work: normalize(profile.saved_places?.work, 'Trabalho')
+            home: buildPlace('home', 'Casa'),
+            work: buildPlace('work', 'Trabalho'),
         };
         localStorage.setItem('fg_saved_places', JSON.stringify(savedPlacesState));
+
+        // Atualiza o label do header com o nome do utilizador
         const labelEl = document.getElementById('header-user-label');
-        if (labelEl && profile.user?.nome) labelEl.textContent = profile.user.nome.split(' ')[0];
+        if (labelEl && profile.nome) labelEl.textContent = profile.nome.split(' ')[0];
+
     } catch (error) {
-        console.warn('[Locais salvos] Não foi possível sincronizar:', error);
+        console.warn('[Locais salvos] Não foi possível sincronizar com Supabase:', error);
     }
 }
 
 async function setUserPlace(type, placeData) {
-    const previous = savedPlacesState[type];
     savedPlacesState[type] = placeData;
     try {
         localStorage.setItem('fg_saved_places', JSON.stringify(savedPlacesState));
@@ -236,35 +250,61 @@ async function setUserPlace(type, placeData) {
         hasActiveUserSelection = true;
     }
 
-    const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
-    if (!token) return true;
-
+    // Persiste na tabela profiles do Supabase
     try {
-        const response = await fetch('/api/user/saved-places', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({
-                type,
-                address: placeData?.address || placeData?.nome || null,
-                lat: placeData?.lat ?? null,
-                lon: placeData?.lon ?? null
-            })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        checkAndPromptNotificationPermission();
-        checkSavedPlacesRiskAlerts();
-        return true;
+        const { data: { user } } = await _supabase.auth.getUser();
+        if (!user) return true; // Não autenticado — já salvo localmente
+
+        const prefix = type; // 'home' ou 'work'
+        const update = {
+            [`${prefix}_address`]: placeData?.address || placeData?.nome || null,
+            [`${prefix}_lat`]:     placeData?.lat ?? null,
+            [`${prefix}_lon`]:     placeData?.lon ?? null,
+            [`${prefix}_nome`]:    placeData?.nome || null,
+            [`${prefix}_bairro`]:  placeData?.bairro || null,
+            [`${prefix}_alt`]:     placeData?.alt ?? null,
+        };
+
+        const { error } = await _supabase
+            .from('profiles')
+            .upsert({
+                id: user.id,
+                ...update
+            });
+
+        if (error) {
+            console.warn('[Locais salvos] Falha ao persistir no Supabase:', error.message);
+        } else {
+            checkAndPromptNotificationPermission();
+            checkSavedPlacesRiskAlerts();
+        }
     } catch (error) {
-        console.warn('[Locais salvos] Falha ao persistir no servidor:', error);
-        return true; // Retorna true pois já foi salvo no localStorage com sucesso
+        console.warn('[Locais salvos] Erro inesperado ao salvar:', error);
     }
+    return true;
 }
 
 function getAuthenticatedUserContext() {
+    // Verifica o token fg_token (sincronizado do Supabase pelo supabaseClient.js)
     const token = localStorage.getItem('fg_token') || localStorage.getItem('floodguard_token');
     if (!token) return null;
+
+    // Tenta extrair o user ID da sessão Supabase armazenada no localStorage
+    try {
+        const sbKey = Object.keys(localStorage).find(
+            k => k.startsWith('sb-') && k.endsWith('-auth-token')
+        );
+        if (sbKey) {
+            const session = JSON.parse(localStorage.getItem(sbKey));
+            const uid = session?.user?.id;
+            const email = session?.user?.email;
+            if (uid) return { id: uid, email: email || uid };
+        }
+    } catch (_) {}
+
+    // Fallback: decodifica o JWT para extrair sub
     const payload = decodeJwtPayload(token);
-    return payload?.sub ? { id: String(payload.sub), email: payload.sub } : null;
+    return payload?.sub ? { id: String(payload.sub), email: payload.email || payload.sub } : null;
 }
 
 // Retorna o local pesquisado / selecionado ativo no card lateral

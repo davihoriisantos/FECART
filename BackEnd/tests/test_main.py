@@ -49,7 +49,10 @@ class FakeWeatherResponse:
         }
 
 
-def test_login_rejects_invalid_credentials():
+@patch("app.routers.auth.get_supabase")
+def test_login_rejects_invalid_credentials(mock_sb):
+    mock_table = mock_sb.return_value.table.return_value
+    mock_table.select.return_value.eq.return_value.execute.return_value.data = []
     response = client.post(
         "/api/auth/login",
         json={"email": "inexistente@example.com", "senha": "senha-invalida"},

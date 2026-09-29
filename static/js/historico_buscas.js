@@ -1,6 +1,11 @@
 /**
- * Módulo de Histórico de Buscas de Região — FloodGuard AI
- * Gerencia persistência, consulta e renderização das buscas recentes por usuário autenticado.
+ * historico_buscas.js — FloodGuard AI
+ * Gerencia persistência, consulta e renderização das buscas recentes por utilizador.
+ * Utiliza Supabase (tabela `search_history`) em vez do backend FastAPI.
+ *
+ * Dependências (carregadas antes deste ficheiro):
+ *   1. https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2
+ *   2. /static/js/supabaseClient.js  (expõe _supabase)
  */
 
 // ─── Helpers de Autenticação ─────────────────────────────────────────────────
@@ -12,127 +17,183 @@ function isUserAuthenticated() {
     return !!getAuthToken();
 }
 
+/**
+ * Retorna o UUID do utilizador autenticado no Supabase.
+ * Usa a sessão em cache do SDK (síncrono via localStorage interno).
+ * @returns {string|null}
+ */
+function _getSupabaseUID() {
+    try {
+        const sbKey = Object.keys(localStorage).find(
+            k => k.startsWith('sb-') && k.endsWith('-auth-token')
+        );
+        if (!sbKey) return null;
+        const session = JSON.parse(localStorage.getItem(sbKey));
+        return session?.user?.id || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function _resolveSupabaseUID() {
+    let uid = _getSupabaseUID();
+    if (!uid && typeof _supabase !== 'undefined' && _supabase?.auth) {
+        try {
+            const { data: { user } } = await _supabase.auth.getUser();
+            uid = user?.id || null;
+        } catch (_) {}
+    }
+    return uid;
+}
+
 // ─── Formatação de Data Relativa ─────────────────────────────────────────────
 function formatRelativeTime(isoString) {
     if (!isoString) return '';
     const date = new Date(isoString);
     if (isNaN(date.getTime())) return '';
 
-    const now = new Date();
-    const diffMs = now - date;
+    const now     = new Date();
+    const diffMs  = now - date;
     const diffSec = Math.floor(diffMs / 1000);
     const diffMin = Math.floor(diffSec / 60);
-    const diffHours = Math.floor(diffMin / 60);
-    const diffDays = Math.floor(diffHours / 24);
+    const diffHrs = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHrs / 24);
 
-    if (diffSec < 60) return 'agora mesmo';
-    if (diffMin < 60) return `há ${diffMin} min`;
-    if (diffHours < 24) {
-        return `hoje às ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    if (diffDays === 1) {
-        return `ontem às ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' às ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (diffSec < 60)  return 'agora mesmo';
+    if (diffMin < 60)  return `há ${diffMin} min`;
+    if (diffHrs < 24)  return `hoje às ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    if (diffDay === 1) return `ontem às ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+        + ' às ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-// ─── 1. Salvar Busca no Histórico (Silencioso) ──────────────────────────────
+// ─── 1. Salvar Busca no Histórico (Supabase) ─────────────────────────────────
 async function salvarBuscaHistorico(item) {
-    const token = getAuthToken();
-    if (!token || !item || !item.nome) return null;
+    if (!isUserAuthenticated() || !item || !item.nome) return null;
+
+    const userId = await _resolveSupabaseUID();
+    if (!userId) return null;
 
     const payload = {
-        termo_busca: item.nome,
-        lat: item.lat !== undefined ? Number(item.lat) : null,
-        lon: (item.lon !== undefined ? Number(item.lon) : (item.lng !== undefined ? Number(item.lng) : null)),
-        bairro: item.bairro || null,
-        dados_adicionais: item.display_name || item.address || null
+        user_id:          userId,
+        termo_busca:      item.nome,
+        lat:              item.lat  !== undefined ? Number(item.lat)  : null,
+        lon:              item.lon  !== undefined ? Number(item.lon)  : (item.lng !== undefined ? Number(item.lng) : null),
+        bairro:           item.bairro || null,
+        dados_adicionais: item.display_name || item.address || null,
     };
 
     try {
-        const res = await fetch('/api/user/history', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-            return await res.json();
+        // Anti-duplicata: não salvar se o mesmo termo foi buscado nas últimas 2 horas
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        const { data: existing } = await _supabase
+            .from('search_history')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('termo_busca', payload.termo_busca)
+            .gte('criado_em', twoHoursAgo)
+            .limit(1);
+
+        if (existing && existing.length > 0) return existing[0]; // já existe, não duplica
+
+        const { data, error } = await _supabase
+            .from('search_history')
+            .insert(payload)
+            .select()
+            .single();
+
+        if (error) {
+            console.debug('[Histórico] Falha ao registrar busca:', error.message);
+            return null;
         }
+        return data;
     } catch (e) {
-        console.debug('[Histórico] Falha ao registrar busca:', e.message);
+        console.debug('[Histórico] Erro inesperado ao salvar:', e.message);
+        return null;
     }
-    return null;
 }
 
-// ─── 2. Carregar Histórico do Usuário ────────────────────────────────────────
+// ─── 2. Carregar Histórico do Utilizador (Supabase) ──────────────────────────
 async function carregarHistorico(limit = 10) {
-    const token = getAuthToken();
-    if (!token) return [];
+    if (!isUserAuthenticated()) return [];
+
+    const userId = await _resolveSupabaseUID();
+    if (!userId) return [];
 
     try {
-        const res = await fetch('/api/user/profile', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        if (res.ok) {
-            const profile = await res.json();
-            return (profile.history || []).slice(0, limit);
+        const { data, error } = await _supabase
+            .from('search_history')
+            .select('id, termo_busca, lat, lon, bairro, dados_adicionais, criado_em')
+            .eq('user_id', userId)
+            .order('criado_em', { ascending: false })
+            .limit(limit);
+
+        if (error) {
+            console.debug('[Histórico] Erro ao carregar buscas:', error.message);
+            return [];
         }
+        return data || [];
     } catch (e) {
-        console.debug('[Histórico] Erro ao carregar buscas:', e.message);
+        console.debug('[Histórico] Erro inesperado ao carregar:', e.message);
+        return [];
     }
-    return [];
 }
 
-// ─── 3. Remover Busca Individual ─────────────────────────────────────────────
+// ─── 3. Remover Busca Individual (Supabase) ───────────────────────────────────
 async function removerBuscaHistorico(id) {
-    const token = getAuthToken();
-    if (!token || !id) return false;
+    if (!isUserAuthenticated() || !id) return false;
+
+    const userId = await _resolveSupabaseUID();
+    if (!userId) return false;
 
     try {
-        const res = await fetch(`/api/historico/busca/${id}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        return res.ok;
+        const { error } = await _supabase
+            .from('search_history')
+            .delete()
+            .eq('id', id)
+            .eq('user_id', userId); // garante que só apaga o próprio registo
+
+        if (error) {
+            console.debug('[Histórico] Erro ao remover item:', error.message);
+            return false;
+        }
+        return true;
     } catch (e) {
-        console.debug('[Histórico] Erro ao remover item:', e.message);
+        console.debug('[Histórico] Erro inesperado ao remover:', e.message);
         return false;
     }
 }
 
-// ─── 4. Limpar Todo o Histórico ──────────────────────────────────────────────
+// ─── 4. Limpar Todo o Histórico (Supabase) ───────────────────────────────────
 async function limparTodoHistorico() {
-    const token = getAuthToken();
-    if (!token) return false;
+    if (!isUserAuthenticated()) return false;
+
+    const userId = await _resolveSupabaseUID();
+    if (!userId) return false;
 
     try {
-        const res = await fetch('/api/historico/busca', {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        return res.ok;
+        const { error } = await _supabase
+            .from('search_history')
+            .delete()
+            .eq('user_id', userId);
+
+        if (error) {
+            console.debug('[Histórico] Erro ao limpar histórico:', error.message);
+            return false;
+        }
+        return true;
     } catch (e) {
-        console.debug('[Histórico] Erro ao limpar histórico:', e.message);
+        console.debug('[Histórico] Erro inesperado ao limpar:', e.message);
         return false;
     }
 }
 
 // ─── 5. Exibir Buscas Recentes no Dropdown de Pesquisa do Mapa ───────────────
 async function showRecentSearches() {
-    const input = document.getElementById('universal-search-input');
+    const input    = document.getElementById('universal-search-input');
     const dropdown = document.getElementById('universal-search-dropdown');
     if (!input || !dropdown) return;
 
-    // Apenas se o campo estiver vazio
     if (input.value.trim().length > 0) return;
 
     if (!isUserAuthenticated()) {
@@ -146,7 +207,6 @@ async function showRecentSearches() {
         return;
     }
 
-    // Se o usuário já começou a digitar enquanto carregava, aborta
     if (input.value.trim().length > 0) return;
 
     let html = `
@@ -159,9 +219,9 @@ async function showRecentSearches() {
     `;
 
     html += historico.map((item) => {
-        const safeNome = (item.termo_busca || '').replace(/"/g, '&quot;');
+        const safeNome   = (item.termo_busca || '').replace(/"/g, '&quot;');
         const safeBairro = (item.bairro || '').replace(/"/g, '&quot;');
-        const timeAgo = formatRelativeTime(item.criado_em);
+        const timeAgo    = formatRelativeTime(item.criado_em || item.created_at);
 
         return `
         <div class="search-item search-item-recent" data-recent-id="${item.id}" role="button" tabindex="0" style="display: flex; align-items: center; justify-content: space-between;">
@@ -186,12 +246,12 @@ async function showRecentSearches() {
     dropdown.innerHTML = html;
     dropdown.style.display = 'block';
 
-    // Handler para clicar num item recente e refazer a busca
+    // Handler: clicar num item recente e refazer a busca
     dropdown.querySelectorAll('.recent-item-click-area').forEach(el => {
         el.addEventListener('click', () => {
-            const lat = Number(el.dataset.lat);
-            const lon = Number(el.dataset.lon);
-            const nome = el.dataset.nome;
+            const lat    = Number(el.dataset.lat);
+            const lon    = Number(el.dataset.lon);
+            const nome   = el.dataset.nome;
             const bairro = el.dataset.bairro;
 
             if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
@@ -199,21 +259,19 @@ async function showRecentSearches() {
                     selectSearchResult(lat, lon, nome, bairro);
                 }
             } else {
-                // Se não tiver lat/lon, insere no campo e dispara busca
                 input.value = nome;
                 input.dispatchEvent(new Event('input'));
             }
         });
     });
 
-    // Handler para remover item individual
+    // Handler: remover item individual
     dropdown.querySelectorAll('.btn-remove-recent-item').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const id = Number(btn.dataset.id);
             if (id) {
                 await removerBuscaHistorico(id);
-                // Re-renderiza histórico se ainda estiver em foco
                 if (document.activeElement === input && input.value.trim().length === 0) {
                     showRecentSearches();
                 } else {
@@ -223,7 +281,7 @@ async function showRecentSearches() {
         });
     });
 
-    // Handler para limpar tudo
+    // Handler: limpar tudo
     const btnClearAll = document.getElementById('btn-clear-recent-dropdown');
     if (btnClearAll) {
         btnClearAll.addEventListener('click', async (e) => {
@@ -270,8 +328,8 @@ async function renderProfileHistory(preloadedItems = null) {
     if (btnClear) btnClear.style.display = 'inline-flex';
 
     container.innerHTML = items.map(item => {
-        const timeAgo = formatRelativeTime(item.criado_em);
-        const safeNome = (item.termo_busca || '').replace(/"/g, '&quot;');
+        const timeAgo    = formatRelativeTime(item.criado_em || item.created_at);
+        const safeNome   = (item.termo_busca || '').replace(/"/g, '&quot;');
         const safeBairro = (item.bairro || '').replace(/"/g, '&quot;');
         const targetData = JSON.stringify({
             lat: item.lat,
