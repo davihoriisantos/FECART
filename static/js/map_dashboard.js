@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initLeafletMap();
     setupSearchListeners();
     setupRouteAutocomplete();
+    initMobileSheetDrag();
     await syncSavedPlacesFromServer();
     refreshSavedPlaceButtons();
     // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
@@ -423,6 +424,18 @@ function openSavedPlace(type) {
     if (map) {
         map.flyTo([Number(place.lat), Number(place.lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
     }
+
+    if (window.innerWidth <= 768) {
+        const sidebar = document.getElementById('dash-sidebar-panel');
+        if (sidebar) {
+            sidebar.style.height = '44vh';
+            sidebar.classList.remove('collapsed', 'expanded');
+            const icon = document.getElementById('sheet-arrow-icon');
+            if (icon) icon.textContent = '▲';
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+        }
+    }
+
     analyzePoint(place.lat, place.lon, place.nome, place.bairro, place.alt, place.address, false);
 }
 
@@ -1548,7 +1561,9 @@ function getAltitudeClassification(alt) {
 function initLeafletMap() {
     map = L.map('map', {
         zoomControl: true,
-        attributionControl: true
+        attributionControl: true,
+        tap: false, // Elimina delay de 300ms e conflito de toque em navegadores móveis modernos
+        tapTolerance: 15
     }).setView([currentSelectedPoint.lat, currentSelectedPoint.lon], 15);
 
     // Mapas-base alternáveis: ruas para navegação e imagem aérea para inspeção do relevo.
@@ -2733,7 +2748,13 @@ function renderSearchDropdown({ local = [], nominatim = [], places = [], loading
     dropdown.innerHTML = html;
     dropdown.style.display = 'block';
     dropdown.querySelectorAll('[data-search-index]').forEach(element => {
-        element.addEventListener('click', () => {
+        let triggered = false;
+        const handleSelect = (e) => {
+            if (triggered) return;
+            triggered = true;
+            if (e && e.type === 'pointerdown') {
+                e.preventDefault(); // Impede delay de 300ms e previne cancelamento por blur do teclado
+            }
             const item = searchSuggestionResults[Number(element.dataset.searchIndex)];
             if (!item) return;
             if (item.isPlaceConfigAction) {
@@ -2742,7 +2763,11 @@ function renderSearchDropdown({ local = [], nominatim = [], places = [], loading
             } else {
                 selectSearchSuggestion(item);
             }
-        });
+            setTimeout(() => { triggered = false; }, 350);
+        };
+
+        element.addEventListener('pointerdown', handleSelect);
+        element.addEventListener('click', handleSelect);
     });
 }
 
@@ -2790,6 +2815,19 @@ function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = nu
 
     // Move o mapa imediatamente; clima, altitude e marcador são atualizados em seguida.
     if (map) map.flyTo([Number(lat), Number(lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+
+    // No celular, fecha o teclado e ajusta o painel para altura intermediária confortável (~42vh)
+    // permitindo ver a região centralizada no mapa e os dados de risco instantaneamente
+    if (window.innerWidth <= 768) {
+        const sidebar = document.getElementById('dash-sidebar-panel');
+        if (sidebar) {
+            sidebar.style.height = '44vh';
+            sidebar.classList.remove('collapsed', 'expanded');
+            const icon = document.getElementById('sheet-arrow-icon');
+            if (icon) icon.textContent = '▲';
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+        }
+    }
 
     // Aciona o motor de análise completo: clima + elevação + risco
     analyzePoint(lat, lon, nome, bairro, alt, fullAddress);
@@ -3002,16 +3040,17 @@ function switchDashboardTab(tab) {
     }, 150);
 }
 
-// ─── CONTROLE DO BOTTOM SHEET MOBILE (PAINEL DESLIZANTE) ─────────────────────
+// ─── CONTROLE DO BOTTOM SHEET MOBILE (PAINEL DESLIZANTE COM ARRASTO) ─────────
 function toggleMobileSheet() {
     const sidebar = document.getElementById('dash-sidebar-panel');
     const icon = document.getElementById('sheet-arrow-icon');
     if (!sidebar) return;
 
+    sidebar.style.height = ''; // Limpa altura inline para usar classes de animação
+
     if (sidebar.classList.contains('collapsed')) {
-        // Estava recolhido -> abre normal
-        sidebar.classList.remove('collapsed');
-        sidebar.classList.remove('expanded');
+        // Estava recolhido -> abre intermediário (54vh)
+        sidebar.classList.remove('collapsed', 'expanded');
         if (icon) icon.textContent = '▲';
     } else if (sidebar.classList.contains('expanded')) {
         // Estava expandido -> recolhe
@@ -3019,14 +3058,15 @@ function toggleMobileSheet() {
         sidebar.classList.add('collapsed');
         if (icon) icon.textContent = '▲';
     } else {
-        // Estava padrão -> expande para tela cheia
+        // Estava intermediário -> expande para tela quase cheia (88vh)
+        sidebar.classList.remove('collapsed');
         sidebar.classList.add('expanded');
         if (icon) icon.textContent = '▼';
     }
 
     setTimeout(() => {
         if (map) map.invalidateSize();
-    }, 320);
+    }, 300);
 }
 
 function setMobileSheetState(state) {
@@ -3034,7 +3074,9 @@ function setMobileSheetState(state) {
     const icon = document.getElementById('sheet-arrow-icon');
     if (!sidebar) return;
 
+    sidebar.style.height = ''; // Limpa altura manual
     sidebar.classList.remove('collapsed', 'expanded');
+
     if (state === 'collapsed') {
         sidebar.classList.add('collapsed');
         if (icon) icon.textContent = '▲';
@@ -3042,12 +3084,122 @@ function setMobileSheetState(state) {
         sidebar.classList.add('expanded');
         if (icon) icon.textContent = '▼';
     } else {
+        // Padrão / intermediário
         if (icon) icon.textContent = '▲';
     }
 
     setTimeout(() => {
         if (map) map.invalidateSize();
-    }, 320);
+    }, 300);
+}
+
+// ─── GESTO DE TOQUE E ARRASTO (DRAG COM O DEDO) NO PUXADOR DO PAINEL ─────────
+function initMobileSheetDrag() {
+    const handle = document.getElementById('mobile-sheet-handle');
+    const sidebar = document.getElementById('dash-sidebar-panel');
+    const toggleBtn = document.getElementById('btn-toggle-sheet');
+    const icon = document.getElementById('sheet-arrow-icon');
+    if (!handle || !sidebar) return;
+
+    // Desativa o onclick inline do HTML para evitar cliques duplos com o drag
+    handle.removeAttribute('onclick');
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleMobileSheet();
+        });
+    }
+
+    let isDragging = false;
+    let startY = 0;
+    let startHeight = 0;
+    let currentHeight = 0;
+    let hasMoved = false;
+
+    function onPointerDown(e) {
+        if (window.innerWidth > 768) return; // Apenas no celular/tablet
+        if (e.target.closest('#btn-toggle-sheet')) return;
+
+        isDragging = true;
+        hasMoved = false;
+        startY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+        startHeight = sidebar.getBoundingClientRect().height;
+        currentHeight = startHeight;
+
+        // Desativa a transição CSS momentaneamente para resposta instantânea ao dedo (60fps)
+        sidebar.style.transition = 'none';
+        sidebar.classList.remove('collapsed', 'expanded');
+
+        if (e.pointerId !== undefined && handle.setPointerCapture) {
+            try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+    }
+
+    function onPointerMove(e) {
+        if (!isDragging) return;
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+        const deltaY = startY - clientY; // Puxar para cima = positivo = aumenta a altura
+
+        if (Math.abs(deltaY) > 5) {
+            hasMoved = true;
+        }
+
+        const minH = 88; // Altura mínima: só o puxador visível
+        const maxH = Math.round(window.innerHeight * 0.92); // Altura máxima: até quase o topo
+
+        currentHeight = Math.max(minH, Math.min(maxH, startHeight + deltaY));
+        sidebar.style.height = `${currentHeight}px`;
+
+        if (icon) {
+            icon.textContent = currentHeight > (window.innerHeight * 0.68) ? '▼' : '▲';
+        }
+    }
+
+    function onPointerUp(e) {
+        if (!isDragging) return;
+        isDragging = false;
+
+        if (e.pointerId !== undefined && handle.releasePointerCapture) {
+            try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+        }
+
+        // Restaura animação suave ao soltar
+        sidebar.style.transition = 'height 0.28s cubic-bezier(0.2, 0.9, 0.3, 1)';
+
+        if (!hasMoved) {
+            // Se foi apenas um toque sem arrastar, alterna normalmente
+            toggleMobileSheet();
+            return;
+        }
+
+        const vh = window.innerHeight;
+        // Snap inteligente próximo aos extremos
+        if (currentHeight < 125) {
+            setMobileSheetState('collapsed');
+        } else if (currentHeight > vh * 0.82) {
+            setMobileSheetState('expanded');
+        } else {
+            // O usuário escolheu exatamente esta altura livre!
+            sidebar.style.height = `${currentHeight}px`;
+            sidebar.classList.remove('collapsed', 'expanded');
+            if (icon) {
+                icon.textContent = currentHeight > (vh * 0.68) ? '▼' : '▲';
+            }
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+        }
+    }
+
+    // Suporte moderno a Pointer Events (cobre Touch e Mouse em Android e iOS)
+    handle.addEventListener('pointerdown', onPointerDown, { passive: true });
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', onPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onPointerUp, { passive: true });
+
+    // Fallback nativo de Touch Events
+    handle.addEventListener('touchstart', onPointerDown, { passive: true });
+    window.addEventListener('touchmove', onPointerMove, { passive: true });
+    window.addEventListener('touchend', onPointerUp, { passive: true });
 }
 
 // ─── AUTOCOMPLETE DA ABA DE ROTAS (UNIFICADO COM ABA EXPLORAR) ───────────────
@@ -3276,15 +3428,28 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
     positionRouteDropdown(inputId, dropdownId);
     dropdown.style.display = 'block';
 
-    // Eventos de clique
+    // Eventos de clique e toque com latência zero
     dropdown.querySelectorAll('[data-action="gps"]').forEach(el => {
-        el.addEventListener('click', () => {
+        let triggered = false;
+        const handleGps = (e) => {
+            if (triggered) return;
+            triggered = true;
+            if (e && e.type === 'pointerdown') e.preventDefault();
             selectMyLocationForField(inputId, dropdownId);
-        });
+            setTimeout(() => { triggered = false; }, 350);
+        };
+        el.addEventListener('pointerdown', handleGps);
+        el.addEventListener('click', handleGps);
     });
 
     dropdown.querySelectorAll('[data-route-index]').forEach(element => {
-        element.addEventListener('click', () => {
+        let triggered = false;
+        const handleRouteSelect = (e) => {
+            if (triggered) return;
+            triggered = true;
+            if (e && e.type === 'pointerdown') {
+                e.preventDefault();
+            }
             const item = routeSearchSuggestions[inputId][Number(element.dataset.routeIndex)];
             if (!item) return;
             if (item.isPlaceConfigAction) {
@@ -3293,7 +3458,11 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
             } else {
                 selectRouteItem(inputId, dropdownId, fieldType, item);
             }
-        });
+            setTimeout(() => { triggered = false; }, 350);
+        };
+
+        element.addEventListener('pointerdown', handleRouteSelect);
+        element.addEventListener('click', handleRouteSelect);
     });
 }
 
