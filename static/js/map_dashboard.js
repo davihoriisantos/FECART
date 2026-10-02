@@ -2536,36 +2536,234 @@ function filterLocalNeighborhoods(query) {
     });
 }
 
+// ─── RADAR METEOROLÓGICO ANIMADO EM TEMPO REAL (RAINVIEWER API) ─────────────
+let rainViewerRadarData = null;
+let rainViewerLayer = null;
+let radarAnimationTimer = null;
+let radarCurrentFrameIndex = 0;
+let isRadarPlaying = false;
+let isRadarLayerActive = false;
+
+async function fetchRainViewerData() {
+    try {
+        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        if (!res.ok) return null;
+        rainViewerRadarData = await res.json();
+        return rainViewerRadarData;
+    } catch (e) {
+        console.warn('Não foi possível obter dados do RainViewer:', e);
+        return null;
+    }
+}
+
+function updateRadarFrame(index) {
+    if (!rainViewerRadarData || !map || !isRadarLayerActive) return;
+    const past = rainViewerRadarData.radar?.past || [];
+    if (past.length === 0) return;
+
+    radarCurrentFrameIndex = (index >= 0 && index < past.length) ? index : past.length - 1;
+    const frame = past[radarCurrentFrameIndex];
+    const host = rainViewerRadarData.host || 'https://tilecache.rainviewer.com';
+
+    // Formata o horário do frame em Horário de Brasília
+    const date = new Date(frame.time * 1000);
+    const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const diffMin = Math.round((Date.now() - (frame.time * 1000)) / 60000);
+    const label = diffMin <= 6 ? `${timeStr} (Agora)` : `${timeStr} (-${diffMin} min)`;
+
+    const textEl = document.getElementById('radar-timestamp');
+    if (textEl) textEl.textContent = label;
+
+    const tileUrl = `${host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+
+    if (rainViewerLayer) {
+        map.removeLayer(rainViewerLayer);
+    }
+
+    rainViewerLayer = L.tileLayer(tileUrl, {
+        opacity: 0.65,
+        zIndex: 400,
+        tileSize: 256
+    }).addTo(map);
+}
+
+function startRadarAnimation() {
+    stopRadarAnimation();
+    const past = rainViewerRadarData?.radar?.past || [];
+    if (past.length === 0) return;
+
+    isRadarPlaying = true;
+    const btn = document.getElementById('btn-radar-toggle-play');
+    if (btn) btn.textContent = '⏸';
+
+    radarAnimationTimer = setInterval(() => {
+        const pastFrames = rainViewerRadarData?.radar?.past || [];
+        radarCurrentFrameIndex = (radarCurrentFrameIndex + 1) % pastFrames.length;
+        updateRadarFrame(radarCurrentFrameIndex);
+    }, 850);
+}
+
+function stopRadarAnimation() {
+    if (radarAnimationTimer) {
+        clearInterval(radarAnimationTimer);
+        radarAnimationTimer = null;
+    }
+    isRadarPlaying = false;
+    const btn = document.getElementById('btn-radar-toggle-play');
+    if (btn) btn.textContent = '▶';
+}
+
+function toggleRadarLayer(active) {
+    isRadarLayerActive = active;
+    const widget = document.getElementById('radar-player-widget');
+
+    if (!active) {
+        stopRadarAnimation();
+        if (rainViewerLayer && map) {
+            map.removeLayer(rainViewerLayer);
+            rainViewerLayer = null;
+        }
+        if (widget) widget.style.display = 'none';
+        return;
+    }
+
+    if (widget) widget.style.display = 'flex';
+
+    if (!rainViewerRadarData) {
+        const textEl = document.getElementById('radar-timestamp');
+        if (textEl) textEl.textContent = 'Carregando radar...';
+        fetchRainViewerData().then(data => {
+            if (data && isRadarLayerActive) {
+                const past = data.radar?.past || [];
+                updateRadarFrame(past.length - 1);
+                startRadarAnimation();
+            }
+        });
+    } else {
+        const past = rainViewerRadarData.radar?.past || [];
+        updateRadarFrame(past.length - 1);
+        startRadarAnimation();
+    }
+}
+
+// ─── MAPA DE CALOR / MANCHAS DE RISCO CRÍTICO DE SP ───────────────────────────
+let riskHeatLayerGroup = null;
+let isRiskHeatActive = false;
+
+function toggleRiskHeatLayer(active) {
+    isRiskHeatActive = active;
+
+    if (!active) {
+        if (riskHeatLayerGroup && map) {
+            map.removeLayer(riskHeatLayerGroup);
+            riskHeatLayerGroup = null;
+        }
+        return;
+    }
+
+    if (!map) return;
+    riskHeatLayerGroup = L.layerGroup();
+
+    const zones = (typeof CHRONIC_FLOOD_ZONES !== 'undefined' ? CHRONIC_FLOOD_ZONES : []);
+    zones.forEach(zone => {
+        // Círculo térmico de dispersão externa (amarelo/laranja)
+        const outerCircle = L.circle([zone.lat, zone.lon], {
+            radius: zone.raio || 650,
+            color: '#F97316',
+            weight: 1,
+            opacity: 0.5,
+            fillColor: '#F59E0B',
+            fillOpacity: 0.16
+        });
+
+        // Núcleo crítico do fundo de vale (vermelho)
+        const innerCircle = L.circle([zone.lat, zone.lon], {
+            radius: Math.round((zone.raio || 650) * 0.45),
+            color: '#DC2626',
+            weight: 1.5,
+            opacity: 0.85,
+            fillColor: '#EF4444',
+            fillOpacity: 0.38
+        });
+
+        innerCircle.bindPopup(`
+            <div style="font-family: inherit; padding: 4px; min-width: 170px;">
+                <div style="font-weight: 800; font-size: 13px; color: #EF4444; margin-bottom: 3px;">⚠️ ${escapeHtml(zone.nome)}</div>
+                <div style="font-size: 11px; color: #475569; font-weight: 600;">Zona de Retenção Pluvial Crítica</div>
+                <div style="font-size: 10px; color: #94A3B8; margin-top: 4px; border-top: 1px solid #E2E8F0; padding-top: 4px;">Defesa Civil de SP / CGE</div>
+            </div>
+        `);
+
+        outerCircle.addTo(riskHeatLayerGroup);
+        innerCircle.addTo(riskHeatLayerGroup);
+    });
+
+    riskHeatLayerGroup.addTo(map);
+}
+
+// ─── TOOLBAR MODERNA DE CAMADAS COM RADAR E ZONAS DE RISCO ────────────────────
 function createMapLayerSwitcher(streetLayer, satelliteLayer) {
     const container = document.getElementById('map-layer-toolbar');
     if (!container) return;
     const switcher = L.DomUtil.create('div', 'map-layer-switcher', container);
     switcher.setAttribute('role', 'group');
-    switcher.setAttribute('aria-label', 'Tipo de mapa');
+    switcher.setAttribute('aria-label', 'Tipo de mapa e camadas');
     switcher.innerHTML = `
         <button type="button" class="map-layer-option active" data-layer="map" aria-pressed="true">🗺️ Mapa</button>
         <button type="button" class="map-layer-option" data-layer="satellite" aria-pressed="false">🛰️ Satélite</button>
+        <button type="button" class="map-layer-option" data-layer="radar" aria-pressed="false" title="Radar de chuva animado ao vivo da Grande SP">🌧️ Radar Chuva</button>
+        <button type="button" class="map-layer-option" data-layer="heat" aria-pressed="false" title="Destacar manchas térmicas das áreas de risco de SP">🔥 Zonas de Risco</button>
     `;
 
     L.DomEvent.disableClickPropagation(switcher);
     L.DomEvent.disableScrollPropagation(switcher);
 
+    // Botão de Play / Pause do Radar
+    const playBtn = document.getElementById('btn-radar-toggle-play');
+    if (playBtn) {
+        playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isRadarPlaying) {
+                stopRadarAnimation();
+            } else {
+                startRadarAnimation();
+            }
+        });
+    }
+
     switcher.querySelectorAll('.map-layer-option').forEach(button => {
         button.addEventListener('click', () => {
-            const useSatellite = button.dataset.layer === 'satellite';
-            if (useSatellite) {
-                if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
-                if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
-            } else {
+            const layer = button.dataset.layer;
+
+            if (layer === 'map') {
                 if (map.hasLayer(satelliteLayer)) map.removeLayer(satelliteLayer);
                 if (!map.hasLayer(streetLayer)) streetLayer.addTo(map);
+                button.classList.add('active');
+                switcher.querySelector('[data-layer="satellite"]')?.classList.remove('active');
+            } else if (layer === 'satellite') {
+                if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
+                if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
+                button.classList.add('active');
+                switcher.querySelector('[data-layer="map"]')?.classList.remove('active');
+            } else if (layer === 'radar') {
+                const isActive = button.classList.contains('active-radar');
+                if (isActive) {
+                    button.classList.remove('active-radar');
+                    toggleRadarLayer(false);
+                } else {
+                    button.classList.add('active-radar');
+                    toggleRadarLayer(true);
+                }
+            } else if (layer === 'heat') {
+                const isActive = button.classList.contains('active-heat');
+                if (isActive) {
+                    button.classList.remove('active-heat');
+                    toggleRiskHeatLayer(false);
+                } else {
+                    button.classList.add('active-heat');
+                    toggleRiskHeatLayer(true);
+                }
             }
-
-            switcher.querySelectorAll('.map-layer-option').forEach(option => {
-                const active = option === button;
-                option.classList.toggle('active', active);
-                option.setAttribute('aria-pressed', String(active));
-            });
         });
     });
 }
@@ -4854,4 +5052,11 @@ function getFallbackAnalysis() {
         historyRisks: [8, 10, 12, 11, 12, null, null, null],
         forecastRisks: [null, null, null, null, 12, 12, 12, 12]
     };
+}
+
+// ─── REGISTRO DE SERVICE WORKER (PWA INSTALÁVEL NO SMARTPHONE) ────────────────
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/service-worker.js').catch(() => {});
+    });
 }
