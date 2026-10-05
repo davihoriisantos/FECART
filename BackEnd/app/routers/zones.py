@@ -12,9 +12,10 @@ from ..schemas.zone import (
     SpatialRecordItem, 
     BasinFallbackInfo
 )
-from ..schemas.flood_event import FloodEventResponse, SyncResultResponse
+from ..schemas.flood_event import FloodEventResponse, SyncResultResponse, ChronicMatrixResponse
 from ..services.prediction_service import update_all_zones_risk
 from ..services.cge_crawler import sync_cge_floods
+from ..services.risk_matrix_service import get_chronic_risk_matrix
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
 
@@ -240,6 +241,44 @@ def trigger_cge_sync(
     """
     result = sync_cge_floods(target_date=data_busca, db=db)
     return SyncResultResponse(**result)
+
+
+@router.get("/chronic-matrix-2y", response_model=ChronicMatrixResponse)
+def get_chronic_matrix_2y(
+    raio_cluster_m: float = Query(500.0, description="Raio em metros para agrupamento geográfico de enchentes (padrão: 500m)"),
+    db: Session = Depends(get_db)
+):
+    """
+    MATRIZ DE RISCO HISTÓRICO (JANELA DINÂMICA DE 2 ANOS):
+    - Filtra eventos onde data_evento >= hoje - 2 anos
+    - Agrupa por proximidade espacial (raio de 500m / logradouro)
+    - Classifica o risco automaticamente:
+        * 5+ alagamentos: Risco Extremo (Crítico) - #7F1D1D
+        * 3 a 4 alagamentos: Risco Alto - #DC2626
+        * 1 a 2 alagamentos: Risco Moderado - #F59E0B
+    """
+    from datetime import date, timedelta
+    hoje = date.today()
+    data_inicio = hoje - timedelta(days=730)
+
+    clusters = get_chronic_risk_matrix(db=db, cluster_radius_m=raio_cluster_m)
+
+    total_ocorrencias = sum(c["total_ocorrencias"] for c in clusters)
+    zonas_criticas = sum(1 for c in clusters if c["nivel_risco"] == "critico")
+    zonas_altas = sum(1 for c in clusters if c["nivel_risco"] == "alto")
+    zonas_moderadas = sum(1 for c in clusters if c["nivel_risco"] == "moderado")
+
+    return ChronicMatrixResponse(
+        periodo_analise="2 Anos Dinâmico (24 meses)",
+        data_inicio=data_inicio.isoformat(),
+        data_fim=hoje.isoformat(),
+        total_clusters=len(clusters),
+        total_ocorrencias_periodo=total_ocorrencias,
+        zonas_criticas=zonas_criticas,
+        zonas_altas=zonas_altas,
+        zonas_moderadas=zonas_moderadas,
+        clusters=clusters
+    )
 
 
 @router.get("/{zone_id}", response_model=RiskZoneResponse)

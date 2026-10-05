@@ -90,7 +90,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await syncSavedPlacesFromServer();
     refreshSavedPlaceButtons();
     loadDynamicFloodEvents();
+    loadChronicRiskZones2Y();
     setInterval(loadDynamicFloodEvents, 5 * 60 * 1000);
+    setInterval(loadChronicRiskZones2Y, 10 * 60 * 1000);
     // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
     setTimeout(() => {
         checkAndPromptNotificationPermission();
@@ -1985,7 +1987,7 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     );
 
     // ─── 2. PILAR TOPOGRAFIA / RELEVO (OPENTOPODATA / ASTER) [0 a 100] ───
-    // Vales de SP (715-725m) têm alta suscetibilidade; cotas altas (>770m) dispersam o escoamento
+    // Vales de SP (715-725m) têm alta suscetibilidade de acúmulo hídrico; topos de espigão dispersam
     const Score_Topografia = clamp(100 / (1 + Math.exp((elevation - 744) / 14)), 5, 98);
 
     // ─── 3. PILAR PROXIMIDADE A CORPOS HÍDRICOS (CALHAS FLUVIAIS DE SP) E TELEMETRIA [0 a 100] ───
@@ -2002,27 +2004,56 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     }
     const Score_Nivel_Rio = clamp(Score_Proximidade_Rio * riverMultiplier, 2, 100);
 
-    // ─── 4. PILAR HISTÓRICO DEFESA CIVIL / CGE (RAIO 1000m + FALLBACK DE BACIA) [0 a 100] ───
+    // ─── 4. PILAR HISTÓRICO RECENTE: DEFESA CIVIL, CGE & MATRIZ DINÂMICA DE 2 ANOS [0 a 100] ───
     const chronicInfo = checkChronicFloodZone(lat, lon);
-    let Score_Historico_CGE = 42;
+    let Score_Historico = 40;
     if (chronicInfo.hasRecordsWithinRadius) {
         const distRatio = Math.max(0, 1 - (chronicInfo.dist / 1000));
-        Score_Historico_CGE = clamp(48 + distRatio * 50, 45, 98);
+        Score_Historico = clamp(48 + distRatio * 50, 45, 98);
     } else {
         // Fallback dinâmico calibrado pela bacia hidrográfica/zona de SP
-        Score_Historico_CGE = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
+        Score_Historico = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
     }
 
-    // Histórico da Defesa Civil é prioritário dentro da faixa conjunta de 20%.
-    const Score_Relevo_Historico = (Score_Historico_CGE * 0.70) + (Score_Topografia * 0.30);
-    const Peso_Chuva = 0.50;
-    const Peso_Rio = 0.30;
-    const Peso_Relevo_Historico = 0.20;
+    // Integração com a Matriz de 2 Anos (recorrência empírica comprovada)
+    if (typeof getNearestChronicRiskZone === 'function') {
+        const chronic2y = getNearestChronicRiskZone(lat, lon);
+        if (chronic2y && chronic2y.isInside) {
+            if (chronic2y.cluster.nivel_risco === 'critico') {
+                Score_Historico = Math.max(Score_Historico, 95); // 5+ enchentes em 24 meses
+            } else if (chronic2y.cluster.nivel_risco === 'alto') {
+                Score_Historico = Math.max(Score_Historico, 80); // 3 a 4 enchentes
+            } else if (chronic2y.cluster.nivel_risco === 'moderado') {
+                Score_Historico = Math.max(Score_Historico, 65); // 1 a 2 enchentes
+            }
+        }
+    }
+
+    // Se houver alagamento ATIVO no CGE neste momento a até 600m
+    if (typeof getNearestDynamicFlood === 'function') {
+        const activeFlood = getNearestDynamicFlood(lat, lon);
+        if (activeFlood && activeFlood.distance <= 600 && activeFlood.isAtivo) {
+            Score_Historico = Math.max(Score_Historico, activeFlood.isIntransitavel ? 98 : 85);
+        }
+    }
+
+    // ─── PESOS RECALIBRADOS (HIERARQUIA HIDROLÓGICA URBANA DE SÃO PAULO) ───
+    // Chuva (45%) | Histórico/Matriz 2Y (25%) | Topografia/Vales (15%) | Rios/Canais (15%)
+    const Peso_Chuva = 0.45;
+    const Peso_Historico = 0.25;
+    const Peso_Topografia = 0.15;
+    let Peso_Rio = 0.15;
+
+    // Se o rio estiver em emergência na telemetria real, amplia a relevância fluvial
+    if (hasRealRiverTelemetry && riverMultiplier >= 1.4) {
+        Peso_Rio = 0.22;
+    }
 
     let Risco_Multifatorial = (
         (Peso_Chuva * Score_Clima) +
-        (Peso_Rio * Score_Nivel_Rio) +
-        (Peso_Relevo_Historico * Score_Relevo_Historico)
+        (Peso_Historico * Score_Historico) +
+        (Peso_Topografia * Score_Topografia) +
+        (Peso_Rio * Score_Nivel_Rio)
     );
 
     // Atenuação por estruturas de macrodrenagem e piscinões
@@ -2337,6 +2368,11 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
         ? `<div style="margin-top: 4px; padding: 4px 6px; background: rgba(239,68,68,0.12); border: 1px solid #EF4444; border-radius: 4px; font-size: 10px; color: #DC2626;"><b>🌊 Alagamento CGE (${dynamicFloodNear.isIntransitavel ? 'Intransitável' : 'Transitável'}):</b> a ${dynamicFloodNear.distance}m em ${dynamicFloodNear.event.logradouro}</div>`
         : '';
 
+    const chronic2yNear = getNearestChronicRiskZone(lat, lon);
+    const chronic2yHtml = (chronic2yNear && chronic2yNear.isInside)
+        ? `<div style="margin-top: 4px; padding: 4px 6px; background: ${chronic2yNear.cluster.cor_hex}18; border: 1px solid ${chronic2yNear.cluster.cor_hex}; border-radius: 4px; font-size: 10px; color: ${chronic2yNear.cluster.cor_hex};"><b>⚠️ Matriz 2 Anos:</b> ${chronic2yNear.cluster.tag_risco} (${chronic2yNear.cluster.total_ocorrencias} enchentes em 24 meses)</div>`
+        : '';
+
     const popupContent = `
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; padding: 6px; min-width: 220px;">
             ${badgeUserHtml}
@@ -2353,6 +2389,7 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
                 <div>🌊 <b>Rio:</b> ${riverInfo.river.split('(')[0].trim()} a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance / 1000).toFixed(1) + 'km'}</div>
                 <div>🛡️ <b>Defesa Civil:</b> ${chronicInfo.hasRecordsWithinRadius ? `<span style="color: #DC2626; font-weight: 700;">🚨 ${chronicInfo.zoneName} (${chronicInfo.dist}m)</span>` : `<span style="color: #2563EB; font-weight: 600;">🌐 Bacia ${chronicInfo.bacia || chronicInfo.zoneName}</span>`}</div>
                 ${floodWarningHtml}
+                ${chronic2yHtml}
             </div>
         </div>
     `;
@@ -2475,6 +2512,102 @@ function getNearestDynamicFlood(lat, lon) {
     }
     return nearest;
 }
+
+// ─── MATRIZ DE RISCO HISTÓRICO — JANELA DINÂMICA DE 2 ANOS (CLUSTERING 500M) ──
+let chronicMatrixLayerGroup = null;
+let chronicMatrixClusters = [];
+
+async function loadChronicRiskZones2Y() {
+    try {
+        const res = await fetch('/api/zones/chronic-matrix-2y?raio_cluster_m=500');
+        if (!res.ok) return;
+        const data = await res.json();
+        chronicMatrixClusters = data.clusters || [];
+        renderChronicRiskZones();
+    } catch (e) {
+        console.warn('[FloodGuard] Não foi possível carregar a matriz de risco de 2 anos:', e);
+    }
+}
+
+function renderChronicRiskZones() {
+    if (!map) return;
+    if (!chronicMatrixLayerGroup) {
+        chronicMatrixLayerGroup = L.layerGroup().addTo(map);
+    }
+    chronicMatrixLayerGroup.clearLayers();
+
+    if (!chronicMatrixClusters || chronicMatrixClusters.length === 0) return;
+
+    chronicMatrixClusters.forEach(cluster => {
+        if (!cluster.latitude_centro || !cluster.longitude_centro) return;
+
+        const cor = cluster.cor_hex || '#DC2626';
+        const isCritico = cluster.nivel_risco === 'critico';
+
+        // Círculo translúcido representando o raio de 500 metros
+        const circle = L.circle([cluster.latitude_centro, cluster.longitude_centro], {
+            radius: cluster.raio_metros || 500,
+            color: cor,
+            weight: isCritico ? 3 : 2,
+            opacity: 0.85,
+            fillColor: cor,
+            fillOpacity: isCritico ? 0.28 : 0.18,
+            dashArray: isCritico ? '6, 6' : null
+        });
+
+        const popupHtml = `
+            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 230px; padding: 4px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="font-size: 10px; font-weight: 800; background: ${cor}22; color: ${cor}; border: 1px solid ${cor}; padding: 2px 7px; border-radius: 4px;">
+                        ${cluster.tag_risco}
+                    </span>
+                    <span style="font-size: 10px; color: #64748B;">Janela 2 Anos</span>
+                </div>
+                <div style="font-size: 13px; font-weight: 800; color: #0F172A; margin-bottom: 2px;">
+                    ${cluster.logradouro_principal}
+                </div>
+                <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
+                    📍 Bairro: <b>${cluster.bairro}</b> • Raio: 500m
+                </div>
+                <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 11px;">
+                    <div>📊 <b>Total de Alagamentos:</b> <span style="font-weight: 800; color: ${cor};">${cluster.total_ocorrencias} ocorrências</span></div>
+                    <div style="color: #64748B; font-size: 10px; margin-top: 2px;">
+                        ⛔ Intransitáveis: ${cluster.total_intransitavel} | ⚠️ Transitáveis: ${cluster.total_transitavel}
+                    </div>
+                </div>
+                <div style="font-size: 10px; color: #64748B; border-top: 1px solid #E2E8F0; padding-top: 4px;">
+                    📅 Último alagamento registrado: <b>${cluster.ultima_ocorrencia}</b>
+                </div>
+            </div>
+        `;
+
+        circle.bindPopup(popupHtml);
+        chronicMatrixLayerGroup.addLayer(circle);
+    });
+}
+
+function getNearestChronicRiskZone(lat, lon) {
+    if (!chronicMatrixClusters || chronicMatrixClusters.length === 0) return null;
+    let nearest = null;
+    let minDistance = Infinity;
+
+    for (const c of chronicMatrixClusters) {
+        if (!c.latitude_centro || !c.longitude_centro) continue;
+        const dy = (lat - c.latitude_centro) * 111000;
+        const dx = (lon - c.longitude_centro) * 102000;
+        const dist = Math.hypot(dx, dy);
+        if (dist < minDistance) {
+            minDistance = dist;
+            nearest = {
+                cluster: c,
+                distance: Math.round(dist),
+                isInside: dist <= (c.raio_metros || 500)
+            };
+        }
+    }
+    return nearest;
+}
+
 
 // ─── RENDERIZAR GRÁFICO CHART.JS (TENDÊNCIA 24H + 3H) ─────────────────────────
 function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {

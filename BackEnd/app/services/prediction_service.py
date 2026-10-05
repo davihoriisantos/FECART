@@ -141,12 +141,12 @@ def calculate_predictive_risk(
     river_score = _clamp(river_factor)
     historical_score = _clamp(historical_factor)
     terrain_score = _clamp(terrain_factor)
-    # Defesa Civil tem prioridade dentro da faixa conjunta de 20%.
-    terrain_history_score = historical_score * 0.70 + terrain_score * 0.30
+    # Pesos recalibrados: Chuva 45% | Histórico Defesa Civil 25% | Terreno/Vales 15% | Rios 15%
     raw_risk = (
-        rain_score * 0.50
-        + river_score * 0.30
-        + terrain_history_score * 0.20
+        rain_score * 0.45
+        + historical_score * 0.25
+        + terrain_score * 0.15
+        + river_score * 0.15
     )
     cap = rain_risk_cap(current_rain_mm_h, accumulated_24h_mm)
     final_risk = round(min(raw_risk, cap), 1)
@@ -172,8 +172,8 @@ def calculate_predictive_risk(
         "fatores": {
             "chuva": rain_score,
             "historico_defesa_civil": historical_score,
+            "terreno": terrain_score,
             "nivel_rio": river_score,
-            "relevo_historico": round(terrain_history_score, 1),
             "teto_chuva": cap,
         },
     }
