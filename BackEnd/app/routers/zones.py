@@ -4,6 +4,7 @@ from typing import List, Optional
 import math
 from ..database import get_db
 from ..models.zone import RiskZone
+from ..models.flood_event import DynamicFloodEvent
 from ..schemas.zone import (
     RiskZoneResponse, 
     HeatmapPoint, 
@@ -11,7 +12,9 @@ from ..schemas.zone import (
     SpatialRecordItem, 
     BasinFallbackInfo
 )
+from ..schemas.flood_event import FloodEventResponse, SyncResultResponse
 from ..services.prediction_service import update_all_zones_risk
+from ..services.cge_crawler import sync_cge_floods
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
 
@@ -196,12 +199,56 @@ def get_heatmap(db: Session = Depends(get_db)):
         ))
     return points
 
+@router.get("/live-occurrences", response_model=List[FloodEventResponse])
+def get_live_occurrences(
+    apenas_ativos: bool = Query(False, description="Filtrar apenas alagamentos ativos no momento"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna as ocorrências de alagamento registradas dinamicamente pelo CGE / Defesa Civil.
+    Prioriza o Supabase com fallback seguro para a tabela SQLite local.
+    """
+    # 1. Tenta buscar no Supabase
+    try:
+        from ..supabase_client import get_supabase
+        sb = get_supabase()
+        if sb:
+            query = sb.table("dynamic_flood_events").select("*").order("data_evento", desc=True)
+            if apenas_ativos:
+                query = query.like("status", "%ativo%")
+            res = query.limit(50).execute()
+            if res.data and len(res.data) > 0:
+                return res.data
+    except Exception as e:
+        print(f"[Zones] Supabase query fallback to local: {e}")
+
+    # 2. Fallback: Banco local SQLite
+    query = db.query(DynamicFloodEvent).order_by(DynamicFloodEvent.criado_em.desc())
+    if apenas_ativos:
+        query = query.filter(DynamicFloodEvent.status.like("%ativo%"))
+    return query.limit(50).all()
+
+
+@router.post("/sync-cge", response_model=SyncResultResponse)
+def trigger_cge_sync(
+    data_busca: Optional[str] = Query(None, description="Data opcional (AAAA-MM-DD ou DD/MM/AAAA)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Dispara a raspagem e geocodificação dos alagamentos oficiais do CGE SP.
+    Salva novos pontos no banco de dados e no Supabase.
+    """
+    result = sync_cge_floods(target_date=data_busca, db=db)
+    return SyncResultResponse(**result)
+
+
 @router.get("/{zone_id}", response_model=RiskZoneResponse)
 def get_zone(zone_id: int, db: Session = Depends(get_db)):
     zone = db.query(RiskZone).filter(RiskZone.id == zone_id).first()
     if not zone:
         raise HTTPException(status_code=404, detail="Zona não encontrada")
     return zone
+
 
 @router.post("/update-risks")
 def update_risks(db: Session = Depends(get_db)):
