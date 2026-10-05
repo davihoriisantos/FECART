@@ -4,37 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FloodGuard AI - Inteligência Artificial para Salvar Vidas em Enchentes</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20261005">
-    <!-- Tailwind CSS (Play CDN configurado com preflight false para preservar estilos globais do styles.css) -->
-    <script src="/static/js/vendor/tailwindcss.js"></script>
-    <script>
-        tailwind.config = {
-            corePlugins: {
-                preflight: false
-            },
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            cyan: '#38BDF8',
-                            blue: '#2563EB',
-                            dark: '#0B0F17',
-                            card: '#0F172A'
-                        }
-                    }
-                }
-            }
-        };
-    </script>
-    <!-- React 18 & ReactDOM 18 -->
-    <script src="/static/js/vendor/react.production.min.js"></script>
-    <script src="/static/js/vendor/react-dom.production.min.js"></script>
-    <!-- Framer Motion -->
-    <script src="/static/js/vendor/framer-motion.js"></script>
+    <link rel="stylesheet" href="/static/css/styles.css?v=20261005-v5">
     <script src="/static/js/splash.js?v=20260916-entry-only"></script>
 </head>
-<body id="inicio">
-    <!-- Site Header / Navigation Menu -->
+<body>
+    <!-- Site Header / Menu de Navegação -->
     <header class="site-header">
         <div class="container header-wrapper">
             <a href="#inicio" class="logo-brand">
@@ -49,7 +23,7 @@
                 IA Salva-Vidas Ativa
             </div>
 
-            <nav class="main-nav">
+            <nav class="main-nav" aria-label="Navegação Principal">
                 <a href="#inicio" class="nav-link active">Início</a>
                 <a href="#clima-ao-vivo" class="nav-link">Tempo</a>
                 <a href="#consequencias" class="nav-link">Consequências</a>
@@ -68,8 +42,74 @@
         </div>
     </header>
 
-    <!-- Hero Section Root (React + Tailwind CSS + Framer Motion) -->
-    <div id="hero-root"></div>
+    <!-- Hero Section (Início: Conteúdo à Esquerda + Logo Dinâmica à Direita) -->
+    <section id="inicio" class="hero container">
+        <div class="hero-grid">
+            
+            <!-- Coluna Esquerda: Texto e Ações Alinhados à Esquerda -->
+            <div class="hero-content">
+                <!-- 1. Badge Superior -->
+                <div class="hero-pill">
+                    <span>🛡️ TECNOLOGIA PREDITIVA DE ALTO IMPACTO</span>
+                </div>
+
+                <!-- 2. Título Principal (Tipografia Refinada) -->
+                <h1 class="hero-title">
+                    Prevenindo Enchentes.<br>
+                    <span class="gradient-text">Salvando Vidas com IA em Tempo Real.</span>
+                </h1>
+
+                <!-- 3. Subtítulo / Descrição Limpa e Espaçada -->
+                <p class="hero-subtitle">
+                    Uma plataforma de Inteligência Artificial de alta precisão projetada para monitorar rios, solo e chuvas, antecipando alagamentos antes que eles ocorram para proteger você e sua família.
+                </p>
+
+                <!-- 4. Botões e Ações (CTA) -->
+                <div class="hero-actions">
+                    <!-- Botão Principal: Ver Mapa de Risco ao Vivo (Redirecionamento para Login) -->
+                    <a href="/login?redirect=/map" class="btn btn-primary hero-btn-cta">
+                        <span>🗺️ Ver Mapa de Risco ao Vivo</span>
+                        <span class="badge-login-tag">Login</span>
+                    </a>
+
+                    <!-- Widget Secundário: Dados de Chuva e Clima em Tempo Real -->
+                    <a href="#clima-ao-vivo" class="btn btn-outline hero-btn-weather">
+                        <span>🌧️ Dados de Chuva e Clima em Tempo Real</span>
+                        <span class="pulse-dot"></span>
+                    </a>
+                </div>
+
+                <!-- 5. Métricas de Impacto e Confiança -->
+                <div class="hero-metrics">
+                    <div class="metric-item"><strong class="text-cyan">🎯 99.4%</strong> <span>Precisão Preditiva</span></div>
+                    <div class="metric-item"><strong class="text-emerald">⏱️ +45 min</strong> <span>Alerta Antecipado</span></div>
+                    <div class="metric-item"><strong class="text-blue">📍 Grande SP</strong> <span>Cobertura Contínua</span></div>
+                </div>
+            </div>
+
+            <!-- Coluna Direita: Elemento Interativo com a Logo Dinâmica -->
+            <div class="hero-visual">
+                <div class="logo-floating-wrapper" id="hero-logo-box">
+                    <div class="logo-radar-ring logo-radar-ring-1"></div>
+                    <div class="logo-radar-ring logo-radar-ring-2"></div>
+                    
+                    <div class="logo-card-glow" id="hero-logo-card">
+                        <div class="logo-image-box">
+                            <img src="/static/img/logo.jpg" alt="FloodGuard AI Logo">
+                        </div>
+                        <div class="logo-status-tag">
+                            <span style="color: var(--accent-cyan); display: inline-flex; align-items: center; gap: 6px;">
+                                <span class="ai-badge-pulse" style="width: 6px; height: 6px;"></span>
+                                IA OPERACIONAL
+                            </span>
+                            <span style="color: var(--text-muted); font-size: 10px;">SÃO PAULO</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </section>
 
     <main class="container">
         <!-- Open-Meteo Live Weather & Rain Banner -->
@@ -196,41 +236,153 @@
         </section>
     </main>
 
-    <script src="/static/js/hero.js?v=20261005"></script>
     <script src="/static/js/openmeteo.js"></script>
     <script>
-        // Navegação interna sem recarregar a página e sem esconder o conteúdo sob o cabeçalho.
-        document.querySelectorAll('a[href^="#"]').forEach(link => {
-            link.addEventListener('click', event => {
-                const targetId = link.getAttribute('href').slice(1);
-                const target = document.getElementById(targetId);
-                if (!target) return;
-
-                event.preventDefault();
-                const header = document.querySelector('.site-header');
-                const headerOffset = (header?.getBoundingClientRect().height || 0) + 28;
-                const targetTop = targetId === 'inicio'
-                    ? 0
-                    : target.getBoundingClientRect().top + window.scrollY - headerOffset;
-
-                window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
-                history.replaceState(null, '', `#${targetId}`);
-            });
-        });
-
+        // Sistema de Scroll Spy e Navegação Fluida (Vanilla JS de Alto Desempenho)
         (function() {
-            var label = document.getElementById('header-user-label');
-            if (!label) return;
-            try {
-                var sbKey = Object.keys(localStorage).find(function(k) { return k.startsWith('sb-') && k.endsWith('-auth-token'); });
-                if (sbKey) {
-                    var session = JSON.parse(localStorage.getItem(sbKey));
-                    var nome = session?.user?.user_metadata?.nome || session?.user?.email?.split('@')[0];
-                    if (nome) {
-                        label.textContent = nome.split(' ')[0];
+            const sectionIds = ['inicio', 'clima-ao-vivo', 'consequencias', 'nossa-missao', 'como-fazemos'];
+            const navLinks = document.querySelectorAll('.main-nav .nav-link');
+            let isClickScrolling = false;
+            let clickTimeout = null;
+
+            function setActiveSection(targetId) {
+                navLinks.forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href === '#' + targetId) {
+                        link.classList.add('active');
+                        link.setAttribute('aria-current', 'page');
+                    } else {
+                        link.classList.remove('active');
+                        link.removeAttribute('aria-current');
+                    }
+                });
+            }
+
+            function updateScrollSpy() {
+                if (isClickScrolling) return;
+
+                const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+                const windowHeight = window.innerHeight;
+                const docHeight = document.documentElement.scrollHeight;
+
+                // 1. Topo da página: sempre 'inicio'
+                if (scrollY < 120) {
+                    setActiveSection('inicio');
+                    return;
+                }
+
+                // 2. Fim da página: sempre a última seção 'como-fazemos'
+                if (scrollY + windowHeight >= docHeight - 80) {
+                    setActiveSection('como-fazemos');
+                    return;
+                }
+
+                // 3. Linha de leitura (160px abaixo do topo, logo após o header fixo)
+                const probeY = 160;
+                let activeId = 'inicio';
+
+                // Percorre do fim para o início: a primeira seção cujo topo passou pela linha de leitura é a ativa
+                for (let i = sectionIds.length - 1; i >= 0; i--) {
+                    const id = sectionIds[i];
+                    const el = document.getElementById(id);
+                    if (!el) continue;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.top <= probeY) {
+                        activeId = id;
+                        break;
                     }
                 }
-            } catch (_) {}
+
+                setActiveSection(activeId);
+            }
+
+            // Listener de Scroll com requestAnimationFrame para performance 60fps
+            let ticking = false;
+            window.addEventListener('scroll', () => {
+                if (isClickScrolling) return;
+                if (!ticking) {
+                    window.requestAnimationFrame(() => {
+                        updateScrollSpy();
+                        ticking = false;
+                    });
+                    ticking = true;
+                }
+            }, { passive: true });
+
+            // Navegação Suave com Clique nas Abas e na Logo
+            document.querySelectorAll('a[href^="#"]').forEach(link => {
+                link.addEventListener('click', event => {
+                    const targetId = link.getAttribute('href').slice(1);
+                    const target = document.getElementById(targetId);
+                    if (!target && targetId !== 'inicio') return;
+
+                    event.preventDefault();
+
+                    // Ativa a aba clicada imediatamente
+                    setActiveSection(targetId);
+
+                    // Trava o Scroll Spy durante o deslocamento suave para não tremer
+                    isClickScrolling = true;
+                    if (clickTimeout) clearTimeout(clickTimeout);
+                    clickTimeout = setTimeout(() => {
+                        isClickScrolling = false;
+                        updateScrollSpy();
+                    }, 850);
+
+                    const header = document.querySelector('.site-header');
+                    const headerHeight = header ? header.offsetHeight : 80;
+                    const headerOffset = headerHeight + 20;
+
+                    const targetTop = targetId === 'inicio'
+                        ? 0
+                        : (target ? target.getBoundingClientRect().top + window.pageYOffset - headerOffset : 0);
+
+                    window.scrollTo({
+                        top: Math.max(0, targetTop),
+                        behavior: 'smooth'
+                    });
+
+                    if (history.replaceState) {
+                        history.replaceState(null, '', '#' + targetId);
+                    }
+                });
+            });
+
+            // Executa no carregamento inicial para marcar a seção correta
+            updateScrollSpy();
+
+            // Efeito Interativo 3D no Hover da Logo Dinâmica
+            const logoCard = document.getElementById('hero-logo-card');
+            const logoBox = document.getElementById('hero-logo-box');
+            if (logoCard && logoBox) {
+                logoCard.addEventListener('mousemove', (e) => {
+                    const rect = logoCard.getBoundingClientRect();
+                    const x = e.clientX - rect.left - rect.width / 2;
+                    const y = e.clientY - rect.top - rect.height / 2;
+                    const rotateX = (-y / rect.height) * 16;
+                    const rotateY = (x / rect.width) * 16;
+                    logoCard.style.transform = `perspective(800px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.03)`;
+                });
+
+                logoCard.addEventListener('mouseleave', () => {
+                    logoCard.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale(1)';
+                });
+            }
+
+            // Identificação do Usuário Logado (Perfil)
+            const label = document.getElementById('header-user-label');
+            if (label) {
+                try {
+                    const sbKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+                    if (sbKey) {
+                        const session = JSON.parse(localStorage.getItem(sbKey));
+                        const nome = session?.user?.user_metadata?.nome || session?.user?.email?.split('@')[0];
+                        if (nome) {
+                            label.textContent = nome.split(' ')[0];
+                        }
+                    }
+                } catch (_) {}
+            }
         })();
     </script>
 </body>
