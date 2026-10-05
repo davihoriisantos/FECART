@@ -89,6 +89,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMobileSheetDrag();
     await syncSavedPlacesFromServer();
     refreshSavedPlaceButtons();
+    loadDynamicFloodEvents();
+    setInterval(loadDynamicFloodEvents, 5 * 60 * 1000);
     // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
     setTimeout(() => {
         checkAndPromptNotificationPermission();
@@ -2330,6 +2332,11 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
         ? `<div style="display: inline-flex; align-items: center; gap: 4px; background: #0284C7; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 4px; margin-bottom: 4px;">🎯 VOCÊ ESTÁ AQUI (GPS)</div>`
         : '';
 
+    const dynamicFloodNear = getNearestDynamicFlood(lat, lon);
+    const floodWarningHtml = (dynamicFloodNear && dynamicFloodNear.distance <= 1200)
+        ? `<div style="margin-top: 4px; padding: 4px 6px; background: rgba(239,68,68,0.12); border: 1px solid #EF4444; border-radius: 4px; font-size: 10px; color: #DC2626;"><b>🌊 Alagamento CGE (${dynamicFloodNear.isIntransitavel ? 'Intransitável' : 'Transitável'}):</b> a ${dynamicFloodNear.distance}m em ${dynamicFloodNear.event.logradouro}</div>`
+        : '';
+
     const popupContent = `
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; padding: 6px; min-width: 220px;">
             ${badgeUserHtml}
@@ -2345,6 +2352,7 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
                 <div>⛰️ <b>Altitude:</b> ${alt}m (${altInfo.badge})</div>
                 <div>🌊 <b>Rio:</b> ${riverInfo.river.split('(')[0].trim()} a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance / 1000).toFixed(1) + 'km'}</div>
                 <div>🛡️ <b>Defesa Civil:</b> ${chronicInfo.hasRecordsWithinRadius ? `<span style="color: #DC2626; font-weight: 700;">🚨 ${chronicInfo.zoneName} (${chronicInfo.dist}m)</span>` : `<span style="color: #2563EB; font-weight: 600;">🌐 Bacia ${chronicInfo.bacia || chronicInfo.zoneName}</span>`}</div>
+                ${floodWarningHtml}
             </div>
         </div>
     `;
@@ -2353,6 +2361,119 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
 
     // Movimento suave do mapa para o ponto
     map.flyTo([lat, lon], 16, { duration: 1.5, easeLinearity: 0.25 });
+}
+
+// ─── CAMADA DINÂMICA DE ALAGAMENTOS EM TEMPO REAL (CGE SP / DEFESA CIVIL) ─────
+let activeFloodsLayerGroup = null;
+let activeFloodsList = [];
+
+async function loadDynamicFloodEvents() {
+    try {
+        const res = await fetch('/api/zones/live-occurrences?apenas_ativos=false');
+        if (!res.ok) return;
+        const events = await res.json();
+        activeFloodsList = events || [];
+        renderDynamicFloodMarkers();
+    } catch (e) {
+        console.warn('[FloodGuard] Não foi possível carregar alagamentos dinâmicos CGE:', e);
+    }
+}
+
+function renderDynamicFloodMarkers() {
+    if (!map) return;
+    if (!activeFloodsLayerGroup) {
+        activeFloodsLayerGroup = L.layerGroup().addTo(map);
+    }
+    activeFloodsLayerGroup.clearLayers();
+
+    if (!activeFloodsList || activeFloodsList.length === 0) return;
+
+    activeFloodsList.forEach(event => {
+        if (!event.latitude || !event.longitude) return;
+
+        const isIntransitavel = (event.status || '').includes('intransitavel');
+        const isAtivo = (event.status || '').includes('ativo');
+
+        const pulseColor = isIntransitavel ? '#EF4444' : '#F59E0B';
+        const badgeBg = isIntransitavel ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)';
+        const badgeBorder = isIntransitavel ? '#EF4444' : '#F59E0B';
+        const statusText = isIntransitavel ? '⛔ INTRANSITÁVEL' : '⚠️ TRANSITÁVEL';
+        const iconSymbol = isAtivo ? '🌊' : '💧';
+
+        const floodIcon = L.divIcon({
+            className: 'cge-flood-marker',
+            html: `
+                <div style="
+                    position: relative;
+                    width: 34px;
+                    height: 34px;
+                    background: ${pulseColor};
+                    border: 2px solid #FFFFFF;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 16px;
+                    box-shadow: 0 0 12px ${pulseColor};
+                    cursor: pointer;
+                    animation: pulseMarker 2s infinite;
+                ">
+                    ${iconSymbol}
+                </div>
+            `,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+            popupAnchor: [0, -17]
+        });
+
+        const popupHtml = `
+            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 210px; padding: 4px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="font-size: 10px; font-weight: 800; background: ${badgeBg}; color: ${pulseColor}; border: 1px solid ${badgeBorder}; padding: 2px 6px; border-radius: 4px;">
+                        ${statusText}
+                    </span>
+                    <span style="font-size: 10px; color: #64748B;">CGE SP</span>
+                </div>
+                <div style="font-size: 13px; font-weight: 700; color: #0F172A; margin-bottom: 2px;">
+                    ${event.logradouro}
+                </div>
+                <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
+                    📍 ${event.bairro} ${event.sentido ? `• Sentido: ${event.sentido}` : ''}
+                </div>
+                ${event.referencia ? `<div style="font-size: 10px; color: #64748B; margin-bottom: 4px;"><b>Ref:</b> ${event.referencia}</div>` : ''}
+                <div style="font-size: 10px; color: #0284C7; border-top: 1px solid #E2E8F0; padding-top: 4px;">
+                    ⏰ Registrado: ${event.horario_inicio ? event.horario_inicio : 'Hoje'} ${event.horario_fim ? `até ${event.horario_fim}` : '(Ativo)'}
+                </div>
+            </div>
+        `;
+
+        const marker = L.marker([event.latitude, event.longitude], { icon: floodIcon, zIndexOffset: 800 });
+        marker.bindPopup(popupHtml);
+        activeFloodsLayerGroup.addLayer(marker);
+    });
+}
+
+function getNearestDynamicFlood(lat, lon) {
+    if (!activeFloodsList || activeFloodsList.length === 0) return null;
+    let nearest = null;
+    let minDistance = Infinity;
+
+    for (const f of activeFloodsList) {
+        if (!f.latitude || !f.longitude) continue;
+        const dy = (lat - f.latitude) * 111000;
+        const dx = (lon - f.longitude) * 102000;
+        const dist = Math.hypot(dx, dy);
+        if (dist < minDistance) {
+            minDistance = dist;
+            nearest = {
+                event: f,
+                distance: Math.round(dist),
+                isIntransitavel: (f.status || '').includes('intransitavel'),
+                isAtivo: (f.status || '').includes('ativo')
+            };
+        }
+    }
+    return nearest;
 }
 
 // ─── RENDERIZAR GRÁFICO CHART.JS (TENDÊNCIA 24H + 3H) ─────────────────────────
