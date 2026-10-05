@@ -168,6 +168,12 @@ function evaluateRainAlertRule(currentRainRate, dailyAcc = 0, weatherCode = 0, p
 function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
     if (!weather) return;
 
+    try {
+        window.dispatchEvent(new CustomEvent('floodguard:weatherUpdate', {
+            detail: { weather, isSimulation, scenarioName }
+        }));
+    } catch (_) {}
+
     const elRainAcc = document.getElementById('om-rain-acc');
     const elRainProb = document.getElementById('om-rain-prob');
     const elTemp = document.getElementById('om-temp');
