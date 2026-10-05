@@ -14,6 +14,15 @@ if exist "%~dp0.venv\Scripts\python.exe" (
     set "PYTHON_EXE=%~dp0BackEnd\.venv\Scripts\python.exe"
 )
 
-cd /d "%~dp0BackEnd"
-"%PYTHON_EXE%" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+"%PYTHON_EXE%" -c "import fastapi, uvicorn" >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo Iniciando backend completo FastAPI/Uvicorn...
+    cd /d "%~dp0BackEnd"
+    "%PYTHON_EXE%" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+) else (
+    echo Pacotes FastAPI nao encontrados no Python padrao.
+    echo Iniciando servidor HTTP estatico FloodGuard AI na porta 8000...
+    cd /d "%~dp0"
+    "%PYTHON_EXE%" -m http.server 8000
+)
 pause

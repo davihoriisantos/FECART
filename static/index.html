@@ -4,7 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FloodGuard AI - Inteligência Artificial para Salvar Vidas em Enchentes</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260922-mobile">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20261005">
+    <!-- Tailwind CSS (Play CDN configurado com preflight false para preservar estilos globais do styles.css) -->
+    <script src="/static/js/vendor/tailwindcss.js"></script>
+    <script>
+        tailwind.config = {
+            corePlugins: {
+                preflight: false
+            },
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            cyan: '#38BDF8',
+                            blue: '#2563EB',
+                            dark: '#0B0F17',
+                            card: '#0F172A'
+                        }
+                    }
+                }
+            }
+        };
+    </script>
+    <!-- React 18 & ReactDOM 18 -->
+    <script src="/static/js/vendor/react.production.min.js"></script>
+    <script src="/static/js/vendor/react-dom.production.min.js"></script>
+    <!-- Framer Motion -->
+    <script src="/static/js/vendor/framer-motion.js"></script>
     <script src="/static/js/splash.js?v=20260916-entry-only"></script>
 </head>
 <body id="inicio">
@@ -42,25 +68,10 @@
         </div>
     </header>
 
-    <!-- Hero Section -->
-    <section class="hero container">
-        <div class="hero-pill">
-            <span>🛡️ TECNOLOGIA PREDITIVA DE ALTO IMPACTO</span>
-        </div>
-        <h1 class="hero-title">
-            Prevenindo Enchentes.<br>
-            <span class="gradient-text">Salvando Vidas com IA em Tempo Real.</span>
-        </h1>
-        <p class="hero-subtitle">
-            Uma plataforma de Inteligência Artificial de alta precisão projetada para monitorar rios, solo e chuvas, antecipando alagamentos antes que eles ocorram para proteger você e sua família.
-        </p>
-        
-        <div class="flex-center" style="gap: 16px; margin-bottom: 50px;">
-            <a href="/map" class="btn btn-primary" style="padding: 16px 36px; font-size: 16px;">
-                🗺️ Ver Mapa de Risco ao Vivo
-            </a>
-        </div>
+    <!-- Hero Section Root (React + Tailwind CSS + Framer Motion) -->
+    <div id="hero-root"></div>
 
+    <main class="container">
         <!-- Open-Meteo Live Weather & Rain Banner -->
         <div id="clima-ao-vivo" class="card" style="margin-bottom: 60px; padding: 32px; border-color: rgba(56, 189, 248, 0.3); background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.5));">
             <div class="flex-between" style="margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
@@ -183,8 +194,9 @@
             </div>
             </div>
         </section>
-    </section>
+    </main>
 
+    <script src="/static/js/hero.js?v=20261005"></script>
     <script src="/static/js/openmeteo.js"></script>
     <script>
         // Navegação interna sem recarregar a página e sem esconder o conteúdo sob o cabeçalho.

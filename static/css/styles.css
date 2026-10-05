@@ -218,10 +218,10 @@ nav.main-nav {
   transform: translateY(-2px);
 }
 
-/* Hero Section */
+/* Hero Section (Refatorada: Alinhamento à Esquerda no Desktop, Tipografia Refinada) */
 .hero {
-  padding: 80px 0 60px 0;
-  text-align: center;
+  padding: 48px 0 40px 0;
+  text-align: left;
 }
 
 .hero-pill {
@@ -229,21 +229,25 @@ nav.main-nav {
   align-items: center;
   gap: 10px;
   background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  padding: 8px 18px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 6px 16px;
   border-radius: var(--radius-full);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--accent-cyan);
-  margin-bottom: 28px;
+  margin-bottom: 20px;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .hero-title {
-  font-size: 56px;
+  font-size: clamp(32px, 3.8vw, 44px);
   font-weight: 800;
-  line-height: 1.15;
-  letter-spacing: -1.5px;
-  margin-bottom: 24px;
+  line-height: 1.18;
+  letter-spacing: -1px;
+  margin-bottom: 20px;
+  text-align: left;
 }
 
 .gradient-text {
@@ -253,11 +257,13 @@ nav.main-nav {
 }
 
 .hero-subtitle {
-  font-size: 20px;
+  font-size: clamp(15px, 1.4vw, 17px);
   color: var(--text-muted);
-  max-width: 720px;
-  margin: 0 auto 40px auto;
+  max-width: 620px;
+  margin: 0 0 32px 0;
   font-weight: 400;
+  line-height: 1.65;
+  text-align: left;
 }
 
 /* Quote Section ("Citação Estética Salva-Vidas") */
