@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initLeafletMap();
     setupSearchListeners();
     setupRouteAutocomplete();
+    initMobileSheetDrag();
     await syncSavedPlacesFromServer();
     refreshSavedPlaceButtons();
     // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
@@ -423,6 +424,18 @@ function openSavedPlace(type) {
     if (map) {
         map.flyTo([Number(place.lat), Number(place.lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
     }
+
+    if (window.innerWidth <= 768) {
+        const sidebar = document.getElementById('dash-sidebar-panel');
+        if (sidebar) {
+            sidebar.style.height = '44vh';
+            sidebar.classList.remove('collapsed', 'expanded');
+            const icon = document.getElementById('sheet-arrow-icon');
+            if (icon) icon.textContent = '▲';
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+        }
+    }
+
     analyzePoint(place.lat, place.lon, place.nome, place.bairro, place.alt, place.address, false);
 }
 
@@ -1562,7 +1575,9 @@ function getAltitudeClassification(alt) {
 function initLeafletMap() {
     map = L.map('map', {
         zoomControl: true,
-        attributionControl: true
+        attributionControl: true,
+        tap: false, // Elimina delay de 300ms e conflito de toque em navegadores móveis modernos
+        tapTolerance: 15
     }).setView([currentSelectedPoint.lat, currentSelectedPoint.lon], 15);
 
     // Mapas-base alternáveis: ruas para navegação e imagem aérea para inspeção do relevo.
@@ -2535,36 +2550,234 @@ function filterLocalNeighborhoods(query) {
     });
 }
 
+// ─── RADAR METEOROLÓGICO ANIMADO EM TEMPO REAL (RAINVIEWER API) ─────────────
+let rainViewerRadarData = null;
+let rainViewerLayer = null;
+let radarAnimationTimer = null;
+let radarCurrentFrameIndex = 0;
+let isRadarPlaying = false;
+let isRadarLayerActive = false;
+
+async function fetchRainViewerData() {
+    try {
+        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        if (!res.ok) return null;
+        rainViewerRadarData = await res.json();
+        return rainViewerRadarData;
+    } catch (e) {
+        console.warn('Não foi possível obter dados do RainViewer:', e);
+        return null;
+    }
+}
+
+function updateRadarFrame(index) {
+    if (!rainViewerRadarData || !map || !isRadarLayerActive) return;
+    const past = rainViewerRadarData.radar?.past || [];
+    if (past.length === 0) return;
+
+    radarCurrentFrameIndex = (index >= 0 && index < past.length) ? index : past.length - 1;
+    const frame = past[radarCurrentFrameIndex];
+    const host = rainViewerRadarData.host || 'https://tilecache.rainviewer.com';
+
+    // Formata o horário do frame em Horário de Brasília
+    const date = new Date(frame.time * 1000);
+    const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const diffMin = Math.round((Date.now() - (frame.time * 1000)) / 60000);
+    const label = diffMin <= 6 ? `${timeStr} (Agora)` : `${timeStr} (-${diffMin} min)`;
+
+    const textEl = document.getElementById('radar-timestamp');
+    if (textEl) textEl.textContent = label;
+
+    const tileUrl = `${host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+
+    if (rainViewerLayer) {
+        map.removeLayer(rainViewerLayer);
+    }
+
+    rainViewerLayer = L.tileLayer(tileUrl, {
+        opacity: 0.65,
+        zIndex: 400,
+        tileSize: 256
+    }).addTo(map);
+}
+
+function startRadarAnimation() {
+    stopRadarAnimation();
+    const past = rainViewerRadarData?.radar?.past || [];
+    if (past.length === 0) return;
+
+    isRadarPlaying = true;
+    const btn = document.getElementById('btn-radar-toggle-play');
+    if (btn) btn.textContent = '⏸';
+
+    radarAnimationTimer = setInterval(() => {
+        const pastFrames = rainViewerRadarData?.radar?.past || [];
+        radarCurrentFrameIndex = (radarCurrentFrameIndex + 1) % pastFrames.length;
+        updateRadarFrame(radarCurrentFrameIndex);
+    }, 850);
+}
+
+function stopRadarAnimation() {
+    if (radarAnimationTimer) {
+        clearInterval(radarAnimationTimer);
+        radarAnimationTimer = null;
+    }
+    isRadarPlaying = false;
+    const btn = document.getElementById('btn-radar-toggle-play');
+    if (btn) btn.textContent = '▶';
+}
+
+function toggleRadarLayer(active) {
+    isRadarLayerActive = active;
+    const widget = document.getElementById('radar-player-widget');
+
+    if (!active) {
+        stopRadarAnimation();
+        if (rainViewerLayer && map) {
+            map.removeLayer(rainViewerLayer);
+            rainViewerLayer = null;
+        }
+        if (widget) widget.style.display = 'none';
+        return;
+    }
+
+    if (widget) widget.style.display = 'flex';
+
+    if (!rainViewerRadarData) {
+        const textEl = document.getElementById('radar-timestamp');
+        if (textEl) textEl.textContent = 'Carregando radar...';
+        fetchRainViewerData().then(data => {
+            if (data && isRadarLayerActive) {
+                const past = data.radar?.past || [];
+                updateRadarFrame(past.length - 1);
+                startRadarAnimation();
+            }
+        });
+    } else {
+        const past = rainViewerRadarData.radar?.past || [];
+        updateRadarFrame(past.length - 1);
+        startRadarAnimation();
+    }
+}
+
+// ─── MAPA DE CALOR / MANCHAS DE RISCO CRÍTICO DE SP ───────────────────────────
+let riskHeatLayerGroup = null;
+let isRiskHeatActive = false;
+
+function toggleRiskHeatLayer(active) {
+    isRiskHeatActive = active;
+
+    if (!active) {
+        if (riskHeatLayerGroup && map) {
+            map.removeLayer(riskHeatLayerGroup);
+            riskHeatLayerGroup = null;
+        }
+        return;
+    }
+
+    if (!map) return;
+    riskHeatLayerGroup = L.layerGroup();
+
+    const zones = (typeof CHRONIC_FLOOD_ZONES !== 'undefined' ? CHRONIC_FLOOD_ZONES : []);
+    zones.forEach(zone => {
+        // Círculo térmico de dispersão externa (amarelo/laranja)
+        const outerCircle = L.circle([zone.lat, zone.lon], {
+            radius: zone.raio || 650,
+            color: '#F97316',
+            weight: 1,
+            opacity: 0.5,
+            fillColor: '#F59E0B',
+            fillOpacity: 0.16
+        });
+
+        // Núcleo crítico do fundo de vale (vermelho)
+        const innerCircle = L.circle([zone.lat, zone.lon], {
+            radius: Math.round((zone.raio || 650) * 0.45),
+            color: '#DC2626',
+            weight: 1.5,
+            opacity: 0.85,
+            fillColor: '#EF4444',
+            fillOpacity: 0.38
+        });
+
+        innerCircle.bindPopup(`
+            <div style="font-family: inherit; padding: 4px; min-width: 170px;">
+                <div style="font-weight: 800; font-size: 13px; color: #EF4444; margin-bottom: 3px;">⚠️ ${escapeHtml(zone.nome)}</div>
+                <div style="font-size: 11px; color: #475569; font-weight: 600;">Zona de Retenção Pluvial Crítica</div>
+                <div style="font-size: 10px; color: #94A3B8; margin-top: 4px; border-top: 1px solid #E2E8F0; padding-top: 4px;">Defesa Civil de SP / CGE</div>
+            </div>
+        `);
+
+        outerCircle.addTo(riskHeatLayerGroup);
+        innerCircle.addTo(riskHeatLayerGroup);
+    });
+
+    riskHeatLayerGroup.addTo(map);
+}
+
+// ─── TOOLBAR MODERNA DE CAMADAS COM RADAR E ZONAS DE RISCO ────────────────────
 function createMapLayerSwitcher(streetLayer, satelliteLayer) {
     const container = document.getElementById('map-layer-toolbar');
     if (!container) return;
     const switcher = L.DomUtil.create('div', 'map-layer-switcher', container);
     switcher.setAttribute('role', 'group');
-    switcher.setAttribute('aria-label', 'Tipo de mapa');
+    switcher.setAttribute('aria-label', 'Tipo de mapa e camadas');
     switcher.innerHTML = `
         <button type="button" class="map-layer-option active" data-layer="map" aria-pressed="true">🗺️ Mapa</button>
         <button type="button" class="map-layer-option" data-layer="satellite" aria-pressed="false">🛰️ Satélite</button>
+        <button type="button" class="map-layer-option" data-layer="radar" aria-pressed="false" title="Radar de chuva animado ao vivo da Grande SP">🌧️ Radar Chuva</button>
+        <button type="button" class="map-layer-option" data-layer="heat" aria-pressed="false" title="Destacar manchas térmicas das áreas de risco de SP">🔥 Zonas de Risco</button>
     `;
 
     L.DomEvent.disableClickPropagation(switcher);
     L.DomEvent.disableScrollPropagation(switcher);
 
+    // Botão de Play / Pause do Radar
+    const playBtn = document.getElementById('btn-radar-toggle-play');
+    if (playBtn) {
+        playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isRadarPlaying) {
+                stopRadarAnimation();
+            } else {
+                startRadarAnimation();
+            }
+        });
+    }
+
     switcher.querySelectorAll('.map-layer-option').forEach(button => {
         button.addEventListener('click', () => {
-            const useSatellite = button.dataset.layer === 'satellite';
-            if (useSatellite) {
-                if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
-                if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
-            } else {
+            const layer = button.dataset.layer;
+
+            if (layer === 'map') {
                 if (map.hasLayer(satelliteLayer)) map.removeLayer(satelliteLayer);
                 if (!map.hasLayer(streetLayer)) streetLayer.addTo(map);
+                button.classList.add('active');
+                switcher.querySelector('[data-layer="satellite"]')?.classList.remove('active');
+            } else if (layer === 'satellite') {
+                if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
+                if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
+                button.classList.add('active');
+                switcher.querySelector('[data-layer="map"]')?.classList.remove('active');
+            } else if (layer === 'radar') {
+                const isActive = button.classList.contains('active-radar');
+                if (isActive) {
+                    button.classList.remove('active-radar');
+                    toggleRadarLayer(false);
+                } else {
+                    button.classList.add('active-radar');
+                    toggleRadarLayer(true);
+                }
+            } else if (layer === 'heat') {
+                const isActive = button.classList.contains('active-heat');
+                if (isActive) {
+                    button.classList.remove('active-heat');
+                    toggleRiskHeatLayer(false);
+                } else {
+                    button.classList.add('active-heat');
+                    toggleRiskHeatLayer(true);
+                }
             }
-
-            switcher.querySelectorAll('.map-layer-option').forEach(option => {
-                const active = option === button;
-                option.classList.toggle('active', active);
-                option.setAttribute('aria-pressed', String(active));
-            });
         });
     });
 }
@@ -2747,7 +2960,13 @@ function renderSearchDropdown({ local = [], nominatim = [], places = [], loading
     dropdown.innerHTML = html;
     dropdown.style.display = 'block';
     dropdown.querySelectorAll('[data-search-index]').forEach(element => {
-        element.addEventListener('click', () => {
+        let triggered = false;
+        const handleSelect = (e) => {
+            if (triggered) return;
+            triggered = true;
+            if (e && e.type === 'pointerdown') {
+                e.preventDefault(); // Impede delay de 300ms e previne cancelamento por blur do teclado
+            }
             const item = searchSuggestionResults[Number(element.dataset.searchIndex)];
             if (!item) return;
             if (item.isPlaceConfigAction) {
@@ -2756,7 +2975,11 @@ function renderSearchDropdown({ local = [], nominatim = [], places = [], loading
             } else {
                 selectSearchSuggestion(item);
             }
-        });
+            setTimeout(() => { triggered = false; }, 350);
+        };
+
+        element.addEventListener('pointerdown', handleSelect);
+        element.addEventListener('click', handleSelect);
     });
 }
 
@@ -2804,6 +3027,19 @@ function selectSearchResult(lat, lon, nome, bairro, alt = null, fullAddress = nu
 
     // Move o mapa imediatamente; clima, altitude e marcador são atualizados em seguida.
     if (map) map.flyTo([Number(lat), Number(lon)], 16, { duration: 1.2, easeLinearity: 0.25 });
+
+    // No celular, fecha o teclado e ajusta o painel para altura intermediária confortável (~42vh)
+    // permitindo ver a região centralizada no mapa e os dados de risco instantaneamente
+    if (window.innerWidth <= 768) {
+        const sidebar = document.getElementById('dash-sidebar-panel');
+        if (sidebar) {
+            sidebar.style.height = '44vh';
+            sidebar.classList.remove('collapsed', 'expanded');
+            const icon = document.getElementById('sheet-arrow-icon');
+            if (icon) icon.textContent = '▲';
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+        }
+    }
 
     // Aciona o motor de análise completo: clima + elevação + risco
     analyzePoint(lat, lon, nome, bairro, alt, fullAddress);
@@ -3016,16 +3252,17 @@ function switchDashboardTab(tab) {
     }, 150);
 }
 
-// ─── CONTROLE DO BOTTOM SHEET MOBILE (PAINEL DESLIZANTE) ─────────────────────
+// ─── CONTROLE DO BOTTOM SHEET MOBILE (PAINEL DESLIZANTE COM ARRASTO) ─────────
 function toggleMobileSheet() {
     const sidebar = document.getElementById('dash-sidebar-panel');
     const icon = document.getElementById('sheet-arrow-icon');
     if (!sidebar) return;
 
+    sidebar.style.height = ''; // Limpa altura inline para usar classes de animação
+
     if (sidebar.classList.contains('collapsed')) {
-        // Estava recolhido -> abre normal
-        sidebar.classList.remove('collapsed');
-        sidebar.classList.remove('expanded');
+        // Estava recolhido -> abre intermediário (54vh)
+        sidebar.classList.remove('collapsed', 'expanded');
         if (icon) icon.textContent = '▲';
     } else if (sidebar.classList.contains('expanded')) {
         // Estava expandido -> recolhe
@@ -3033,14 +3270,15 @@ function toggleMobileSheet() {
         sidebar.classList.add('collapsed');
         if (icon) icon.textContent = '▲';
     } else {
-        // Estava padrão -> expande para tela cheia
+        // Estava intermediário -> expande para tela quase cheia (88vh)
+        sidebar.classList.remove('collapsed');
         sidebar.classList.add('expanded');
         if (icon) icon.textContent = '▼';
     }
 
     setTimeout(() => {
         if (map) map.invalidateSize();
-    }, 320);
+    }, 300);
 }
 
 function setMobileSheetState(state) {
@@ -3048,7 +3286,9 @@ function setMobileSheetState(state) {
     const icon = document.getElementById('sheet-arrow-icon');
     if (!sidebar) return;
 
+    sidebar.style.height = ''; // Limpa altura manual
     sidebar.classList.remove('collapsed', 'expanded');
+
     if (state === 'collapsed') {
         sidebar.classList.add('collapsed');
         if (icon) icon.textContent = '▲';
@@ -3056,12 +3296,122 @@ function setMobileSheetState(state) {
         sidebar.classList.add('expanded');
         if (icon) icon.textContent = '▼';
     } else {
+        // Padrão / intermediário
         if (icon) icon.textContent = '▲';
     }
 
     setTimeout(() => {
         if (map) map.invalidateSize();
-    }, 320);
+    }, 300);
+}
+
+// ─── GESTO DE TOQUE E ARRASTO (DRAG COM O DEDO) NO PUXADOR DO PAINEL ─────────
+function initMobileSheetDrag() {
+    const handle = document.getElementById('mobile-sheet-handle');
+    const sidebar = document.getElementById('dash-sidebar-panel');
+    const toggleBtn = document.getElementById('btn-toggle-sheet');
+    const icon = document.getElementById('sheet-arrow-icon');
+    if (!handle || !sidebar) return;
+
+    // Desativa o onclick inline do HTML para evitar cliques duplos com o drag
+    handle.removeAttribute('onclick');
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleMobileSheet();
+        });
+    }
+
+    let isDragging = false;
+    let startY = 0;
+    let startHeight = 0;
+    let currentHeight = 0;
+    let hasMoved = false;
+
+    function onPointerDown(e) {
+        if (window.innerWidth > 768) return; // Apenas no celular/tablet
+        if (e.target.closest('#btn-toggle-sheet')) return;
+
+        isDragging = true;
+        hasMoved = false;
+        startY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+        startHeight = sidebar.getBoundingClientRect().height;
+        currentHeight = startHeight;
+
+        // Desativa a transição CSS momentaneamente para resposta instantânea ao dedo (60fps)
+        sidebar.style.transition = 'none';
+        sidebar.classList.remove('collapsed', 'expanded');
+
+        if (e.pointerId !== undefined && handle.setPointerCapture) {
+            try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+    }
+
+    function onPointerMove(e) {
+        if (!isDragging) return;
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+        const deltaY = startY - clientY; // Puxar para cima = positivo = aumenta a altura
+
+        if (Math.abs(deltaY) > 5) {
+            hasMoved = true;
+        }
+
+        const minH = 88; // Altura mínima: só o puxador visível
+        const maxH = Math.round(window.innerHeight * 0.92); // Altura máxima: até quase o topo
+
+        currentHeight = Math.max(minH, Math.min(maxH, startHeight + deltaY));
+        sidebar.style.height = `${currentHeight}px`;
+
+        if (icon) {
+            icon.textContent = currentHeight > (window.innerHeight * 0.68) ? '▼' : '▲';
+        }
+    }
+
+    function onPointerUp(e) {
+        if (!isDragging) return;
+        isDragging = false;
+
+        if (e.pointerId !== undefined && handle.releasePointerCapture) {
+            try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+        }
+
+        // Restaura animação suave ao soltar
+        sidebar.style.transition = 'height 0.28s cubic-bezier(0.2, 0.9, 0.3, 1)';
+
+        if (!hasMoved) {
+            // Se foi apenas um toque sem arrastar, alterna normalmente
+            toggleMobileSheet();
+            return;
+        }
+
+        const vh = window.innerHeight;
+        // Snap inteligente próximo aos extremos
+        if (currentHeight < 125) {
+            setMobileSheetState('collapsed');
+        } else if (currentHeight > vh * 0.82) {
+            setMobileSheetState('expanded');
+        } else {
+            // O usuário escolheu exatamente esta altura livre!
+            sidebar.style.height = `${currentHeight}px`;
+            sidebar.classList.remove('collapsed', 'expanded');
+            if (icon) {
+                icon.textContent = currentHeight > (vh * 0.68) ? '▼' : '▲';
+            }
+            setTimeout(() => { if (map) map.invalidateSize(); }, 300);
+        }
+    }
+
+    // Suporte moderno a Pointer Events (cobre Touch e Mouse em Android e iOS)
+    handle.addEventListener('pointerdown', onPointerDown, { passive: true });
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', onPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onPointerUp, { passive: true });
+
+    // Fallback nativo de Touch Events
+    handle.addEventListener('touchstart', onPointerDown, { passive: true });
+    window.addEventListener('touchmove', onPointerMove, { passive: true });
+    window.addEventListener('touchend', onPointerUp, { passive: true });
 }
 
 // ─── AUTOCOMPLETE DA ABA DE ROTAS (UNIFICADO COM ABA EXPLORAR) ───────────────
@@ -3290,15 +3640,28 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
     positionRouteDropdown(inputId, dropdownId);
     dropdown.style.display = 'block';
 
-    // Eventos de clique
+    // Eventos de clique e toque com latência zero
     dropdown.querySelectorAll('[data-action="gps"]').forEach(el => {
-        el.addEventListener('click', () => {
+        let triggered = false;
+        const handleGps = (e) => {
+            if (triggered) return;
+            triggered = true;
+            if (e && e.type === 'pointerdown') e.preventDefault();
             selectMyLocationForField(inputId, dropdownId);
-        });
+            setTimeout(() => { triggered = false; }, 350);
+        };
+        el.addEventListener('pointerdown', handleGps);
+        el.addEventListener('click', handleGps);
     });
 
     dropdown.querySelectorAll('[data-route-index]').forEach(element => {
-        element.addEventListener('click', () => {
+        let triggered = false;
+        const handleRouteSelect = (e) => {
+            if (triggered) return;
+            triggered = true;
+            if (e && e.type === 'pointerdown') {
+                e.preventDefault();
+            }
             const item = routeSearchSuggestions[inputId][Number(element.dataset.routeIndex)];
             if (!item) return;
             if (item.isPlaceConfigAction) {
@@ -3307,7 +3670,11 @@ function renderRouteSearchDropdown(inputId, dropdownId, fieldType, { local = [],
             } else {
                 selectRouteItem(inputId, dropdownId, fieldType, item);
             }
-        });
+            setTimeout(() => { triggered = false; }, 350);
+        };
+
+        element.addEventListener('pointerdown', handleRouteSelect);
+        element.addEventListener('click', handleRouteSelect);
     });
 }
 
@@ -4699,4 +5066,11 @@ function getFallbackAnalysis() {
         historyRisks: [8, 10, 12, 11, 12, null, null, null],
         forecastRisks: [null, null, null, null, 12, 12, 12, 12]
     };
+}
+
+// ─── REGISTRO DE SERVICE WORKER (PWA INSTALÁVEL NO SMARTPHONE) ────────────────
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/service-worker.js').catch(() => {});
+    });
 }

@@ -6,6 +6,10 @@
     <title>FloodGuard AI — Dashboard de Monitoramento Integrado</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0B101E">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <style>
         :root {
             --panel-bg: rgba(15, 23, 42, 0.88);
@@ -1009,6 +1013,80 @@
             box-shadow: 0 5px 14px rgba(37, 99, 235, 0.36);
         }
 
+        .map-layer-option.active-radar {
+            color: #FFFFFF !important;
+            background: linear-gradient(135deg, #06B6D4, #0284C7) !important;
+            box-shadow: 0 5px 14px rgba(6, 182, 212, 0.36) !important;
+        }
+
+        .map-layer-option.active-heat {
+            color: #FFFFFF !important;
+            background: linear-gradient(135deg, #F97316, #DC2626) !important;
+            box-shadow: 0 5px 14px rgba(239, 68, 68, 0.36) !important;
+        }
+
+        /* Player flutuante do Radar de Chuva */
+        .radar-player-widget {
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            background: rgba(11, 16, 30, 0.94);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            border-radius: 999px;
+            padding: 6px 14px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            font-size: 11px;
+            color: #E2E8F0;
+            animation: fadeIn .25s ease-out;
+        }
+
+        .radar-btn-play {
+            background: rgba(56, 189, 248, 0.2);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            color: #38BDF8;
+            border-radius: 999px;
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all .15s ease;
+        }
+
+        .radar-btn-play:hover {
+            background: #0284C7;
+            color: #FFFFFF;
+        }
+
+        .radar-timeline-text {
+            font-weight: 700;
+            color: #38BDF8;
+            min-width: 90px;
+            text-align: center;
+        }
+
+        .radar-badge-live {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #EF4444;
+            font-weight: 800;
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            animation: pulse-gps 1.2s infinite alternate;
+        }
+
         /* ─── Puxador do Bottom Sheet Mobile (Oculto em desktop) ─── */
         .mobile-sheet-handle {
             display: none;
@@ -1129,48 +1207,59 @@
                 z-index: 100;
                 width: 100%;
                 max-width: 100%;
-                height: 58vh;
-                max-height: 85vh;
-                min-height: 90px;
+                height: 54vh;
+                max-height: 92vh;
+                min-height: 88px;
                 border-radius: 20px 20px 0 0;
                 border-bottom: none;
                 border-left: none;
                 border-right: none;
                 box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.75);
-                transition: height 0.3s cubic-bezier(0.2, 0.9, 0.3, 1), transform 0.3s ease;
-                background: rgba(15, 23, 42, 0.95);
+                transition: height 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+                background: rgba(15, 23, 42, 0.96);
                 backdrop-filter: blur(28px);
                 -webkit-backdrop-filter: blur(28px);
+                will-change: height;
             }
 
             /* Estado minimizado do Bottom Sheet (modo espiada do mapa) */
             .dash-sidebar.collapsed {
-                height: 98px !important;
+                height: 90px !important;
             }
 
             /* Estado totalmente expandido do Bottom Sheet */
             .dash-sidebar.expanded {
-                height: 84vh !important;
+                height: 88vh !important;
             }
 
-            /* Puxador Visível no Mobile */
+            /* Puxador Visível no Mobile (Touch Handle) */
             .mobile-sheet-handle {
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                padding: 8px 14px 4px 14px;
-                cursor: pointer;
+                padding: 10px 14px 6px 14px;
+                cursor: grab;
+                cursor: -webkit-grab;
+                touch-action: none;
+                -webkit-user-select: none;
                 user-select: none;
-                background: rgba(0, 0, 0, 0.25);
+                background: rgba(0, 0, 0, 0.32);
                 border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             }
 
+            .mobile-sheet-handle:active {
+                cursor: grabbing;
+                cursor: -webkit-grabbing;
+            }
+
             .mobile-sheet-pill {
-                width: 44px;
-                height: 4px;
+                width: 52px;
+                height: 5px;
                 border-radius: 999px;
-                background: rgba(255, 255, 255, 0.35);
-                margin-bottom: 6px;
+                background: rgba(255, 255, 255, 0.45);
+                margin-bottom: 7px;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+                pointer-events: none;
             }
 
             .mobile-sheet-bar {
@@ -1891,6 +1980,14 @@
             <div id="map-layer-toolbar" class="map-layer-toolbar" aria-label="Controles de visualização do mapa"></div>
 
             <div class="map-stage">
+            <!-- Widget do Radar Meteorológico Animado -->
+            <div id="radar-player-widget" class="radar-player-widget">
+                <span class="radar-badge-live">● AO VIVO</span>
+                <button type="button" id="btn-radar-toggle-play" class="radar-btn-play" title="Pausar / Reproduzir animação">⏸</button>
+                <span id="radar-timestamp" class="radar-timeline-text">Carregando radar...</span>
+                <span style="font-size:10px; color:#94A3B8;">RainViewer Radar SP</span>
+            </div>
+
             <!-- Controles Rápidos no Mapa -->
             <div class="map-quick-controls">
 
@@ -1953,7 +2050,11 @@
     <script src="/static/js/api.js?v=20260929-v2"></script>
     <script src="/static/js/historico_buscas.js?v=20260929-v2"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260923-fix"></script>
+<<<<<<< HEAD
     <script src="/static/js/map_dashboard.js?v=20260930-v1"></script>
+=======
+    <script src="/static/js/map_dashboard.js?v=20261001-visual-prototype"></script>
+>>>>>>> 6872dc9437984d4675efeda44dd0cac58532c85f
         <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
     <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
         <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">
