@@ -1,5 +1,5 @@
 /**
- * Módulo de Integração Open-Meteo & Regras de Alerta Preditivo (Com Modo Simulação FECART)
+ * Módulo de Integração Open-Meteo & Regras de Alerta Preditivo (Com Modo de Simulação de Risco)
  * Dados meteorológicos em tempo real calibrados com a escala oficial da Defesa Civil / CGE.
  */
 
@@ -39,7 +39,7 @@ function getWmoInfo(code) {
 async function fetchOpenMeteoData(lat = -23.5505, lon = -46.6333) {
     // Modelo ICON (icon_seamless) é mais preciso para o Brasil/América do Sul e usa grade de alta resolução (~2km)
     // Parâmetros: temperatura atual, umidade, sensação térmica, precipitação, código meteorológico, vento
-    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,wind_speed_10m&daily=precipitation_sum,precipitation_probability_max,temperature_2m_max,temperature_2m_min&models=icon_seamless&timezone=America%2FSao_Paulo`;
+    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,wind_speed_10m&hourly=precipitation,precipitation_probability&daily=precipitation_sum,precipitation_probability_max,temperature_2m_max,temperature_2m_min&models=icon_seamless&timezone=America%2FSao_Paulo&forecast_days=2`;
     const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
     
     let data = null;
@@ -72,6 +72,21 @@ async function fetchOpenMeteoData(lat = -23.5505, lon = -46.6333) {
 
     const current = data.current || {};
     const daily = data.daily || {};
+    const hourly = data.hourly || {};
+    
+    // Próximas 24 horas a partir da hora atual
+    let hourlyFiltered = null;
+    if (hourly && hourly.time) {
+        const nowIso = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH
+        let startIdx = hourly.time.findIndex(t => t.startsWith(nowIso));
+        if (startIdx < 0) startIdx = 0;
+        const endIdx = Math.min(startIdx + 24, hourly.time.length);
+        hourlyFiltered = {
+            time: hourly.time.slice(startIdx, endIdx),
+            precipitation: hourly.precipitation ? hourly.precipitation.slice(startIdx, endIdx) : [],
+            precipitation_probability: hourly.precipitation_probability ? hourly.precipitation_probability.slice(startIdx, endIdx) : []
+        };
+    }
     
     // Chuva atual caindo neste instante (mm/h)
     const chuvaInstatanea = Number(current.precipitation ?? current.rain ?? 0);
@@ -96,7 +111,8 @@ async function fetchOpenMeteoData(lat = -23.5505, lon = -46.6333) {
         tempMax: Math.round(daily.temperature_2m_max?.[0] ?? 23),
         tempMin: Math.round(daily.temperature_2m_min?.[0] ?? 14),
         horarioAtualizacao: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        alertaInfo: evaluateRainAlertRule(chuvaInstatanea, chuvaHojeAcumulada, wCode, probChuva)
+        alertaInfo: evaluateRainAlertRule(chuvaInstatanea, chuvaHojeAcumulada, wCode, probChuva),
+        hourly: hourlyFiltered
     };
 
     return realWeatherDataCache;
@@ -216,7 +232,7 @@ function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
     // Horário e status
     if (elTime) {
         if (isSimulation) {
-            elTime.textContent = `🧪 SIMULAÇÃO FECART: ${scenarioName.toUpperCase()}`;
+            elTime.textContent = `🧪 SIMULAÇÃO AO VIVO: ${scenarioName.toUpperCase()}`;
         } else {
             elTime.textContent = `${weather.condicaoIcone} ${weather.condicaoTexto} • Atualizado às ${weather.horarioAtualizacao}`;
         }
@@ -226,7 +242,7 @@ function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
     const alertBanner = document.getElementById('om-alert-banner');
     if (alertBanner) {
         const info = weather.alertaInfo;
-        const simBadge = isSimulation ? `<span class="chip chip-moderado" style="margin-left: 8px;">[MODO DEMO FECART]</span>` : '';
+        const simBadge = isSimulation ? `<span class="chip chip-moderado" style="margin-left: 8px;">[SIMULAÇÃO ATIVA]</span>` : '';
         const labelChuva = isSimulation ? 'Taxa de Chuva:' : 'Chuva Agora:';
         
         alertBanner.setAttribute('style', `padding: 24px; border-radius: 14px; margin-top: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; transition: all 0.4s ease; ${info.bgStyle}`);
@@ -251,11 +267,24 @@ function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
 }
 
 /**
- * Função para simular cenários específicos durante a apresentação na FECART
+ * Função para simular cenários específicos de chuva e risco ao vivo
  */
 function simularCenario(chuvaMmHora, nomeCenario, temp = 22, prob = 90) {
-    currentSimulatedScenario = nomeCenario;
-    
+    // Simulação horária para o gráfico
+    const nowHour = new Date().getHours();
+    const simTimes = [];
+    const simPrecip = [];
+    const simProb = [];
+    for (let h = 0; h < 24; h++) {
+        const d = new Date();
+        d.setHours(nowHour + h, 0, 0, 0);
+        simTimes.push(d.toISOString());
+        // Curva em sino simulada com pico na 2ª hora
+        const factor = Math.max(0.1, Math.exp(-Math.pow(h - 2, 2) / 10));
+        simPrecip.push(Number((chuvaMmHora * factor).toFixed(1)));
+        simProb.push(Math.min(100, Math.round(prob * factor)));
+    }
+
     const simulatedData = {
         cidade: "São Paulo, SP (Simulação)",
         temperatura: Math.round(temp),
@@ -271,7 +300,12 @@ function simularCenario(chuvaMmHora, nomeCenario, temp = 22, prob = 90) {
         tempMax: Math.round(temp + 4),
         tempMin: Math.round(temp - 4),
         horarioAtualizacao: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        alertaInfo: evaluateRainAlertRule(chuvaMmHora, chuvaMmHora * 1.5, chuvaMmHora > 30 ? 95 : (chuvaMmHora >= 10 ? 65 : 63), prob)
+        alertaInfo: evaluateRainAlertRule(chuvaMmHora, chuvaMmHora * 1.5, chuvaMmHora > 30 ? 95 : (chuvaMmHora >= 10 ? 65 : 63), prob),
+        hourly: {
+            time: simTimes,
+            precipitation: simPrecip,
+            precipitation_probability: simProb
+        }
     };
 
     renderWeatherData(simulatedData, true, nomeCenario);

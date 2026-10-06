@@ -49,7 +49,7 @@ async function loadDashboard() {
                     <span style="font-size: 20px;">📍</span>
                     <div>
                         <strong style="color: #FFFFFF; font-size: 15px; display: block; font-weight: 700;">${r.zone_name}</strong>
-                        <span style="font-size: 12px; color: ${tagColor}; font-weight: 600;">Entorno FECAP • Centro / Liberdade</span>
+                        <span style="font-size: 12px; color: ${tagColor}; font-weight: 600;">Região Central • Liberdade / Sé</span>
                     </div>
                 </div>
                 <span class="chip ${chipClass}">${r.nivel_risco.toUpperCase()} (${Math.round(r.probabilidade)}%)</span>

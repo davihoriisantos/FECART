@@ -69,13 +69,13 @@ def seed_database(db: Session):
             "desc": "Centro histórico com pontos de escoamento e monitoramento contínuo em dias de chuva."
         },
         {
-            "nome": "Av. Liberdade (Frente FECAP)",
+            "nome": "Av. da Liberdade",
             "lat": -23.5574,
             "lon": -46.6367,
             "risco": "baixo",
             "prob": 15.0,
             "pop": 12000,
-            "desc": "Região alta da colina da Liberdade em frente ao campus da FECAP. Topografia favorável e risco reduzido."
+            "desc": "Região alta da colina da Liberdade. Topografia favorável e risco reduzido."
         },
         {
             "nome": "Praça da Bandeira / Av. 9 de Julho",
@@ -413,13 +413,13 @@ def seed_database(db: Session):
         zones.append(zone)
     db.commit()
 
-    # Sensores no entorno da FECAP
+    # Sensores na região central da Liberdade
     db.query(SensorReading).delete()
     db.query(Sensor).delete()
     db.commit()
 
     sensors_data = [
-        {"nome": "Pluviômetro FECAP - Campus Liberdade", "tipo": "pluviometro", "lat": -23.5574, "lon": -46.6367},
+        {"nome": "Pluviômetro Liberdade - Centro", "tipo": "pluviometro", "lat": -23.5574, "lon": -46.6367},
         {"nome": "Sensor Hidrológico Baixada do Glicério", "tipo": "nivel_rio", "lat": -23.5592, "lon": -46.6288},
         {"nome": "Sensor Pluvial Vale do Anhangabaú", "tipo": "pluviometro", "lat": -23.5475, "lon": -46.6378},
         {"nome": "Umidade do Solo - Praça da Sé", "tipo": "umidade_solo", "lat": -23.5505, "lon": -46.6333},

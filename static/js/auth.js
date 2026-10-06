@@ -173,25 +173,19 @@ async function salvarLocalPeloPerfil(type) {
 
     // Geocodificação via Nominatim
     let lat = -23.5505, lon = -46.6333;
-    const vLower = val.toLowerCase();
-
-    if (vLower.includes('fecart') || vLower.includes('fecap')) {
-        lat = -23.5574; lon = -46.6367;
-    } else {
-        try {
-            const nomRes = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val + ' São Paulo')}&limit=1&countrycodes=br`,
-                { headers: { 'Accept-Language': 'pt-BR' } }
-            );
-            if (nomRes.ok) {
-                const nomData = await nomRes.json();
-                if (nomData?.length > 0 && nomData[0].lat) {
-                    lat = Number(nomData[0].lat);
-                    lon = Number(nomData[0].lon);
-                }
+    try {
+        const nomRes = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val + ' São Paulo')}&limit=1&countrycodes=br`,
+            { headers: { 'Accept-Language': 'pt-BR' } }
+        );
+        if (nomRes.ok) {
+            const nomData = await nomRes.json();
+            if (nomData?.length > 0 && nomData[0].lat) {
+                lat = Number(nomData[0].lat);
+                lon = Number(nomData[0].lon);
             }
-        } catch (_) {}
-    }
+        }
+    } catch (_) {}
 
     const placeData = { lat, lon, nome: val, address: val, bairro: 'São Paulo - SP', alt: null };
 

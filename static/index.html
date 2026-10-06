@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FloodGuard AI - Inteligência Artificial para Salvar Vidas em Enchentes</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20261005-v5">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20261006-v6">
+    <!-- Chart.js via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="/static/js/splash.js?v=20260916-entry-only"></script>
 </head>
 <body>
@@ -53,33 +55,30 @@
                     <span>🛡️ TECNOLOGIA PREDITIVA DE ALTO IMPACTO</span>
                 </div>
 
-                <!-- 2. Título Principal (Tipografia Refinada) -->
+                <!-- 2. Título Principal -->
                 <h1 class="hero-title">
                     Prevenindo Enchentes.<br>
                     <span class="gradient-text">Salvando Vidas com IA em Tempo Real.</span>
                 </h1>
 
-                <!-- 3. Subtítulo / Descrição Limpa e Espaçada -->
+                <!-- 3. Subtítulo -->
                 <p class="hero-subtitle">
                     Uma plataforma de Inteligência Artificial de alta precisão projetada para monitorar rios, solo e chuvas, antecipando alagamentos antes que eles ocorram para proteger você e sua família.
                 </p>
 
-                <!-- 4. Botões e Ações (CTA) -->
+                <!-- 4. Botões CTA -->
                 <div class="hero-actions">
-                    <!-- Botão Principal: Ver Mapa de Risco ao Vivo (Redirecionamento para Login) -->
                     <a href="/login?redirect=/map" class="btn btn-primary hero-btn-cta">
                         <span>🗺️ Ver Mapa de Risco ao Vivo</span>
                         <span class="badge-login-tag">Login</span>
                     </a>
-
-                    <!-- Widget Secundário: Dados de Chuva e Clima em Tempo Real -->
                     <a href="#clima-ao-vivo" class="btn btn-outline hero-btn-weather">
                         <span>🌧️ Dados de Chuva e Clima em Tempo Real</span>
                         <span class="pulse-dot"></span>
                     </a>
                 </div>
 
-                <!-- 5. Métricas de Impacto e Confiança -->
+                <!-- 5. Métricas de Impacto -->
                 <div class="hero-metrics">
                     <div class="metric-item"><strong class="text-cyan">🎯 99.4%</strong> <span>Precisão Preditiva</span></div>
                     <div class="metric-item"><strong class="text-emerald">⏱️ +45 min</strong> <span>Alerta Antecipado</span></div>
@@ -112,8 +111,11 @@
     </section>
 
     <main class="container">
-        <!-- Open-Meteo Live Weather & Rain Banner -->
-        <div id="clima-ao-vivo" class="card" style="margin-bottom: 60px; padding: 32px; border-color: rgba(56, 189, 248, 0.3); background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.5));">
+
+        <!-- ════════════════════════════════════════
+             MÓDULO 1: CLIMA & MONITORAMENTO AO VIVO
+             ════════════════════════════════════════ -->
+        <div id="clima-ao-vivo" class="dashboard-card anim-fade-up" style="margin-bottom: 60px;">
             <div class="flex-between" style="margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <div style="font-size: 28px;">🌧️</div>
@@ -128,115 +130,242 @@
                 </div>
             </div>
 
-            <div class="grid grid-4" style="text-align: left; margin-bottom: 24px;">
-                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">💧 Chuva Acumulada</div>
-                    <div id="om-rain-acc" style="font-size: 32px; font-weight: 800; color: var(--accent-cyan);">-- mm</div>
+            <!-- Grid de 4 Métricas com Tooltips -->
+            <div class="grid grid-4" style="margin-bottom: 24px;">
+                <div class="metric-card" title="Chuva acumulada nas últimas horas em milímetros">
+                    <div class="metric-card-label">💧 Chuva Acumulada</div>
+                    <div id="om-rain-acc" class="metric-card-value" style="color: var(--accent-cyan);">-- mm</div>
+                    <div class="metric-card-tooltip">Precipitação acumulada nas últimas horas</div>
                 </div>
                 
-                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">🎯 Probabilidade de Chuva</div>
-                    <div id="om-rain-prob" style="font-size: 32px; font-weight: 800; color: var(--warning);">-- %</div>
+                <div class="metric-card" title="Probabilidade de ocorrência de chuva nas próximas horas">
+                    <div class="metric-card-label">🎯 Probabilidade de Chuva</div>
+                    <div id="om-rain-prob" class="metric-card-value" style="color: var(--warning);">-- %</div>
+                    <div class="metric-card-tooltip">Chance de precipitação nas próximas horas</div>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">🌡️ Temperatura Atual</div>
-                    <div id="om-temp" style="font-size: 32px; font-weight: 800; color: #FFFFFF;">-- °C</div>
+                <div class="metric-card" title="Temperatura do ar em graus Celsius">
+                    <div class="metric-card-label">🌡️ Temperatura Atual</div>
+                    <div id="om-temp" class="metric-card-value" style="color: #FFFFFF;">-- °C</div>
+                    <div class="metric-card-tooltip">Temperatura instantânea do ar em SP</div>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.03); padding: 18px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">🌬️ Umidade / Vento</div>
-                    <div style="font-size: 20px; font-weight: 700; color: var(--accent-emerald); margin-top: 6px;">
+                <div class="metric-card" title="Umidade relativa e velocidade do vento">
+                    <div class="metric-card-label">🌬️ Umidade / Vento</div>
+                    <div class="metric-card-value" style="color: var(--accent-emerald); font-size: 20px; margin-top: 6px;">
                         <span id="om-humidity">--%</span> • <span id="om-wind">-- km/h</span>
+                    </div>
+                    <div class="metric-card-tooltip">Umidade relativa do ar e vento em km/h</div>
+                </div>
+            </div>
+
+            <!-- Gráfico de Linha: Precipitação 24h -->
+            <div class="rain-chart-wrapper">
+                <div class="rain-chart-header">
+                    <span style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">📈 Precipitação & Probabilidade — Próximas Horas</span>
+                </div>
+                <div style="position: relative; height: 220px;">
+                    <canvas id="rain-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Banner Dinâmico de Alerta -->
+            <div id="om-alert-banner" style="margin-top: 16px;"></div>
+        </div>
+
+        <!-- ════════════════════════════════════════
+             MÓDULO 2: CONSEQUÊNCIAS (Dados + Gráfico)
+             ════════════════════════════════════════ -->
+        <section id="consequencias" class="quote-wrapper anim-fade-up">
+            <h2 class="content-section-title">Consequências</h2>
+
+            <div class="dashboard-card impact-dashboard">
+                <!-- Contadores Animados -->
+                <div class="impact-counters">
+                    <div class="impact-counter-item">
+                        <div class="impact-counter-value">
+                            <span class="count-up text-cyan"
+                                  data-target="3.2"
+                                  data-suffix="B+"
+                                  data-decimals="1">3.2B+</span>
+                        </div>
+                        <div class="impact-counter-label">Pessoas Afetadas</div>
+                        <div class="impact-counter-sub">em análises históricas mundiais</div>
+                    </div>
+                    <div class="impact-counter-item">
+                        <div class="impact-counter-value">
+                            <span class="count-up" style="color: #EF4444;"
+                                  data-target="4200"
+                                  data-suffix="+"
+                                  data-decimals="0">4200+</span>
+                        </div>
+                        <div class="impact-counter-label">Mortes em 2025</div>
+                        <div class="impact-counter-sub">associadas a inundações</div>
+                    </div>
+                    <div class="impact-counter-item">
+                        <div class="impact-counter-value">
+                            <span class="count-up" style="color: #FBBF24;"
+                                  data-target="28"
+                                  data-prefix="$"
+                                  data-suffix="B+"
+                                  data-decimals="0">$28B+</span>
+                        </div>
+                        <div class="impact-counter-label">Prejuízos Financeiros</div>
+                        <div class="impact-counter-sub">somente em 2025</div>
+                    </div>
+                    <div class="impact-counter-item">
+                        <div class="impact-counter-value">
+                            <span class="count-up" style="color: #A78BFA;"
+                                  data-target="218"
+                                  data-suffix="mil"
+                                  data-decimals="0">218mil</span>
+                        </div>
+                        <div class="impact-counter-label">Vidas Perdidas</div>
+                        <div class="impact-counter-sub">histórico de longo prazo</div>
+                    </div>
+                </div>
+
+                <!-- Gráfico Donut + Texto -->
+                <div class="impact-chart-row">
+                    <div class="impact-donut-wrapper">
+                        <canvas id="impact-donut"></canvas>
+                    </div>
+                    <div class="impact-text-col">
+                        <p class="impact-highlight-text">
+                            <strong>As enchentes causam impactos a dezenas de milhões de pessoas e provocam milhares de mortes anualmente em todo o mundo.</strong>
+                        </p>
+                        <p style="color: var(--text-muted); font-size: 15px; line-height: 1.75; margin-top: 12px;">
+                            Somente em 2025, ocorreram cerca de <strong style="color:#fff">4.200 mortes associadas a inundações</strong>, além de mais de <strong style="color:#fff">US$ 28 bilhões em prejuízos financeiros</strong>. Em análises históricas, as inundações afetaram mais de <strong style="color:#fff">3,2 bilhões de pessoas</strong> e tiraram a vida de <strong style="color:#fff">218 mil cidadãos</strong> mundialmente.
+                        </p>
+                        <div class="impact-cta-chip">
+                            <span class="ai-badge-pulse" style="background: #EF4444;"></span>
+                            A IA do FloodGuard atua para mudar este cenário.
+                        </div>
                     </div>
                 </div>
             </div>
-
-            <!-- Banner Dinâmico de Regra de Alerta -->
-            <div id="om-alert-banner"></div>
-
-            <!-- Painel de Botões de Demonstração FECART -->
-            <div id="demo-fecart" class="simulator-anchor" style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--glass-border); text-align: left;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
-                    <span style="font-size: 20px;">🧪</span>
-                    <h4 style="font-size: 16px; font-weight: 800; color: #FFFFFF;">Modo de Demonstração para a FECART (Simulação de Cenários):</h4>
-                </div>
-                
-                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button type="button" onclick="simularCenario(1.2, 'Chuva Fraca / Garoa', 24, 20)" class="btn" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); color: #6EE7B7; font-size: 14px;">
-                        🟢 Chuva Fraca (&lt;2.5mm)
-                    </button>
-                    
-                    <button type="button" onclick="simularCenario(6.0, 'Chuva Moderada', 21, 55)" class="btn" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE047; font-size: 14px;">
-                        🟡 Chuva Moderada (2.5–10mm)
-                    </button>
-
-                    <button type="button" onclick="simularCenario(18.5, 'Chuva Forte', 20, 80)" class="btn" style="background: rgba(249, 115, 22, 0.2); border: 1px solid rgba(249, 115, 22, 0.5); color: #FDBA74; font-size: 14px;">
-                        🟠 Chuva Forte (10–30mm)
-                    </button>
-                    
-                    <button type="button" onclick="simularCenario(42.0, 'Tempestade / Torrencial', 18, 98)" class="btn" style="background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.6); color: #FCA5A5; font-size: 14px;">
-                        🔴 Tempestade (&gt;30mm)
-                    </button>
-
-                    <button type="button" onclick="restaurarDadosReais()" class="btn btn-outline" style="font-size: 14px;">
-                        🔄 Restaurar Dados Reais
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Consequências globais das enchentes -->
-        <section id="consequencias" class="quote-wrapper impact-section">
-            <h2 class="content-section-title">Consequências</h2>
-            <div class="quote-card impact-card">
-                <blockquote class="quote-body">
-                    <strong>As enchentes causam impactos a dezenas de milhões de pessoas e provocam milhares de mortes anualmente em todo o mundo.</strong>
-                    Somente em 2025, ocorreram cerca de <strong>4.200 mortes associadas a inundações</strong>, além de mais de <strong>US$ 28 bilhões em prejuízos financeiros</strong>.
-                    Em análises históricas de longo prazo, as inundações afetaram mais de <strong>3,2 bilhões de pessoas</strong> e tiraram a vida de <strong>218 mil cidadãos</strong> mundialmente.
-                </blockquote>
-            </div>
         </section>
 
-        <!-- Missão do FloodGuard -->
-        <section id="nossa-missao" class="quote-wrapper mission-section">
+        <!-- ════════════════════════════════════════
+             MÓDULO 3: NOSSA MISSÃO (3 Cards Interativos)
+             ════════════════════════════════════════ -->
+        <section id="nossa-missao" class="quote-wrapper mission-section anim-fade-up">
             <h2 class="content-section-title">Nossa Missão</h2>
-            <div class="quote-card mission-card">
-                <div class="mission-icon" aria-hidden="true">🛡️</div>
-                <p class="mission-lead"><strong>Nossa missão é usar a tecnologia para proteger pessoas e cuidar da nossa cidade.</strong></p>
-                <p class="mission-text">Queremos que ninguém mais perca o carro, a casa ou a paz de espírito por ser pego de surpresa durante uma tempestade. Estamos aqui para trazer segurança à sua rotina e ajudar a garantir que você e sua família sempre cheguem bem ao seu destino.</p>
+            <p class="how-section-intro">Nossa missão é usar a tecnologia para proteger pessoas e cuidar da nossa cidade.</p>
+
+            <div class="mission-pillars-grid">
+                <!-- Pilar 1 -->
+                <div class="mission-pillar-card">
+                    <div class="mission-pillar-icon" style="background: linear-gradient(135deg, #0369a1, #38BDF8);">🛡️</div>
+                    <h3 class="mission-pillar-title">Segurança Pessoal</h3>
+                    <p class="mission-pillar-desc">Queremos que ninguém mais perca a vida ou seja pego de surpresa durante uma tempestade. Alertas precisos chegam antes do perigo.</p>
+                    <div class="mission-pillar-tag">Proteção Individual</div>
+                </div>
+
+                <!-- Pilar 2 -->
+                <div class="mission-pillar-card">
+                    <div class="mission-pillar-icon" style="background: linear-gradient(135deg, #065F46, #34D399);">🏠</div>
+                    <h3 class="mission-pillar-title">Proteção de Patrimônio</h3>
+                    <p class="mission-pillar-desc">Estamos aqui para proteger seu carro, sua casa e seu negócio com 45 minutos de antecedência antes de qualquer alagamento.</p>
+                    <div class="mission-pillar-tag">Patrimônio Seguro</div>
+                </div>
+
+                <!-- Pilar 3 -->
+                <div class="mission-pillar-card">
+                    <div class="mission-pillar-icon" style="background: linear-gradient(135deg, #6d28d9, #A78BFA);">🌆</div>
+                    <h3 class="mission-pillar-title">Tranquilidade Urbana</h3>
+                    <p class="mission-pillar-desc">Ajudamos você e sua família a chegarem sempre bem ao destino, tornando o trânsito de São Paulo mais seguro e previsível.</p>
+                    <div class="mission-pillar-tag">Mobilidade Urbana</div>
+                </div>
             </div>
         </section>
 
-        <!-- Como o FloodGuard transforma dados em proteção -->
-        <section id="como-fazemos" class="how-section">
+        <!-- ════════════════════════════════════════
+             MÓDULO 4: COMO FAZEMOS ISSO (Stepper)
+             ════════════════════════════════════════ -->
+        <section id="como-fazemos" class="how-section anim-fade-up" id="stepper-section">
             <h2 class="content-section-title">Como Fazemos Isso</h2>
             <p class="how-section-intro">Da leitura do ambiente ao alerta final: tecnologia aplicada em três etapas.</p>
 
-            <!-- Etapas apresentadas nos três cards principais -->
-            <div id="tecnologia" class="features-grid">
-            <div class="feature-card">
-                <div class="feature-icon">🛰️</div>
-                <h3 class="feature-title">1. Coleta de Dados em Tempo Real</h3>
-                <p class="feature-desc">Monitoramos continuamente dados meteorológicos, níveis de chuva, altitude do relevo e a proximidade de rios e córregos em São Paulo.</p>
-            </div>
-            
-            <div class="feature-card">
-                <div class="feature-icon">🧠</div>
-                <h3 class="feature-title">2. Análise Preditiva com IA</h3>
-                <p class="feature-desc">Nossa Inteligência Artificial cruza essas informações com o histórico de enchentes da cidade para calcular o risco exato de alagamento metro a metro.</p>
-            </div>
+            <div class="stepper-container" id="stepper-section">
+                <!-- Barra de progresso -->
+                <div class="stepper-progress-track">
+                    <div class="stepper-progress-fill" id="stepper-progress"></div>
+                </div>
 
-            <div class="feature-card">
-                <div class="feature-icon">⚠️</div>
-                <h3 class="feature-title">3. Alertas e Recomendações</h3>
-                <p class="feature-desc">Entregamos diagnósticos precisos e recomendações claras para que você saiba exatamente o nível de risco no seu caminho antes de sair de casa.</p>
-            </div>
+                <!-- Botões de Etapa -->
+                <div class="stepper-tabs" role="tablist">
+                    <button class="step-btn" role="tab" aria-selected="true">
+                        <span class="step-num">1</span>
+                        <span class="step-label">Coleta de Dados</span>
+                    </button>
+                    <div class="stepper-connector">
+                        <span class="stepper-pulse"></span>
+                    </div>
+                    <button class="step-btn" role="tab" aria-selected="false">
+                        <span class="step-num">2</span>
+                        <span class="step-label">Análise com IA</span>
+                    </button>
+                    <div class="stepper-connector">
+                        <span class="stepper-pulse"></span>
+                    </div>
+                    <button class="step-btn" role="tab" aria-selected="false">
+                        <span class="step-num">3</span>
+                        <span class="step-label">Alertas</span>
+                    </button>
+                </div>
+
+                <!-- Painéis de Conteúdo -->
+                <div class="step-panel active" role="tabpanel" aria-hidden="false">
+                    <div class="step-panel-inner">
+                        <div class="step-panel-icon">🛰️</div>
+                        <div class="step-panel-body">
+                            <h3 class="step-panel-title">1. Coleta de Dados em Tempo Real</h3>
+                            <p class="step-panel-desc">Monitoramos continuamente dados meteorológicos, níveis de chuva, altitude do relevo e a proximidade de rios e córregos em São Paulo. Sensores, satélites e APIs de clima fornecem uma visão completa do ambiente.</p>
+                            <div class="step-tags">
+                                <span class="step-tag">🌦️ Open-Meteo API</span>
+                                <span class="step-tag">📡 Sensores IoT</span>
+                                <span class="step-tag">🗺️ Dados GEO</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-panel" role="tabpanel" aria-hidden="true">
+                    <div class="step-panel-inner">
+                        <div class="step-panel-icon">🧠</div>
+                        <div class="step-panel-body">
+                            <h3 class="step-panel-title">2. Análise Preditiva com IA</h3>
+                            <p class="step-panel-desc">Nossa Inteligência Artificial cruza essas informações com o histórico de enchentes da cidade para calcular o risco exato de alagamento metro a metro. Modelos de Machine Learning atualizam as previsões a cada hora.</p>
+                            <div class="step-tags">
+                                <span class="step-tag">🤖 Machine Learning</span>
+                                <span class="step-tag">📊 Histórico 10 anos</span>
+                                <span class="step-tag">⚡ Atualização Horária</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-panel" role="tabpanel" aria-hidden="true">
+                    <div class="step-panel-inner">
+                        <div class="step-panel-icon">⚠️</div>
+                        <div class="step-panel-body">
+                            <h3 class="step-panel-title">3. Alertas e Recomendações</h3>
+                            <p class="step-panel-desc">Entregamos diagnósticos precisos e recomendações claras para que você saiba exatamente o nível de risco no seu caminho antes de sair de casa. Alertas chegam com até 45 minutos de antecedência.</p>
+                            <div class="step-tags">
+                                <span class="step-tag">🔔 Alertas Push</span>
+                                <span class="step-tag">⏱️ +45min Antecipação</span>
+                                <span class="step-tag">🗺️ Mapa Interativo</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
     </main>
 
     <script src="/static/js/openmeteo.js"></script>
+    <script src="/static/js/dashboard_home.js?v=20261006-v1"></script>
     <script>
         // Sistema de Scroll Spy e Navegação Fluida (Vanilla JS de Alto Desempenho)
         (function() {
@@ -265,23 +394,19 @@
                 const windowHeight = window.innerHeight;
                 const docHeight = document.documentElement.scrollHeight;
 
-                // 1. Topo da página: sempre 'inicio'
                 if (scrollY < 120) {
                     setActiveSection('inicio');
                     return;
                 }
 
-                // 2. Fim da página: sempre a última seção 'como-fazemos'
                 if (scrollY + windowHeight >= docHeight - 80) {
                     setActiveSection('como-fazemos');
                     return;
                 }
 
-                // 3. Linha de leitura (160px abaixo do topo, logo após o header fixo)
                 const probeY = 160;
                 let activeId = 'inicio';
 
-                // Percorre do fim para o início: a primeira seção cujo topo passou pela linha de leitura é a ativa
                 for (let i = sectionIds.length - 1; i >= 0; i--) {
                     const id = sectionIds[i];
                     const el = document.getElementById(id);
@@ -296,7 +421,6 @@
                 setActiveSection(activeId);
             }
 
-            // Listener de Scroll com requestAnimationFrame para performance 60fps
             let ticking = false;
             window.addEventListener('scroll', () => {
                 if (isClickScrolling) return;
@@ -309,7 +433,6 @@
                 }
             }, { passive: true });
 
-            // Navegação Suave com Clique nas Abas e na Logo
             document.querySelectorAll('a[href^="#"]').forEach(link => {
                 link.addEventListener('click', event => {
                     const targetId = link.getAttribute('href').slice(1);
@@ -317,11 +440,8 @@
                     if (!target && targetId !== 'inicio') return;
 
                     event.preventDefault();
-
-                    // Ativa a aba clicada imediatamente
                     setActiveSection(targetId);
 
-                    // Trava o Scroll Spy durante o deslocamento suave para não tremer
                     isClickScrolling = true;
                     if (clickTimeout) clearTimeout(clickTimeout);
                     clickTimeout = setTimeout(() => {
@@ -348,7 +468,6 @@
                 });
             });
 
-            // Executa no carregamento inicial para marcar a seção correta
             updateScrollSpy();
 
             // Efeito Interativo 3D no Hover da Logo Dinâmica
@@ -369,7 +488,7 @@
                 });
             }
 
-            // Identificação do Usuário Logado (Perfil)
+            // Identificação do Usuário Logado
             const label = document.getElementById('header-user-label');
             if (label) {
                 try {

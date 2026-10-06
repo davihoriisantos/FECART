@@ -278,7 +278,7 @@ async function renderizarHistoricoDefesaCivil() {
 
 // ─── Inicializa o mapa ────────────────────────────────────────────────────────
 async function initMap() {
-    // Focado no entorno da FECAP (Liberdade e Centro Histórico)
+    // Focado na região central de São Paulo (Liberdade e Centro Histórico)
     map = L.map('map').setView([-23.5545, -46.6330], 15);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -545,7 +545,7 @@ async function atualizarDadosSidebar(pointId) {
         let rainVal = (idx < rains.length && rains[idx] !== null) ? rains[idx] : 0;
         let probVal = (idx < probs.length && probs[idx] !== null) ? probs[idx] : 0;
 
-        // Se houver simulação ativa para a Fecart, sobrepõe os valores da previsão
+        // Se houver simulação ativa de cenário, sobrepõe os valores da previsão
         if (currentSimulatedForecastScenario === 'tempestade') {
             rainVal = f === 1 ? 15.0 : (f === 2 ? 25.0 : 18.0);
             probVal = 95;
@@ -780,7 +780,7 @@ function getRiskLabelByPercent(pct) {
     return 'Baixo';
 }
 
-// ─── Função de Demonstração Rápida na FECART ──────────────────────────────────
+// ─── Função de Simulação de Previsão ──────────────────────────────────────────
 function simularPrevisaoSidebar(cenario) {
     currentSimulatedForecastScenario = cenario === 'normal' ? null : cenario;
     atualizarDadosSidebar(currentSidebarPointId);

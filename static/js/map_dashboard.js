@@ -7,13 +7,13 @@
  * - Cálculo de Risco Dinâmico em Tempo Real por Coordenada (sem marcadores fixos)
  * - Clique no Mapa para Análise Instantânea de Risco
  * - Gráfico de Tendência (Chart.js) 24h Passadas + 3h Futuras
- * - Simulador de Trajeto com Avaliação de Risco e Modo Demo FECART
+ * - Simulador de Trajeto com Avaliação de Risco e Simulação de Cenários
  */
 
 // ─── BASE DE BAIRROS E PONTOS DE SÃO PAULO ───────────────────────────────────
 const SP_NEIGHBORHOODS = [
-    // Centro, Paulista & Região FECAP
-    { nome: "FECAP — Campus Liberdade", bairro: "Liberdade / Centro", lat: -23.5574, lon: -46.6367, alt: 735, icon: "🎓" },
+    // Centro, Paulista & Região Central
+    { nome: "Praça da Liberdade", bairro: "Liberdade / Centro", lat: -23.5552, lon: -46.6358, alt: 735, icon: "📍" },
     { nome: "Tirrenos Restaurante", bairro: "Bela Vista / Cerqueira César", lat: -23.5578, lon: -46.6575, alt: 785, icon: "🍽️" },
     { nome: "Liberdade", bairro: "Centro", lat: -23.5594, lon: -46.6362, alt: 732, icon: "🏮" },
     { nome: "Baixada do Glicério", bairro: "Centro / Glicério", lat: -23.5592, lon: -46.6288, alt: 719, icon: "🚨" },
@@ -53,10 +53,10 @@ const SP_NEIGHBORHOODS = [
 // ─── ESTADO GLOBAL DO DASHBOARD ───────────────────────────────────────────────
 let map = null;
 let currentSelectedPoint = {
-    nome: "FECAP — Campus Liberdade",
+    nome: "Praça da Liberdade",
     bairro: "Liberdade / Centro",
-    lat: -23.5574,
-    lon: -46.6367,
+    lat: -23.5552,
+    lon: -46.6358,
     alt: 735
 };
 
@@ -89,10 +89,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMobileSheetDrag();
     await syncSavedPlacesFromServer();
     refreshSavedPlaceButtons();
-    loadDynamicFloodEvents();
-    loadChronicRiskZones2Y();
-    setInterval(loadDynamicFloodEvents, 5 * 60 * 1000);
-    setInterval(loadChronicRiskZones2Y, 10 * 60 * 1000);
     // 4. Proteção e Inicialização de Alertas Preditivos (usuários autenticados)
     setTimeout(() => {
         checkAndPromptNotificationPermission();
@@ -152,7 +148,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         await analyzePoint(userHome.lat, userHome.lon, userHome.nome, userHome.bairro, userHome.alt, userHome.address, false);
     } else {
-        // Fallback para usuários sem casa salva: carrega ponto inicial padrão (FECAP)
+        // Fallback para usuários sem casa salva: carrega ponto inicial padrão (Região Central)
         await analyzePoint(currentSelectedPoint.lat, currentSelectedPoint.lon, currentSelectedPoint.nome, currentSelectedPoint.bairro, currentSelectedPoint.alt);
     }
 });
@@ -638,18 +634,8 @@ async function submitSimplePlaceModal() {
     }
 
     let target = currentSimplePickedPoint;
-    const qLower = query.toLowerCase();
 
-    if (qLower.includes('fecart') || qLower.includes('fecap')) {
-        target = {
-            lat: -23.5574,
-            lon: -46.6367,
-            nome: query.toUpperCase().includes('FECART') ? 'FECART' : 'FECAP — Campus Liberdade',
-            bairro: 'Liberdade',
-            alt: 735,
-            address: query.toUpperCase().includes('FECART') ? 'FECART — FECAP Liberdade, São Paulo - SP' : 'Av. da Liberdade, 532 - Liberdade, São Paulo - SP'
-        };
-    } else if (!target || target.nome !== query) {
+    if (!target || target.nome !== query) {
         const localMatches = filterLocalNeighborhoods(query);
         const nomMatches = await searchNominatim(query);
         const best = nomMatches[0] || localMatches[0];
@@ -1145,34 +1131,21 @@ const SP_RIVERS = [
     {
         nome: "Rio Tietê (Marginal Tietê)",
         tipo: "principal",
-        // Traçado preciso baseado em OSM — denso (~200–300m entre pontos)
+        // Traçado completo: Nascente (leste) → Barragem Edgard de Souza (oeste)
         coords: [
-            // Zona Leste — Nascente / Itaquaquecetuba → Tatuapé
-            [-23.537, -46.397], [-23.534, -46.407], [-23.531, -46.418],
-            [-23.528, -46.429], [-23.524, -46.440], [-23.520, -46.451],
-            [-23.517, -46.463], [-23.514, -46.474], [-23.512, -46.485],
-            // Penha / Belém — Ponte da Vila Maria
-            [-23.511, -46.497], [-23.510, -46.508], [-23.509, -46.519],
-            [-23.508, -46.530], [-23.507, -46.541], [-23.506, -46.553],
-            [-23.506, -46.565], [-23.506, -46.576], [-23.506, -46.587],
-            // Brás / Anhembi / Ponte das Bandeiras
-            [-23.506, -46.598], [-23.506, -46.609], [-23.507, -46.619],
-            [-23.507, -46.626], [-23.507, -46.632], [-23.507, -46.638],
-            // Santana / Marginal Tietê central — Ponte das Bandeiras → Ponte da Freguesia
-            [-23.507, -46.644], [-23.507, -46.650], [-23.507, -46.656],
-            [-23.508, -46.661], [-23.508, -46.666], [-23.508, -46.671],
-            [-23.508, -46.677], [-23.508, -46.683], [-23.509, -46.689],
-            // Lapa / Barra Funda / Freq. do Ó — trecho crítico (SP-015)
-            [-23.509, -46.695], [-23.510, -46.701], [-23.511, -46.707],
-            [-23.512, -46.713], [-23.513, -46.719], [-23.514, -46.725],
-            [-23.515, -46.731], [-23.516, -46.737], [-23.517, -46.743],
-            // Casa Verde / Limão / Cangaíba
-            [-23.518, -46.749], [-23.520, -46.755], [-23.522, -46.761],
-            [-23.524, -46.767], [-23.527, -46.773], [-23.530, -46.779],
-            [-23.533, -46.785], [-23.536, -46.791], [-23.539, -46.797],
-            // Perus / Barragem Edgard de Souza (oeste)
-            [-23.542, -46.803], [-23.545, -46.810], [-23.547, -46.817],
-            [-23.549, -46.824], [-23.550, -46.830]
+            // Zona Leste — Nascente a Tatuapé
+            [-23.536, -46.398], [-23.530, -46.415], [-23.526, -46.432],
+            [-23.522, -46.450], [-23.518, -46.468], [-23.513, -46.490],
+            // Tietê — Penha / Belém / Brás
+            [-23.516, -46.510], [-23.514, -46.528], [-23.512, -46.545],
+            [-23.511, -46.562], [-23.510, -46.580], [-23.510, -46.600],
+            // Tietê — Anhembi / Ponte das Bandeiras
+            [-23.510, -46.618], [-23.511, -46.634], [-23.512, -46.648],
+            [-23.513, -46.665], [-23.514, -46.682], [-23.515, -46.698],
+            // Tietê — Lapa / Perus / Limão / Freq. do Ó
+            [-23.516, -46.712], [-23.518, -46.725], [-23.521, -46.738],
+            [-23.525, -46.752], [-23.530, -46.768], [-23.534, -46.782],
+            [-23.539, -46.798], [-23.544, -46.814], [-23.548, -46.828]
         ]
     },
     {
@@ -1407,9 +1380,8 @@ function getMinDistanceToRivers(lat, lon) {
         }
     }
 
-    // Buffer oficial da aplicação: toda coordenada até 200m da calha é distância zero.
-    // O Tietê tem ~100m de largura de calha + margem de precisão GPS/click.
-    if (minDistance <= 200) {
+    // Buffer oficial da aplicação: toda coordenada até 150m da calha é distância zero.
+    if (minDistance <= 150) {
         minDistance = 0;
     } else {
         minDistance = Math.round(minDistance);
@@ -1877,7 +1849,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
             ? soilMoistures[idx]
             : (soilMoistures[currentIdx] ?? null);
 
-        // Se houver cenário simulado para a FECART
+        // Se houver cenário simulado de chuva
         if (simulatedScenario === 'tempestade') {
             rainVal = f === 1 ? 18.0 : (f === 2 ? 38.0 : 20.0);
             probVal = 98;
@@ -1987,7 +1959,7 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     );
 
     // ─── 2. PILAR TOPOGRAFIA / RELEVO (OPENTOPODATA / ASTER) [0 a 100] ───
-    // Vales de SP (715-725m) têm alta suscetibilidade de acúmulo hídrico; topos de espigão dispersam
+    // Vales de SP (715-725m) têm alta suscetibilidade; cotas altas (>770m) dispersam o escoamento
     const Score_Topografia = clamp(100 / (1 + Math.exp((elevation - 744) / 14)), 5, 98);
 
     // ─── 3. PILAR PROXIMIDADE A CORPOS HÍDRICOS (CALHAS FLUVIAIS DE SP) E TELEMETRIA [0 a 100] ───
@@ -2004,56 +1976,27 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     }
     const Score_Nivel_Rio = clamp(Score_Proximidade_Rio * riverMultiplier, 2, 100);
 
-    // ─── 4. PILAR HISTÓRICO RECENTE: DEFESA CIVIL, CGE & MATRIZ DINÂMICA DE 2 ANOS [0 a 100] ───
+    // ─── 4. PILAR HISTÓRICO DEFESA CIVIL / CGE (RAIO 1000m + FALLBACK DE BACIA) [0 a 100] ───
     const chronicInfo = checkChronicFloodZone(lat, lon);
-    let Score_Historico = 40;
+    let Score_Historico_CGE = 42;
     if (chronicInfo.hasRecordsWithinRadius) {
         const distRatio = Math.max(0, 1 - (chronicInfo.dist / 1000));
-        Score_Historico = clamp(48 + distRatio * 50, 45, 98);
+        Score_Historico_CGE = clamp(48 + distRatio * 50, 45, 98);
     } else {
         // Fallback dinâmico calibrado pela bacia hidrográfica/zona de SP
-        Score_Historico = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
+        Score_Historico_CGE = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
     }
 
-    // Integração com a Matriz de 2 Anos (recorrência empírica comprovada)
-    if (typeof getNearestChronicRiskZone === 'function') {
-        const chronic2y = getNearestChronicRiskZone(lat, lon);
-        if (chronic2y && chronic2y.isInside) {
-            if (chronic2y.cluster.nivel_risco === 'critico') {
-                Score_Historico = Math.max(Score_Historico, 95); // 5+ enchentes em 24 meses
-            } else if (chronic2y.cluster.nivel_risco === 'alto') {
-                Score_Historico = Math.max(Score_Historico, 80); // 3 a 4 enchentes
-            } else if (chronic2y.cluster.nivel_risco === 'moderado') {
-                Score_Historico = Math.max(Score_Historico, 65); // 1 a 2 enchentes
-            }
-        }
-    }
-
-    // Se houver alagamento ATIVO no CGE neste momento a até 600m
-    if (typeof getNearestDynamicFlood === 'function') {
-        const activeFlood = getNearestDynamicFlood(lat, lon);
-        if (activeFlood && activeFlood.distance <= 600 && activeFlood.isAtivo) {
-            Score_Historico = Math.max(Score_Historico, activeFlood.isIntransitavel ? 98 : 85);
-        }
-    }
-
-    // ─── PESOS RECALIBRADOS (HIERARQUIA HIDROLÓGICA URBANA DE SÃO PAULO) ───
-    // Chuva (45%) | Histórico/Matriz 2Y (25%) | Topografia/Vales (15%) | Rios/Canais (15%)
-    const Peso_Chuva = 0.45;
-    const Peso_Historico = 0.25;
-    const Peso_Topografia = 0.15;
-    let Peso_Rio = 0.15;
-
-    // Se o rio estiver em emergência na telemetria real, amplia a relevância fluvial
-    if (hasRealRiverTelemetry && riverMultiplier >= 1.4) {
-        Peso_Rio = 0.22;
-    }
+    // Histórico da Defesa Civil é prioritário dentro da faixa conjunta de 20%.
+    const Score_Relevo_Historico = (Score_Historico_CGE * 0.70) + (Score_Topografia * 0.30);
+    const Peso_Chuva = 0.50;
+    const Peso_Rio = 0.30;
+    const Peso_Relevo_Historico = 0.20;
 
     let Risco_Multifatorial = (
         (Peso_Chuva * Score_Clima) +
-        (Peso_Historico * Score_Historico) +
-        (Peso_Topografia * Score_Topografia) +
-        (Peso_Rio * Score_Nivel_Rio)
+        (Peso_Rio * Score_Nivel_Rio) +
+        (Peso_Relevo_Historico * Score_Relevo_Historico)
     );
 
     // Atenuação por estruturas de macrodrenagem e piscinões
@@ -2363,16 +2306,6 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
         ? `<div style="display: inline-flex; align-items: center; gap: 4px; background: #0284C7; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 4px; margin-bottom: 4px;">🎯 VOCÊ ESTÁ AQUI (GPS)</div>`
         : '';
 
-    const dynamicFloodNear = getNearestDynamicFlood(lat, lon);
-    const floodWarningHtml = (dynamicFloodNear && dynamicFloodNear.distance <= 1200)
-        ? `<div style="margin-top: 4px; padding: 4px 6px; background: rgba(239,68,68,0.12); border: 1px solid #EF4444; border-radius: 4px; font-size: 10px; color: #DC2626;"><b>🌊 Alagamento CGE (${dynamicFloodNear.isIntransitavel ? 'Intransitável' : 'Transitável'}):</b> a ${dynamicFloodNear.distance}m em ${dynamicFloodNear.event.logradouro}</div>`
-        : '';
-
-    const chronic2yNear = getNearestChronicRiskZone(lat, lon);
-    const chronic2yHtml = (chronic2yNear && chronic2yNear.isInside)
-        ? `<div style="margin-top: 4px; padding: 4px 6px; background: ${chronic2yNear.cluster.cor_hex}18; border: 1px solid ${chronic2yNear.cluster.cor_hex}; border-radius: 4px; font-size: 10px; color: ${chronic2yNear.cluster.cor_hex};"><b>⚠️ Matriz 2 Anos:</b> ${chronic2yNear.cluster.tag_risco} (${chronic2yNear.cluster.total_ocorrencias} enchentes em 24 meses)</div>`
-        : '';
-
     const popupContent = `
         <div style="font-family: 'Plus Jakarta Sans', sans-serif; padding: 6px; min-width: 220px;">
             ${badgeUserHtml}
@@ -2388,8 +2321,6 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
                 <div>⛰️ <b>Altitude:</b> ${alt}m (${altInfo.badge})</div>
                 <div>🌊 <b>Rio:</b> ${riverInfo.river.split('(')[0].trim()} a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance / 1000).toFixed(1) + 'km'}</div>
                 <div>🛡️ <b>Defesa Civil:</b> ${chronicInfo.hasRecordsWithinRadius ? `<span style="color: #DC2626; font-weight: 700;">🚨 ${chronicInfo.zoneName} (${chronicInfo.dist}m)</span>` : `<span style="color: #2563EB; font-weight: 600;">🌐 Bacia ${chronicInfo.bacia || chronicInfo.zoneName}</span>`}</div>
-                ${floodWarningHtml}
-                ${chronic2yHtml}
             </div>
         </div>
     `;
@@ -2399,215 +2330,6 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
     // Movimento suave do mapa para o ponto
     map.flyTo([lat, lon], 16, { duration: 1.5, easeLinearity: 0.25 });
 }
-
-// ─── CAMADA DINÂMICA DE ALAGAMENTOS EM TEMPO REAL (CGE SP / DEFESA CIVIL) ─────
-let activeFloodsLayerGroup = null;
-let activeFloodsList = [];
-
-async function loadDynamicFloodEvents() {
-    try {
-        const res = await fetch('/api/zones/live-occurrences?apenas_ativos=false');
-        if (!res.ok) return;
-        const events = await res.json();
-        activeFloodsList = events || [];
-        renderDynamicFloodMarkers();
-    } catch (e) {
-        console.warn('[FloodGuard] Não foi possível carregar alagamentos dinâmicos CGE:', e);
-    }
-}
-
-function renderDynamicFloodMarkers() {
-    if (!map) return;
-    if (!activeFloodsLayerGroup) {
-        activeFloodsLayerGroup = L.layerGroup().addTo(map);
-    }
-    activeFloodsLayerGroup.clearLayers();
-
-    if (!activeFloodsList || activeFloodsList.length === 0) return;
-
-    activeFloodsList.forEach(event => {
-        if (!event.latitude || !event.longitude) return;
-
-        const isIntransitavel = (event.status || '').includes('intransitavel');
-        const isAtivo = (event.status || '').includes('ativo');
-
-        const pulseColor = isIntransitavel ? '#EF4444' : '#F59E0B';
-        const badgeBg = isIntransitavel ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)';
-        const badgeBorder = isIntransitavel ? '#EF4444' : '#F59E0B';
-        const statusText = isIntransitavel ? '⛔ INTRANSITÁVEL' : '⚠️ TRANSITÁVEL';
-        const iconSymbol = isAtivo ? '🌊' : '💧';
-
-        const floodIcon = L.divIcon({
-            className: 'cge-flood-marker',
-            html: `
-                <div style="
-                    position: relative;
-                    width: 34px;
-                    height: 34px;
-                    background: ${pulseColor};
-                    border: 2px solid #FFFFFF;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 16px;
-                    box-shadow: 0 0 12px ${pulseColor};
-                    cursor: pointer;
-                    animation: pulseMarker 2s infinite;
-                ">
-                    ${iconSymbol}
-                </div>
-            `,
-            iconSize: [34, 34],
-            iconAnchor: [17, 17],
-            popupAnchor: [0, -17]
-        });
-
-        const popupHtml = `
-            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 210px; padding: 4px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="font-size: 10px; font-weight: 800; background: ${badgeBg}; color: ${pulseColor}; border: 1px solid ${badgeBorder}; padding: 2px 6px; border-radius: 4px;">
-                        ${statusText}
-                    </span>
-                    <span style="font-size: 10px; color: #64748B;">CGE SP</span>
-                </div>
-                <div style="font-size: 13px; font-weight: 700; color: #0F172A; margin-bottom: 2px;">
-                    ${event.logradouro}
-                </div>
-                <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
-                    📍 ${event.bairro} ${event.sentido ? `• Sentido: ${event.sentido}` : ''}
-                </div>
-                ${event.referencia ? `<div style="font-size: 10px; color: #64748B; margin-bottom: 4px;"><b>Ref:</b> ${event.referencia}</div>` : ''}
-                <div style="font-size: 10px; color: #0284C7; border-top: 1px solid #E2E8F0; padding-top: 4px;">
-                    ⏰ Registrado: ${event.horario_inicio ? event.horario_inicio : 'Hoje'} ${event.horario_fim ? `até ${event.horario_fim}` : '(Ativo)'}
-                </div>
-            </div>
-        `;
-
-        const marker = L.marker([event.latitude, event.longitude], { icon: floodIcon, zIndexOffset: 800 });
-        marker.bindPopup(popupHtml);
-        activeFloodsLayerGroup.addLayer(marker);
-    });
-}
-
-function getNearestDynamicFlood(lat, lon) {
-    if (!activeFloodsList || activeFloodsList.length === 0) return null;
-    let nearest = null;
-    let minDistance = Infinity;
-
-    for (const f of activeFloodsList) {
-        if (!f.latitude || !f.longitude) continue;
-        const dy = (lat - f.latitude) * 111000;
-        const dx = (lon - f.longitude) * 102000;
-        const dist = Math.hypot(dx, dy);
-        if (dist < minDistance) {
-            minDistance = dist;
-            nearest = {
-                event: f,
-                distance: Math.round(dist),
-                isIntransitavel: (f.status || '').includes('intransitavel'),
-                isAtivo: (f.status || '').includes('ativo')
-            };
-        }
-    }
-    return nearest;
-}
-
-// ─── MATRIZ DE RISCO HISTÓRICO — JANELA DINÂMICA DE 2 ANOS (CLUSTERING 500M) ──
-let chronicMatrixLayerGroup = null;
-let chronicMatrixClusters = [];
-
-async function loadChronicRiskZones2Y() {
-    try {
-        const res = await fetch('/api/zones/chronic-matrix-2y?raio_cluster_m=500');
-        if (!res.ok) return;
-        const data = await res.json();
-        chronicMatrixClusters = data.clusters || [];
-        renderChronicRiskZones();
-    } catch (e) {
-        console.warn('[FloodGuard] Não foi possível carregar a matriz de risco de 2 anos:', e);
-    }
-}
-
-function renderChronicRiskZones() {
-    if (!map) return;
-    if (!chronicMatrixLayerGroup) {
-        chronicMatrixLayerGroup = L.layerGroup().addTo(map);
-    }
-    chronicMatrixLayerGroup.clearLayers();
-
-    if (!chronicMatrixClusters || chronicMatrixClusters.length === 0) return;
-
-    chronicMatrixClusters.forEach(cluster => {
-        if (!cluster.latitude_centro || !cluster.longitude_centro) return;
-
-        const cor = cluster.cor_hex || '#DC2626';
-        const isCritico = cluster.nivel_risco === 'critico';
-
-        // Círculo translúcido representando o raio de 500 metros
-        const circle = L.circle([cluster.latitude_centro, cluster.longitude_centro], {
-            radius: cluster.raio_metros || 500,
-            color: cor,
-            weight: isCritico ? 3 : 2,
-            opacity: 0.85,
-            fillColor: cor,
-            fillOpacity: isCritico ? 0.28 : 0.18,
-            dashArray: isCritico ? '6, 6' : null
-        });
-
-        const popupHtml = `
-            <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 230px; padding: 4px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="font-size: 10px; font-weight: 800; background: ${cor}22; color: ${cor}; border: 1px solid ${cor}; padding: 2px 7px; border-radius: 4px;">
-                        ${cluster.tag_risco}
-                    </span>
-                    <span style="font-size: 10px; color: #64748B;">Janela 2 Anos</span>
-                </div>
-                <div style="font-size: 13px; font-weight: 800; color: #0F172A; margin-bottom: 2px;">
-                    ${cluster.logradouro_principal}
-                </div>
-                <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
-                    📍 Bairro: <b>${cluster.bairro}</b> • Raio: 500m
-                </div>
-                <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 11px;">
-                    <div>📊 <b>Total de Alagamentos:</b> <span style="font-weight: 800; color: ${cor};">${cluster.total_ocorrencias} ocorrências</span></div>
-                    <div style="color: #64748B; font-size: 10px; margin-top: 2px;">
-                        ⛔ Intransitáveis: ${cluster.total_intransitavel} | ⚠️ Transitáveis: ${cluster.total_transitavel}
-                    </div>
-                </div>
-                <div style="font-size: 10px; color: #64748B; border-top: 1px solid #E2E8F0; padding-top: 4px;">
-                    📅 Último alagamento registrado: <b>${cluster.ultima_ocorrencia}</b>
-                </div>
-            </div>
-        `;
-
-        circle.bindPopup(popupHtml);
-        chronicMatrixLayerGroup.addLayer(circle);
-    });
-}
-
-function getNearestChronicRiskZone(lat, lon) {
-    if (!chronicMatrixClusters || chronicMatrixClusters.length === 0) return null;
-    let nearest = null;
-    let minDistance = Infinity;
-
-    for (const c of chronicMatrixClusters) {
-        if (!c.latitude_centro || !c.longitude_centro) continue;
-        const dy = (lat - c.latitude_centro) * 111000;
-        const dx = (lon - c.longitude_centro) * 102000;
-        const dist = Math.hypot(dx, dy);
-        if (dist < minDistance) {
-            minDistance = dist;
-            nearest = {
-                cluster: c,
-                distance: Math.round(dist),
-                isInside: dist <= (c.raio_metros || 500)
-            };
-        }
-    }
-    return nearest;
-}
-
 
 // ─── RENDERIZAR GRÁFICO CHART.JS (TENDÊNCIA 24H + 3H) ─────────────────────────
 function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
@@ -3418,7 +3140,7 @@ async function reverseGeocode(lat, lon) {
     };
 }
 
-// ─── SIMULADOR DE CENÁRIOS FECART ─────────────────────────────────────────────
+// ─── SIMULADOR DE CENÁRIOS DE CHUVA E RISCO ─────────────────────────────────────
 function simulateScenario(scenario) {
     simulatedScenario = scenario;
     const badge = document.getElementById('chart-status-badge');
@@ -4241,14 +3963,14 @@ async function calculateRouteRisk() {
     await processRouteTrajectory(origem, destino);
 }
 
-async function runFecapDemoRoute() {
+async function runDemoRoute() {
     switchDashboardTab('rota');
     const originInput = document.getElementById('route-origem') || document.getElementById('route-origin');
     const destInput = document.getElementById('route-destino') || document.getElementById('route-destination');
-    if (originInput) originInput.value = "FECAP — Campus Liberdade";
+    if (originInput) originInput.value = "Praça da Liberdade";
     if (destInput) destInput.value = "Viaduto do Chá / Anhangabaú";
 
-    const origem = { lat: -23.5574, lon: -46.6367, lng: -46.6367, nome: "FECAP — Campus Liberdade" };
+    const origem = { lat: -23.5552, lon: -46.6358, lng: -46.6358, nome: "Praça da Liberdade" };
     const destino = { lat: -23.5475, lon: -46.6378, lng: -46.6378, nome: "Viaduto do Chá / Anhangabaú" };
     if (originInput) selectedRoutePoints[originInput.id] = origem;
     if (destInput) selectedRoutePoints[destInput.id] = destino;
@@ -5228,10 +4950,6 @@ async function processRouteTrajectory(origem, destino) {
 // ─── BOTÕES DE CONTROLE RÁPIDO DO MAPA ────────────────────────────────────────
 function flyToSaoPauloCenter() {
     if (map) map.flyTo([-23.5505, -46.6333], 13, { duration: 1.2 });
-}
-
-function flyToFECAP() {
-    selectSearchResult(-23.5574, -46.6367, "FECAP — Campus Liberdade", "Liberdade", 735);
 }
 
 

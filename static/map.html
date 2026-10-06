@@ -765,7 +765,7 @@
             opacity: 0.9;
         }
 
-        .btn-demo-fecap {
+        .btn-demo-route {
             width: 100%;
             padding: 9px;
             background: rgba(255, 255, 255, 0.05);
@@ -779,7 +779,7 @@
             margin-top: 6px;
         }
 
-        .btn-demo-fecap:hover {
+        .btn-demo-route:hover {
             background: rgba(255, 255, 255, 0.1);
             border-color: rgba(255, 255, 255, 0.3);
         }
@@ -1763,13 +1763,13 @@
                         <div style="flex: 1; min-width: 0;">
                             <h3 id="hero-location-name" class="location-title">
                                 <span class="location-pin-badge">📍</span>
-                                <span class="location-title-text">FECAP — Campus Liberdade</span>
+                                <span class="location-title-text">Praça da Liberdade</span>
                             </h3>
                             <div id="hero-location-bairro" class="location-bairro">
                                 🏙️ Liberdade / Centro • São Paulo
                             </div>
                             <div id="hero-location-address" class="location-address-full">
-                                📌 Av. da Liberdade, 532 - Liberdade, São Paulo - SP
+                                📌 Praça da Liberdade - Liberdade, São Paulo - SP
                             </div>
                             <div id="hero-location-coord" class="location-subtitle">
                                 Coordenadas: -23.5574, -46.6367 • 735m (Planalto Médio)
@@ -1896,7 +1896,7 @@
                 <!-- Simulador de Cenários Meteorológicos -->
                 <div style="background: var(--card-inner); border: 1px solid var(--card-inner-border); border-radius: 10px; padding: 12px; width: 100%; box-sizing: border-box;">
                     <div style="font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase; margin-bottom: 6px;">
-                        🧪 Simular Cenários (Apresentação FECART):
+                        🧪 Simulação de Cenários de Chuva:
                     </div>
                     <div class="sim-scenarios-grid">
                         <button class="btn-scenario btn-scenario-storm" onclick="simulateScenario('tempestade')">
@@ -1994,9 +1994,6 @@
                 <button class="map-btn-icon" onclick="flyToSaoPauloCenter()" title="Centralizar Mapa em SP">
                     🌆 Centralizar SP
                 </button>
-                <button class="map-btn-icon" onclick="flyToFECAP()" title="Focar na FECAP">
-                    🎓 Focar na FECAP
-                </button>
             </div>
 
             <!-- Mapa Leaflet -->
@@ -2050,7 +2047,7 @@
     <script src="/static/js/api.js?v=20260929-v2"></script>
     <script src="/static/js/historico_buscas.js?v=20260929-v2"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260923-fix"></script>
-    <script src="/static/js/map_dashboard.js?v=20261005-recalibrated-weights"></script>
+    <script src="/static/js/map_dashboard.js?v=20261001-visual-prototype"></script>
         <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
     <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
         <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">
