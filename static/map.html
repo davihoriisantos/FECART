@@ -1870,15 +1870,19 @@
                 </div>
 
                 <!-- Box Gráfico de Tendência (24h + 3h) -->
-                <div class="chart-container-box">
-                    <div class="chart-header">
-                        <div class="chart-title">📈 Curva de Risco Preditivo (24h + 3h)</div>
-                        <span id="chart-status-badge" style="font-size: 10px; font-weight: 700; color: #10B981; background: rgba(16,185,129,0.15); padding: 2px 8px; border-radius: 6px;">
+                <div class="chart-container-box" style="background: linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(7,11,18,0.98) 100%); border: 1px solid rgba(56,189,248,0.18); border-radius: 14px; padding: 14px 16px;">
+                    <div class="chart-header" style="margin-bottom: 4px;">
+                        <div>
+                            <div class="chart-title" style="font-size: 12px; font-weight: 800; color: #E2E8F0; letter-spacing: 0.01em;">📈 Curva de Risco Preditivo (24h + 3h)</div>
+                            <div style="font-size: 10px; color: #475569; margin-top: 2px; font-weight: 500;">Histórico real + Previsão IA com pesos adaptativos</div>
+                        </div>
+                        <span id="chart-status-badge" style="display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: #10B981; background: rgba(16,185,129,0.12); padding: 3px 9px; border-radius: 20px; border: 1px solid rgba(16,185,129,0.3);">
+                            <span style="width: 6px; height: 6px; border-radius: 50%; background: #10B981; display: inline-block; animation: pulse-dot-anim 1.4s infinite;"></span>
                             Em Tempo Real
                         </span>
                     </div>
 
-                    <div style="position: relative; height: 170px; width: 100%;">
+                    <div style="position: relative; height: 210px; width: 100%; margin-top: 8px;">
                         <canvas id="riskTrendChart"></canvas>
                     </div>
                 </div>
@@ -2047,11 +2051,7 @@
     <script src="/static/js/api.js?v=20260929-v2"></script>
     <script src="/static/js/historico_buscas.js?v=20260929-v2"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260923-fix"></script>
-<<<<<<< HEAD
-    <script src="/static/js/map_dashboard.js?v=20261001-visual-prototype"></script>
-=======
     <script src="/static/js/map_dashboard.js?v=20261006-adaptive-weights"></script>
->>>>>>> 074b3756e78c1020d017e23536fd8b85a2962d94
         <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
     <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
         <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">
