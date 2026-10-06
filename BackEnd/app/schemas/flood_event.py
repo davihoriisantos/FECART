@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Union, Any, List
 from datetime import date, datetime
 
@@ -23,8 +23,7 @@ class FloodEventResponse(FloodEventBase):
     criado_em: Optional[datetime] = None
     atualizado_em: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SyncResultResponse(BaseModel):
     sucesso: bool
@@ -44,6 +43,7 @@ class ChronicClusterItem(BaseModel):
     longitude_centro: float
     raio_metros: float
     total_ocorrencias: int
+    contagem: Optional[int] = None
     total_intransitavel: int
     total_transitavel: int
     primeira_ocorrencia: Optional[str] = None

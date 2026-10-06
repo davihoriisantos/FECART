@@ -1,7 +1,7 @@
 import re
 from typing import Optional
 from datetime import datetime, date
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -101,8 +101,7 @@ class UserResponse(BaseModel):
     nome:       str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserProfile(BaseModel):
@@ -129,8 +128,7 @@ class UserProfile(BaseModel):
     work_lat:        Optional[float] = None
     work_lon:        Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):

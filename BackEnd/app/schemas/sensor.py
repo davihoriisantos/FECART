@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
@@ -14,8 +14,7 @@ class SensorReadingResponse(SensorReadingBase):
     sensor_id: int
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SensorBase(BaseModel):
     nome: str
@@ -33,5 +32,4 @@ class SensorResponse(SensorBase):
     created_at: datetime
     # readings count could be added if needed, or fetched separately
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

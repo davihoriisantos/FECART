@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Dict
 
@@ -10,8 +10,7 @@ class ConfirmationResponse(BaseModel):
     point_id: str
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ConfirmationCounts(BaseModel):
     counts: Dict[str, int]

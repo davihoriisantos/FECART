@@ -164,6 +164,7 @@ def get_chronic_risk_matrix(db: Optional[Session] = None, cluster_radius_m: floa
     # 4. Aplica as regras de classificação em cada cluster
     result = []
     for cl in clusters:
+        cl["contagem"] = cl["total_ocorrencias"]
         risk_meta = classify_risk(cl["total_ocorrencias"])
         cl.update(risk_meta)
         result.append(cl)
