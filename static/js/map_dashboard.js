@@ -2413,13 +2413,6 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
 }
 
 // ─── RENDERIZAR GRÁFICO CHART.JS (TENDÊNCIA 24H + 3H) ─────────────────────────
-function getRiskLabel(risk) {
-    if (risk >= 75) return '🔴 Crítico';
-    if (risk >= 50) return '🟠 Alto';
-    if (risk >= 30) return '🟡 Moderado';
-    return '🟢 Baixo';
-}
-
 function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
     const canvas = document.getElementById('riskTrendChart');
     if (!canvas) return;
@@ -2429,136 +2422,176 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
         riskTrendChart.destroy();
     }
 
-    const mainColor = getRiskColor(maxForecastRisk);
+    // ── Paleta de cores por nível de risco ──
+    const FORECAST_COLOR = '#A78BFA'; // Violeta/Ametista — sem conflito com cores de risco
 
-    // ── Gradientes dinâmicos baseados no risco máximo previsto ──
-    const gradHist = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradHist.addColorStop(0, 'rgba(56, 189, 248, 0.32)');
-    gradHist.addColorStop(0.5, 'rgba(56, 189, 248, 0.10)');
-    gradHist.addColorStop(1, 'rgba(56, 189, 248, 0.00)');
-
-    // Cor do gradiente de previsão muda com o nível de risco
-    let fc0, fc1;
-    if (maxForecastRisk >= 75) {
-        fc0 = 'rgba(239, 68, 68, 0.40)';
-        fc1 = 'rgba(239, 68, 68, 0.00)';
-    } else if (maxForecastRisk >= 50) {
-        fc0 = 'rgba(249, 115, 22, 0.35)';
-        fc1 = 'rgba(249, 115, 22, 0.00)';
-    } else if (maxForecastRisk >= 30) {
-        fc0 = 'rgba(234, 179, 8, 0.30)';
-        fc1 = 'rgba(234, 179, 8, 0.00)';
-    } else {
-        fc0 = 'rgba(16, 185, 129, 0.28)';
-        fc1 = 'rgba(16, 185, 129, 0.00)';
+    function segColor(risk, alpha) {
+        const a = alpha !== undefined ? alpha : 1;
+        if (risk >= 70) return `rgba(239,68,68,${a})`;
+        if (risk >= 50) return `rgba(249,115,22,${a})`;
+        if (risk >= 30) return `rgba(234,179,8,${a})`;
+        return `rgba(16,185,129,${a})`;
     }
-    const gradForecast = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradForecast.addColorStop(0, fc0);
-    gradForecast.addColorStop(1, fc1);
 
-    // ── Plugin customizado: linhas de limiar de risco ──
+    // ── Plugin: área pintada por cor de risco sob a linha histórica ──
+    const multiColorFillPlugin = {
+        id: 'multiColorFill',
+        beforeDatasetsDraw(chart) {
+            const { ctx: c, chartArea, scales } = chart;
+            const meta = chart.getDatasetMeta(0);
+            const data = chart.data.datasets[0].data;
+            if (!meta.data || meta.data.length < 2) return;
+            c.save();
+            c.beginPath();
+            c.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height);
+            c.clip();
+            for (let i = 0; i < meta.data.length - 1; i++) {
+                if (data[i] == null || data[i + 1] == null) continue;
+                const p0 = meta.data[i];
+                const p1 = meta.data[i + 1];
+                const avg = (data[i] + data[i + 1]) / 2;
+                c.beginPath();
+                c.moveTo(p0.x, p0.y);
+                c.lineTo(p1.x, p1.y);
+                c.lineTo(p1.x, chartArea.bottom);
+                c.lineTo(p0.x, chartArea.bottom);
+                c.closePath();
+                c.fillStyle = segColor(avg, 0.12);
+                c.fill();
+            }
+            c.restore();
+        }
+    };
+
+    // ── Plugin: área pintada levemente sob linha de previsão (violeta) ──
+    const forecastFillPlugin = {
+        id: 'forecastFill',
+        beforeDatasetsDraw(chart) {
+            const { ctx: c, chartArea } = chart;
+            const meta = chart.getDatasetMeta(1);
+            const data = chart.data.datasets[1].data;
+            if (!meta.data || meta.data.length < 2) return;
+            c.save();
+            c.beginPath();
+            c.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height);
+            c.clip();
+            for (let i = 0; i < meta.data.length - 1; i++) {
+                if (data[i] == null || data[i + 1] == null) continue;
+                const p0 = meta.data[i];
+                const p1 = meta.data[i + 1];
+                if (!p0 || !p1) continue;
+                c.beginPath();
+                c.moveTo(p0.x, p0.y);
+                c.lineTo(p1.x, p1.y);
+                c.lineTo(p1.x, chartArea.bottom);
+                c.lineTo(p0.x, chartArea.bottom);
+                c.closePath();
+                c.fillStyle = 'rgba(167,139,250,0.09)';
+                c.fill();
+            }
+            c.restore();
+        }
+    };
+
+    // ── Plugin: linhas de limiar de risco (sem texto, só dashes sutis) ──
     const thresholdPlugin = {
         id: 'thresholdLines',
         afterDraw(chart) {
             const { ctx: c, chartArea: { left, right }, scales: { y } } = chart;
-            const thresholds = [
-                { value: 30, color: 'rgba(234,179,8,0.25)', label: '30%' },
-                { value: 50, color: 'rgba(249,115,22,0.25)', label: '50%' },
-                { value: 75, color: 'rgba(239,68,68,0.30)', label: '75%' },
-            ];
-            thresholds.forEach(({ value, color, label }) => {
-                const yPos = y.getPixelForValue(value);
+            [
+                { val: 30, color: 'rgba(234,179,8,0.22)' },
+                { val: 50, color: 'rgba(249,115,22,0.22)' },
+                { val: 70, color: 'rgba(239,68,68,0.26)' },
+            ].forEach(({ val, color }) => {
+                const yp = y.getPixelForValue(val);
                 c.save();
-                c.setLineDash([4, 6]);
+                c.setLineDash([3, 7]);
                 c.strokeStyle = color;
                 c.lineWidth = 1;
                 c.beginPath();
-                c.moveTo(left, yPos);
-                c.lineTo(right, yPos);
+                c.moveTo(left, yp);
+                c.lineTo(right, yp);
                 c.stroke();
-                c.setLineDash([]);
-                c.fillStyle = color.replace('0.25', '0.7').replace('0.30', '0.7');
-                c.font = 'bold 8px Inter, sans-serif';
-                c.fillText(label, right - 22, yPos - 3);
                 c.restore();
             });
         }
     };
 
-    // ── Plugin de ponto "ao vivo" pulsante no último valor do histórico ──
+    // ── Plugin: ponto "ao vivo" pulsante com cor dinâmica de risco ──
     let pulseAngle = 0;
     const livePointPlugin = {
         id: 'livePoint',
         afterDraw(chart) {
-            const dataset = chart.data.datasets[0];
+            const ds   = chart.data.datasets[0];
             const meta = chart.getDatasetMeta(0);
-            const lastVisibleIdx = dataset.data.findLastIndex(v => v !== null && v !== undefined);
-            if (lastVisibleIdx < 0) return;
-            const pt = meta.data[lastVisibleIdx];
+            const lastIdx = ds.data.findLastIndex(v => v != null);
+            if (lastIdx < 0) return;
+            const pt = meta.data[lastIdx];
             if (!pt) return;
             const { x, y } = pt;
             const c = chart.ctx;
-            pulseAngle += 0.04;
+            const risk = ds.data[lastIdx];
+            const ptColor = segColor(risk);
+            pulseAngle += 0.05;
             const pulse = 5 + Math.sin(pulseAngle) * 2.5;
             c.save();
-            // Halo externo pulsante
-            const grad = c.createRadialGradient(x, y, 0, x, y, pulse + 6);
-            grad.addColorStop(0, 'rgba(56,189,248,0.45)');
-            grad.addColorStop(1, 'rgba(56,189,248,0.00)');
-            c.beginPath();
-            c.arc(x, y, pulse + 6, 0, Math.PI * 2);
-            c.fillStyle = grad;
-            c.fill();
-            // Ponto central sólido
-            c.beginPath();
-            c.arc(x, y, 5, 0, Math.PI * 2);
-            c.fillStyle = '#38BDF8';
-            c.shadowColor = '#38BDF8';
-            c.shadowBlur = 12;
-            c.fill();
-            c.shadowBlur = 0;
+            const grad = c.createRadialGradient(x, y, 0, x, y, pulse + 8);
+            grad.addColorStop(0, segColor(risk, 0.4));
+            grad.addColorStop(1, segColor(risk, 0));
+            c.beginPath(); c.arc(x, y, pulse + 8, 0, Math.PI * 2);
+            c.fillStyle = grad; c.fill();
+            c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2);
+            c.fillStyle = ptColor;
+            c.shadowColor = ptColor; c.shadowBlur = 14;
+            c.fill(); c.shadowBlur = 0;
             c.restore();
-            // Solicita novo frame para animação contínua
             chart.render();
         }
     };
 
     riskTrendChart = new Chart(ctx, {
         type: 'line',
-        plugins: [thresholdPlugin, livePointPlugin],
+        plugins: [multiColorFillPlugin, forecastFillPlugin, thresholdPlugin, livePointPlugin],
         data: {
-            labels: labels,
+            labels,
             datasets: [
                 {
                     label: 'Histórico (24h)',
                     data: historyData,
-                    borderColor: '#38BDF8',
-                    backgroundColor: gradHist,
+                    // Cor muda segmento a segmento conforme o risco
+                    segment: {
+                        borderColor: (ctx) => {
+                            const v0 = ctx.p0.parsed.y;
+                            const v1 = ctx.p1.parsed.y;
+                            return segColor((v0 + v1) / 2);
+                        }
+                    },
+                    borderColor: '#10B981', // fallback inicial (verde)
+                    backgroundColor: 'transparent',
                     borderWidth: 2.5,
-                    fill: true,
+                    fill: false,
                     tension: 0.45,
                     pointRadius: 0,
-                    pointHoverRadius: 6,
-                    pointHoverBackgroundColor: '#38BDF8',
-                    pointHoverBorderColor: '#FFFFFF',
+                    pointHoverRadius: 7,
+                    pointHoverBackgroundColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
                     spanGaps: false
                 },
                 {
                     label: 'Previsão IA (+3h)',
                     data: forecastData,
-                    borderColor: mainColor,
-                    backgroundColor: gradForecast,
+                    borderColor: FORECAST_COLOR,
+                    backgroundColor: 'transparent',
                     borderWidth: 2.5,
                     borderDash: [6, 4],
-                    fill: true,
+                    fill: false,
                     tension: 0.45,
-                    pointRadius: (ctx) => (ctx.raw !== null ? 5 : 0),
-                    pointBackgroundColor: mainColor,
+                    pointRadius: (ctx) => (ctx.raw != null ? 5 : 0),
+                    pointBackgroundColor: FORECAST_COLOR,
                     pointBorderColor: '#0F172A',
                     pointBorderWidth: 2,
                     pointHoverRadius: 8,
-                    pointHoverBackgroundColor: mainColor,
+                    pointHoverBackgroundColor: FORECAST_COLOR,
                     pointHoverBorderColor: '#FFFFFF',
                     pointHoverBorderWidth: 2,
                     spanGaps: true
@@ -2568,10 +2601,7 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            animation: {
-                duration: 900,
-                easing: 'easeInOutQuart'
-            },
+            animation: { duration: 800, easing: 'easeInOutQuart' },
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: {
@@ -2579,61 +2609,80 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
                     position: 'top',
                     align: 'end',
                     labels: {
-                        color: '#94A3B8',
-                        boxWidth: 14,
-                        boxHeight: 3,
-                        padding: 14,
-                        usePointStyle: true,
-                        pointStyle: 'line',
-                        font: { size: 10, weight: '700', family: 'Inter, sans-serif' }
+                        // Gera rótulos com a cor real do último valor (não o fallback fixo)
+                        generateLabels(chart) {
+                            const histData  = chart.data.datasets[0].data;
+                            const lastHist  = [...histData].reverse().find(v => v != null) ?? 0;
+                            const histC     = segColor(lastHist);
+                            return [
+                                {
+                                    text:        'Histórico (24h)',
+                                    strokeStyle: histC,
+                                    fillStyle:   histC,
+                                    lineWidth:   2.5,
+                                    fontColor:   '#475569',
+                                    hidden:      false,
+                                    datasetIndex: 0
+                                },
+                                {
+                                    text:        'Previsão IA (+3h)',
+                                    strokeStyle: FORECAST_COLOR,
+                                    fillStyle:   FORECAST_COLOR,
+                                    lineWidth:   2.5,
+                                    fontColor:   '#475569',
+                                    hidden:      false,
+                                    datasetIndex: 1
+                                }
+                            ];
+                        },
+                        color: '#475569',
+                        font: { size: 10, weight: '600', family: 'Inter, sans-serif' },
+                        padding: 12,
+                        boxWidth: 20,
+                        boxHeight: 2
                     }
                 },
                 tooltip: {
                     enabled: true,
-                    backgroundColor: 'rgba(7, 11, 18, 0.96)',
-                    titleColor: '#F8FAFC',
-                    bodyColor: '#CBD5E1',
-                    borderColor: 'rgba(56,189,248,0.3)',
+                    backgroundColor: 'rgba(7,11,18,0.95)',
+                    titleColor: '#94A3B8',
+                    bodyColor: '#E2E8F0',
+                    borderColor: 'rgba(255,255,255,0.07)',
                     borderWidth: 1,
                     padding: 10,
                     cornerRadius: 10,
-                    caretSize: 6,
+                    caretSize: 5,
                     displayColors: true,
                     boxWidth: 8,
                     boxHeight: 8,
                     callbacks: {
                         title: (items) => `🕐 ${items[0].label}`,
                         label: (item) => {
-                            if (item.raw === null || item.raw === undefined) return '';
-                            const risk = item.raw;
-                            const level = getRiskLabel(risk);
-                            const isHist = item.datasetIndex === 0;
-                            const prefix = isHist ? '📊 Histórico' : '🔮 Previsão IA';
-                            return ` ${prefix}: ${risk}%  ${level}`;
+                            if (item.raw == null) return '';
+                            const r    = item.raw;
+                            const lvl  = r >= 70 ? '🔴 Crítico' : r >= 50 ? '🟠 Alto' : r >= 30 ? '🟡 Moderado' : '🟢 Baixo';
+                            const pref = item.datasetIndex === 0 ? 'Histórico' : 'Previsão IA';
+                            return `  ${pref}: ${r}%  ${lvl}`;
                         },
-                        afterBody: (items) => {
-                            const forecastItem = items.find(i => i.datasetIndex === 1);
-                            if (!forecastItem || forecastItem.raw === null) return [];
-                            const risk = forecastItem.raw;
-                            if (risk >= 75) return ['', '🚨 Risco Crítico — evacue rotas de baixo relevo'];
-                            if (risk >= 50) return ['', '⚠️ Risco Alto — evite vias próximas a córregos'];
-                            if (risk >= 30) return ['', '🟡 Atenção Moderada — monitore previsão'];
-                            return ['', '🛡️ Condição segura no período'];
+                        // Quadradinho do tooltip acompanha a cor real do segmento
+                        labelColor: (item) => {
+                            if (item.datasetIndex === 1) {
+                                return { backgroundColor: FORECAST_COLOR, borderColor: FORECAST_COLOR, borderWidth: 1, borderRadius: 2 };
+                            }
+                            const c = segColor(item.raw ?? 0);
+                            return { backgroundColor: c, borderColor: c, borderWidth: 1, borderRadius: 2 };
                         }
                     }
                 }
             },
             scales: {
                 x: {
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.04)',
-                        drawTicks: false
-                    },
+                    grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
                     border: { display: false },
                     ticks: {
-                        color: '#475569',
+                        color: '#334155',
                         font: { size: 9, family: 'Inter, sans-serif' },
-                        maxTicksLimit: 8,
+                        maxTicksLimit: 7,
                         maxRotation: 0,
                         padding: 4
                     }
@@ -2644,16 +2693,16 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
                     grid: {
                         color: (ctx) => {
                             const v = ctx.tick.value;
-                            if (v === 75) return 'rgba(239,68,68,0.18)';
-                            if (v === 50) return 'rgba(249,115,22,0.15)';
-                            if (v === 30) return 'rgba(234,179,8,0.15)';
-                            return 'rgba(255, 255, 255, 0.05)';
+                            if (v === 75) return 'rgba(239,68,68,0.14)';
+                            if (v === 50) return 'rgba(249,115,22,0.12)';
+                            if (v === 25) return 'rgba(234,179,8,0.10)';
+                            return 'rgba(255,255,255,0.04)';
                         },
                         drawTicks: false
                     },
                     border: { display: false },
                     ticks: {
-                        color: '#475569',
+                        color: '#334155',
                         font: { size: 9, family: 'Inter, sans-serif' },
                         stepSize: 25,
                         padding: 6,
@@ -2666,6 +2715,7 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
 }
 
 // ─── CONFIGURAR BUSCA UNIVERSAL (GLOBAL GEOCODING + POI + ENDEREÇOS) ─────────
+
 function setupSearchListeners() {
     const input = document.getElementById('universal-search-input');
     const dropdown = document.getElementById('universal-search-dropdown');
