@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -27,5 +27,4 @@ class HistoricoBuscaOut(BaseModel):
     dados_adicionais: Optional[str] = None   # não existe no Supabase → None
     criado_em:        datetime       # Supabase: created_at
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

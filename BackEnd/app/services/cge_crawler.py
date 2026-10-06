@@ -297,8 +297,29 @@ def sync_cge_floods(target_date: Optional[str] = None, db: Optional[Session] = N
         from ..supabase_client import get_supabase
         sb = get_supabase()
         if sb and saved_items:
-            # Upsert na tabela dynamic_flood_events
-            sb.table("dynamic_flood_events").upsert(saved_items).execute()
+            for item in saved_items:
+                try:
+                    exist = (
+                        sb.table("dynamic_flood_events")
+                        .select("id")
+                        .eq("logradouro", item["logradouro"])
+                        .eq("bairro", item["bairro"])
+                        .eq("data_evento", item["data_evento"])
+                        .limit(1)
+                        .execute()
+                    )
+                    if exist.data and len(exist.data) > 0:
+                        sb.table("dynamic_flood_events").update({
+                            "status": item["status"],
+                            "horario_fim": item["horario_fim"],
+                            "latitude": item["latitude"],
+                            "longitude": item["longitude"],
+                            "atualizado_em": datetime.now(timezone.utc).isoformat()
+                        }).eq("id", exist.data[0]["id"]).execute()
+                    else:
+                        sb.table("dynamic_flood_events").insert([item]).execute()
+                except Exception as row_err:
+                    print(f"[CGE_Crawler] Erro item Supabase: {row_err}")
     except Exception as e:
         print(f"[CGE_Crawler] Nota: Supabase sync: {e}")
 

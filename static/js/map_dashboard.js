@@ -1970,25 +1970,40 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     const elevation = Number.isFinite(Number(alt)) ? Number(alt) : 745;
 
     // ─── 1. PILAR CLIMA EM TEMPO REAL (OPEN-METEO) [0 a 100] ───
-    const rainScore = 100 * (1 - Math.exp(-rain / 16));
-    const accumulatedScore = 100 * (1 - Math.exp(-accumulated / 55));
-    const probabilityScore = probability * (0.25 + 0.75 * Math.min(1, rain / 2));
+    // Calibrado pelos limiares oficiais do CGE SP:
+    // Garoa/Fraca: < 5 mm/h | Moderada: 5-15 mm/h | Forte: 15-30 mm/h | Temporal Severo: > 30 mm/h
+    const rainScore = rain > 0 ? clamp(100 * (1 - Math.exp(-rain / 14)), 0, 100) : 0;
+    const accumulatedScore = clamp(100 * (1 - Math.exp(-accumulated / 48)), 0, 100);
     const inferredMoisture = 0.18 + 0.28 * (1 - Math.exp(-accumulated / 45));
     const moisture = soilMoisture === null || !Number.isFinite(Number(soilMoisture))
         ? inferredMoisture
         : Number(soilMoisture);
     const soilScore = 100 * smoothstep(0.18, 0.46, moisture);
 
-    const Score_Clima = (
-        rainScore * 0.46 +
-        accumulatedScore * 0.24 +
-        probabilityScore * 0.12 +
-        soilScore * 0.18
-    );
+    let Score_Clima = 0;
+    if (rain > 0) {
+        // Se já está chovendo, a intensidade instantânea é determinante
+        const probWeight = 0.05;
+        const probabilityScore = probability;
+        Score_Clima = (
+            rainScore * 0.52 +
+            accumulatedScore * 0.28 +
+            soilScore * 0.15 +
+            probabilityScore * probWeight
+        );
+    } else {
+        // Sem chuva no instante: acumulado, solo e previsão futura definem o estado
+        Score_Clima = (
+            accumulatedScore * 0.45 +
+            soilScore * 0.25 +
+            probability * 0.30
+        );
+    }
+    Score_Clima = clamp(Score_Clima, 0, 100);
 
     // ─── 2. PILAR TOPOGRAFIA / RELEVO (OPENTOPODATA / ASTER) [0 a 100] ───
-    // Vales de SP (715-725m) têm alta suscetibilidade de acúmulo hídrico; topos de espigão dispersam
-    const Score_Topografia = clamp(100 / (1 + Math.exp((elevation - 744) / 14)), 5, 98);
+    // Vales de SP (715-728m) têm alta suscetibilidade de acúmulo hídrico; espigões (>780m) dispersam
+    const Score_Topografia = clamp(100 / (1 + Math.exp((elevation - 744) / 13)), 4, 98);
 
     // ─── 3. PILAR PROXIMIDADE A CORPOS HÍDRICOS (CALHAS FLUVIAIS DE SP) E TELEMETRIA [0 a 100] ───
     const riverInfo = getMinDistanceToRivers(lat, lon);
@@ -2015,12 +2030,14 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         Score_Historico = clamp((chronicInfo.influence / 0.42) * 62, 35, 75);
     }
 
+    let isClusterCritico2Y = false;
     // Integração com a Matriz de 2 Anos (recorrência empírica comprovada)
     if (typeof getNearestChronicRiskZone === 'function') {
         const chronic2y = getNearestChronicRiskZone(lat, lon);
         if (chronic2y && chronic2y.isInside) {
             if (chronic2y.cluster.nivel_risco === 'critico') {
                 Score_Historico = Math.max(Score_Historico, 95); // 5+ enchentes em 24 meses
+                isClusterCritico2Y = true;
             } else if (chronic2y.cluster.nivel_risco === 'alto') {
                 Score_Historico = Math.max(Score_Historico, 80); // 3 a 4 enchentes
             } else if (chronic2y.cluster.nivel_risco === 'moderado') {
@@ -2034,20 +2051,55 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
         const activeFlood = getNearestDynamicFlood(lat, lon);
         if (activeFlood && activeFlood.distance <= 600 && activeFlood.isAtivo) {
             Score_Historico = Math.max(Score_Historico, activeFlood.isIntransitavel ? 98 : 85);
+            isClusterCritico2Y = true;
         }
     }
 
-    // ─── PESOS RECALIBRADOS (HIERARQUIA HIDROLÓGICA URBANA DE SÃO PAULO) ───
-    // Chuva (45%) | Histórico/Matriz 2Y (25%) | Topografia/Vales (15%) | Rios/Canais (15%)
-    const Peso_Chuva = 0.45;
-    const Peso_Historico = 0.25;
-    const Peso_Topografia = 0.15;
-    let Peso_Rio = 0.15;
+    // ─── PESOS ADAPTATIVOS DE ALTA PRECISÃO (HIERARQUIA HIDROLÓGICA URBANA DE SP) ───
+    // Base nominal: Chuva 45% | Histórico/Matriz 2Y 25% | Topografia 15% | Rio 15%
+    let w_chuva = 0.45;
+    let w_historico = 0.25;
+    let w_topografia = 0.15;
+    let w_rio = 0.15;
 
-    // Se o rio estiver em emergência na telemetria real, amplia a relevância fluvial
-    if (hasRealRiverTelemetry && riverMultiplier >= 1.4) {
-        Peso_Rio = 0.22;
+    // 1. Modulação Fluvial por Proximidade e Telemetria
+    if (riverDist > 1200) {
+        // Zona de planalto/espigão distante de cursos hídricos (>1.2 km).
+        // Enchente é 100% microdrenagem pluvial (enxurrada urbana).
+        // Reduz o peso do rio para residual (5%) e redistribui para Chuva e Topografia.
+        w_rio = 0.05;
+        w_chuva += 0.06;
+        w_topografia += 0.04;
+    } else if (riverDist < 400 || (hasRealRiverTelemetry && riverMultiplier >= 1.3)) {
+        // Zona ribeirinha direta (<400m) ou rio com elevação em telemetria.
+        w_rio = 0.24;
+        w_chuva = 0.40;
+        w_historico = 0.22;
+        w_topografia = 0.14;
     }
+
+    // 2. Modulação por Ponto Crônico Recorrente (Matriz 2 Anos / Defesa Civil)
+    if (isClusterCritico2Y || Score_Historico >= 85) {
+        // Ponto crônico com 5+ alagamentos comprovados em 24 meses.
+        w_historico += 0.05;
+        w_topografia = Math.max(0.10, w_topografia - 0.03);
+        w_chuva = Math.max(0.38, w_chuva - 0.02);
+    }
+
+    // 3. Modulação por Chuva Torrencial Severa (> 25 mm/h)
+    if (rain >= 25.0) {
+        // Temporal extremo supera a capacidade média das galerias pluviais
+        w_chuva += 0.05;
+        w_historico = Math.max(0.20, w_historico - 0.03);
+        w_rio = Math.max(0.06, w_rio - 0.02);
+    }
+
+    // ─── NORMALIZAÇÃO RIGOROSA (Soma dos pesos = 1.000 / 100% exato) ───
+    const sumW = w_chuva + w_historico + w_topografia + w_rio;
+    const Peso_Chuva = w_chuva / sumW;
+    const Peso_Historico = w_historico / sumW;
+    const Peso_Topografia = w_topografia / sumW;
+    const Peso_Rio = w_rio / sumW;
 
     let Risco_Multifatorial = (
         (Peso_Chuva * Score_Clima) +

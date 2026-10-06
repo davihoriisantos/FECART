@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -20,8 +20,7 @@ class RiskZoneResponse(RiskZoneBase):
     id: int
     ultima_atualizacao: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class HeatmapPoint(BaseModel):
     latitude: float

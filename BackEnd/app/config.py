@@ -30,6 +30,7 @@ class Settings:
     SUPABASE_URL: str | None = SUPABASE_URL
     SUPABASE_KEY: str | None = SUPABASE_KEY
     VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "false").lower() in ("true", "1", "yes")
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 
 
 settings = Settings()

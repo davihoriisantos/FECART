@@ -136,17 +136,60 @@ def calculate_predictive_risk(
     historical_factor: float, current_rain_mm_h: float,
     accumulated_24h_mm: float,
 ) -> dict:
-    """Aplica pesos 50/30/20 e a trava eliminatória de chuva."""
+    """Calcula o risco preditivo com pesos hidrológicos adaptativos e trava eliminatória de chuva."""
     rain_score = _clamp(rain_factor)
     river_score = _clamp(river_factor)
     historical_score = _clamp(historical_factor)
     terrain_score = _clamp(terrain_factor)
-    # Pesos recalibrados: Chuva 45% | Histórico Defesa Civil 25% | Terreno/Vales 15% | Rios 15%
+
+    # ─── PESOS ADAPTATIVOS DE ALTA PRECISÃO (HIERARQUIA HIDROLÓGICA URBANA DE SP) ───
+    # Base: Chuva 45% | Histórico/Matriz 2Y 25% | Topografia 15% | Rio/Calha 15%
+    w_rain = 0.45
+    w_hist = 0.25
+    w_topo = 0.15
+    w_river = 0.15
+
+    # 1. Modulação Fluvial (Distância / Saturação da Calha)
+    if river_score < 15.0:
+        # Ponto em planalto/espigão distante de cursos hídricos (>1.2 km).
+        # Enchente é 100% microdrenagem pluvial (enxurrada urbana).
+        # Reduz o peso do rio para residual (5%) e redistribui para Chuva e Topografia.
+        w_river = 0.05
+        w_rain += 0.06
+        w_topo += 0.04
+    elif river_score >= 70.0:
+        # Calha fluvial em cota de alerta/extravasamento. Aumenta peso fluvial.
+        w_river = 0.24
+        w_rain = 0.40
+        w_hist = 0.22
+        w_topo = 0.14
+
+    # 2. Modulação por Ponto Crônico (Matriz de 2 Anos / Defesa Civil)
+    if historical_score >= 80.0:
+        # Ponto com 3+ a 5+ alagamentos comprovados em 24 meses (vulnerabilidade crônica).
+        w_hist += 0.05
+        w_topo = max(0.10, w_topo - 0.03)
+        w_rain = max(0.38, w_rain - 0.02)
+
+    # 3. Modulação por Chuva Torrencial Severa (> 25 mm/h)
+    if current_rain_mm_h >= 25.0:
+        # Temporal extremo supera a capacidade média de qualquer bueiro
+        w_rain += 0.05
+        w_hist = max(0.20, w_hist - 0.03)
+        w_river = max(0.06, w_river - 0.02)
+
+    # ─── NORMALIZAÇÃO RIGOROSA (Soma dos pesos = 1.000 / 100% exato) ───
+    w_total = w_rain + w_hist + w_topo + w_river
+    w_rain_norm = w_rain / w_total
+    w_hist_norm = w_hist / w_total
+    w_topo_norm = w_topo / w_total
+    w_river_norm = w_river / w_total
+
     raw_risk = (
-        rain_score * 0.45
-        + historical_score * 0.25
-        + terrain_score * 0.15
-        + river_score * 0.15
+        rain_score * w_rain_norm
+        + historical_score * w_hist_norm
+        + terrain_score * w_topo_norm
+        + river_score * w_river_norm
     )
     cap = rain_risk_cap(current_rain_mm_h, accumulated_24h_mm)
     final_risk = round(min(raw_risk, cap), 1)
@@ -175,6 +218,12 @@ def calculate_predictive_risk(
             "terreno": terrain_score,
             "nivel_rio": river_score,
             "teto_chuva": cap,
+            "pesos_aplicados": {
+                "chuva": round(w_rain_norm, 3),
+                "historico": round(w_hist_norm, 3),
+                "terreno": round(w_topo_norm, 3),
+                "rio": round(w_river_norm, 3),
+            },
         },
     }
 
