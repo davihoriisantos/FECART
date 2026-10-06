@@ -229,13 +229,58 @@ function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
     if (elHumidity) elHumidity.textContent = `${weather.umidade}%`;
     if (elWind) elWind.textContent = `${weather.vento} km/h`;
     
+    // Elementos adicionais do Dashboard Premium
+    const elConditionIcon = document.getElementById('om-condition-icon');
+    if (elConditionIcon) elConditionIcon.textContent = weather.condicaoIcone || '🌤️';
+
+    const elConditionText = document.getElementById('om-condition-text');
+    if (elConditionText) elConditionText.textContent = weather.condicaoTexto || 'Tempo Estável';
+
+    const elRiskBadge = document.getElementById('om-risk-badge');
+    if (elRiskBadge && weather.alertaInfo) {
+        elRiskBadge.textContent = weather.alertaInfo.status ? weather.alertaInfo.status.split('(')[0].trim() : 'NORMAL';
+        elRiskBadge.className = `weather-risk-badge badge-risk-${weather.alertaInfo.level || 'green'}`;
+    }
+
+    // Barras de progresso dinâmicas nos mini-cards
+    const barRain = document.getElementById('om-bar-rain');
+    if (barRain) {
+        // Escala: 0 a 30mm = 0 a 100%
+        const pctRain = Math.min(100, Math.max(3, (Number(weather.chuvaAtual || 0) / 25) * 100));
+        barRain.style.width = `${pctRain}%`;
+    }
+
+    const barProb = document.getElementById('om-bar-prob');
+    if (barProb) {
+        const pctProb = Math.min(100, Math.max(3, Number(weather.probabilidadeChuvaHoje || 0)));
+        barProb.style.width = `${pctProb}%`;
+    }
+
+    const barHumidity = document.getElementById('om-bar-humidity');
+    if (barHumidity) {
+        const pctHum = Math.min(100, Math.max(5, Number(weather.umidade || 0)));
+        barHumidity.style.width = `${pctHum}%`;
+    }
+
+    const barWind = document.getElementById('om-bar-wind');
+    if (barWind) {
+        // Escala: 0 a 60 km/h = 0 a 100%
+        const pctWind = Math.min(100, Math.max(5, (Number(weather.vento || 0) / 60) * 100));
+        barWind.style.width = `${pctWind}%`;
+    }
+
     // Horário e status
     if (elTime) {
         if (isSimulation) {
             elTime.textContent = `🧪 SIMULAÇÃO AO VIVO: ${scenarioName.toUpperCase()}`;
         } else {
-            elTime.textContent = `${weather.condicaoIcone} ${weather.condicaoTexto} • Atualizado às ${weather.horarioAtualizacao}`;
+            elTime.textContent = `🟢 Sincronizado ao Vivo • São Paulo, SP`;
         }
+    }
+
+    const elSyncDetail = document.getElementById('om-sync-detail');
+    if (elSyncDetail) {
+        elSyncDetail.textContent = `Atualizado às ${weather.horarioAtualizacao || '--:--'}`;
     }
 
     // Atualiza o Banner Dinâmico de Alerta
@@ -245,22 +290,22 @@ function renderWeatherData(weather, isSimulation = false, scenarioName = '') {
         const simBadge = isSimulation ? `<span class="chip chip-moderado" style="margin-left: 8px;">[SIMULAÇÃO ATIVA]</span>` : '';
         const labelChuva = isSimulation ? 'Taxa de Chuva:' : 'Chuva Agora:';
         
-        alertBanner.setAttribute('style', `padding: 24px; border-radius: 14px; margin-top: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; transition: all 0.4s ease; ${info.bgStyle}`);
+        alertBanner.setAttribute('style', `padding: 20px 24px; border-radius: 16px; margin-top: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; transition: all 0.4s ease; ${info.bgStyle}`);
         alertBanner.innerHTML = `
             <div style="display: flex; align-items: center; gap: 16px;">
-                <div style="font-size: 32px;">${info.level === 'red' ? '🚨' : info.level === 'orange' ? '🌧️' : info.level === 'yellow' ? '⚠️' : '✅'}</div>
+                <div style="font-size: 32px; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4));">${info.level === 'red' ? '🚨' : info.level === 'orange' ? '🌧️' : info.level === 'yellow' ? '⚠️' : '✅'}</div>
                 <div>
-                    <div style="font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-                        Status: <span class="chip ${info.badgeClass}">${info.status}</span> ${simBadge}
+                    <div style="font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;">
+                        Diagnóstico de Risco: <span class="chip ${info.badgeClass}">${info.status}</span> ${simBadge}
                     </div>
-                    <div style="font-size: 15px; margin-top: 6px; font-weight: 700; color: #FFFFFF;">
+                    <div style="font-size: 14px; margin-top: 4px; font-weight: 600; color: #FFFFFF; line-height: 1.5;">
                         ${info.message}
                     </div>
                 </div>
             </div>
-            <div style="font-size: 13px; opacity: 0.95; text-align: right; background: rgba(0,0,0,0.25); padding: 8px 16px; border-radius: 8px;">
-                <div>${labelChuva} <strong style="font-size: 18px; color: #38BDF8;">${weather.chuvaAtual} mm/h</strong></div>
-                <div style="font-size: 11px; color: #94A3B8; margin-top: 2px;">Acumulado Hoje: <strong>${weather.chuvaAcumuladaHoje} mm</strong></div>
+            <div style="font-size: 13px; opacity: 0.95; text-align: right; background: rgba(0,0,0,0.35); padding: 10px 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(8px);">
+                <div>${labelChuva} <strong style="font-size: 19px; color: #38BDF8; font-weight: 800;">${weather.chuvaAtual} mm/h</strong></div>
+                <div style="font-size: 11px; color: #94A3B8; margin-top: 2px;">Acumulado Hoje: <strong style="color: #F8FAFC;">${weather.chuvaAcumuladaHoje} mm</strong></div>
             </div>
         `;
     }
@@ -321,28 +366,28 @@ async function restaurarDadosReais() {
 }
 
 function setupTempClickToggle() {
+    const elTempCard = document.getElementById('weather-temp-card');
     const elTemp = document.getElementById('om-temp');
-    if (!elTemp) return;
-    const parentContainer = elTemp.closest('.card') || elTemp.parentElement;
-    if (parentContainer) {
-        elTemp.style.cursor = 'pointer';
-        elTemp.title = 'Clique para alternar entre Temperatura Atual, Sensação Térmica e Mín/Máx';
-        elTemp.onclick = () => {
-            activeTempMode = (activeTempMode + 1) % 3;
-            if (currentSimulatedScenario) {
-                const scenarioMap = {
-                    'Chuva Fraca / Garoa': { mm: 1.2, temp: 24, prob: 20 },
-                    'Chuva Moderada': { mm: 6.0, temp: 21, prob: 55 },
-                    'Chuva Forte': { mm: 18.5, temp: 20, prob: 80 },
-                    'Tempestade / Torrencial': { mm: 42.0, temp: 18, prob: 98 }
-                };
-                const sc = scenarioMap[currentSimulatedScenario] || { mm: 1.2, temp: 22, prob: 50 };
-                simularCenario(sc.mm, currentSimulatedScenario, sc.temp, sc.prob);
-            } else if (realWeatherDataCache) {
-                renderWeatherData(realWeatherDataCache, false);
-            }
-        };
-    }
+    const targetEl = elTempCard || elTemp;
+    if (!targetEl) return;
+
+    targetEl.style.cursor = 'pointer';
+    targetEl.title = 'Clique para alternar entre Temperatura Atual, Sensação Térmica e Mín/Máx';
+    targetEl.onclick = () => {
+        activeTempMode = (activeTempMode + 1) % 3;
+        if (currentSimulatedScenario) {
+            const scenarioMap = {
+                'Chuva Fraca / Garoa': { mm: 1.2, temp: 24, prob: 20 },
+                'Chuva Moderada': { mm: 6.0, temp: 21, prob: 55 },
+                'Chuva Forte': { mm: 18.5, temp: 20, prob: 80 },
+                'Tempestade / Torrencial': { mm: 42.0, temp: 18, prob: 98 }
+            };
+            const sc = scenarioMap[currentSimulatedScenario] || { mm: 1.2, temp: 22, prob: 50 };
+            simularCenario(sc.mm, currentSimulatedScenario, sc.temp, sc.prob);
+        } else if (realWeatherDataCache) {
+            renderWeatherData(realWeatherDataCache, false);
+        }
+    };
 }
 
 async function updateWeatherWidget() {

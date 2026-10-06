@@ -113,169 +113,311 @@
     <main class="container">
 
         <!-- ════════════════════════════════════════
-             MÓDULO 1: CLIMA & MONITORAMENTO AO VIVO
+             MÓDULO 1: MONITORAMENTO METEOROLÓGICO AO VIVO (VIEWPORT-FIT SAAS DASHBOARD)
              ════════════════════════════════════════ -->
-        <div id="clima-ao-vivo" class="dashboard-card anim-fade-up" style="margin-bottom: 60px;">
-            <div class="flex-between" style="margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <div style="font-size: 28px;">🌧️</div>
-                    <div style="text-align: left;">
-                        <h3 style="font-size: 20px; font-weight: 800; color: #FFFFFF;">Dados de Chuva e Clima em Tempo Real</h3>
-                        <p style="font-size: 14px; color: var(--text-muted);">Cidade de São Paulo, SP • Fonte Gratuita: <strong>Open-Meteo API</strong></p>
+        <div id="clima-ao-vivo" class="weather-compact-dashboard anim-fade-up">
+            <!-- 1. CABEÇALHO COMPACTO -->
+            <div class="weather-header-compact">
+                <div class="weather-header-left">
+                    <span class="weather-mini-icon">🌦️</span>
+                    <div>
+                        <div class="weather-title-inline">
+                            <h3 class="weather-title-text">Monitoramento Meteorológico ao Vivo</h3>
+                            <span class="weather-live-chip">
+                                <span class="weather-live-dot"></span>
+                                AO VIVO
+                            </span>
+                        </div>
+                        <span class="weather-subtitle-inline" id="om-time">🟢 Sincronizado ao Vivo • São Paulo, SP</span>
                     </div>
                 </div>
-                <div class="ai-badge" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: var(--accent-cyan);">
-                    <span class="ai-badge-pulse" style="background: var(--accent-cyan);"></span>
-                    <span id="om-time">Sincronizando...</span>
-                </div>
-            </div>
 
-            <!-- Grid de 4 Métricas com Tooltips -->
-            <div class="grid grid-4" style="margin-bottom: 24px;">
-                <div class="metric-card" title="Chuva acumulada nas últimas horas em milímetros">
-                    <div class="metric-card-label">💧 Chuva Acumulada</div>
-                    <div id="om-rain-acc" class="metric-card-value" style="color: var(--accent-cyan);">-- mm</div>
-                    <div class="metric-card-tooltip">Precipitação acumulada nas últimas horas</div>
-                </div>
-                
-                <div class="metric-card" title="Probabilidade de ocorrência de chuva nas próximas horas">
-                    <div class="metric-card-label">🎯 Probabilidade de Chuva</div>
-                    <div id="om-rain-prob" class="metric-card-value" style="color: var(--warning);">-- %</div>
-                    <div class="metric-card-tooltip">Chance de precipitação nas próximas horas</div>
-                </div>
-
-                <div class="metric-card" title="Temperatura do ar em graus Celsius">
-                    <div class="metric-card-label">🌡️ Temperatura Atual</div>
-                    <div id="om-temp" class="metric-card-value" style="color: #FFFFFF;">-- °C</div>
-                    <div class="metric-card-tooltip">Temperatura instantânea do ar em SP</div>
-                </div>
-
-                <div class="metric-card" title="Umidade relativa e velocidade do vento">
-                    <div class="metric-card-label">🌬️ Umidade / Vento</div>
-                    <div class="metric-card-value" style="color: var(--accent-emerald); font-size: 20px; margin-top: 6px;">
-                        <span id="om-humidity">--%</span> • <span id="om-wind">-- km/h</span>
+                <div class="weather-header-right">
+                    <span id="om-sync-detail" class="weather-sync-pill">Sincronizando...</span>
+                    <div class="weather-source-pill" title="Dados meteorológicos Open-Meteo">
+                        <span class="source-dot"></span>
+                        <span>Open-Meteo API</span>
                     </div>
-                    <div class="metric-card-tooltip">Umidade relativa do ar e vento em km/h</div>
                 </div>
             </div>
 
-            <!-- Gráfico de Linha: Precipitação 24h -->
-            <div class="rain-chart-wrapper">
-                <div class="rain-chart-header">
-                    <span style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">📈 Precipitação & Probabilidade — Próximas Horas</span>
+            <!-- 2. GRID 2 COLUNAS: ESQUERDA (MÉTRICAS) + DIREITA (GRÁFICO EXPANDIDO) -->
+            <div class="weather-split-layout">
+                <!-- COLUNA ESQUERDA: Temperatura Destaque + 4 Métricas Compactas -->
+                <div class="weather-col-metrics">
+                    <!-- Card de Temperatura & Condição -->
+                    <div class="weather-compact-hero-card" id="weather-temp-card" title="Clique para alternar entre Temperatura Atual, Sensação e Mín/Máx">
+                        <div class="hero-card-left">
+                            <span class="hero-temp-icon" id="om-condition-icon">🌤️</span>
+                            <div>
+                                <div class="hero-temp-value" id="om-temp">--°C</div>
+                                <div class="hero-temp-desc" id="om-condition-text">Carregando dados...</div>
+                            </div>
+                        </div>
+                        <div class="hero-card-right">
+                            <div id="om-risk-badge" class="weather-risk-badge badge-risk-green">NORMAL</div>
+                            <span class="hero-toggle-hint">Toque p/ alternar</span>
+                        </div>
+                    </div>
+
+                    <!-- Mini Grid de 4 Métricas -->
+                    <div class="weather-compact-quad">
+                        <!-- Métrica 1: Chuva Acumulada -->
+                        <div class="metric-compact-card" title="Chuva acumulada nas últimas horas">
+                            <div class="metric-compact-header">
+                                <span class="metric-compact-icon icon-cyan">🌧️</span>
+                                <span class="metric-compact-label">Chuva Acumulada</span>
+                            </div>
+                            <div class="metric-compact-num text-cyan" id="om-rain-acc">-- mm</div>
+                            <div class="metric-compact-bar">
+                                <div class="metric-bar-fill fill-cyan" id="om-bar-rain" style="width: 15%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Métrica 2: Probabilidade -->
+                        <div class="metric-compact-card" title="Probabilidade de chuva hoje">
+                            <div class="metric-compact-header">
+                                <span class="metric-compact-icon icon-yellow">🎯</span>
+                                <span class="metric-compact-label">Probabilidade</span>
+                            </div>
+                            <div class="metric-compact-num text-yellow" id="om-rain-prob">-- %</div>
+                            <div class="metric-compact-bar">
+                                <div class="metric-bar-fill fill-yellow" id="om-bar-prob" style="width: 30%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Métrica 3: Umidade -->
+                        <div class="metric-compact-card" title="Umidade relativa do ar">
+                            <div class="metric-compact-header">
+                                <span class="metric-compact-icon icon-emerald">💧</span>
+                                <span class="metric-compact-label">Umidade do Ar</span>
+                            </div>
+                            <div class="metric-compact-num text-emerald" id="om-humidity">--%</div>
+                            <div class="metric-compact-bar">
+                                <div class="metric-bar-fill fill-emerald" id="om-bar-humidity" style="width: 60%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Métrica 4: Vento -->
+                        <div class="metric-compact-card" title="Velocidade média do vento">
+                            <div class="metric-compact-header">
+                                <span class="metric-compact-icon icon-purple">🌬️</span>
+                                <span class="metric-compact-label">Vento</span>
+                            </div>
+                            <div class="metric-compact-num text-purple" id="om-wind">-- km/h</div>
+                            <div class="metric-compact-bar">
+                                <div class="metric-bar-fill fill-purple" id="om-bar-wind" style="width: 25%;"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div style="position: relative; height: 220px;">
-                    <canvas id="rain-chart"></canvas>
+
+                <!-- COLUNA DIREITA: GRÁFICO DE ÁREA DE PREVISÃO EXPANDIDO HORIZONTALMENTE -->
+                <div class="weather-col-chart">
+                    <div class="chart-compact-top">
+                        <div class="chart-title-group">
+                            <span class="chart-badge-tag">PROJEÇÃO 24H</span>
+                            <span class="chart-heading">Precipitação & Probabilidade</span>
+                        </div>
+                        <div class="chart-compact-legends">
+                            <span class="chart-legend-item">
+                                <span class="legend-dot dot-cyan"></span>
+                                Precipitação (mm)
+                            </span>
+                            <span class="chart-legend-item">
+                                <span class="legend-dot dot-emerald"></span>
+                                Probabilidade (%)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="chart-compact-canvas-wrap">
+                        <canvas id="rain-chart"></canvas>
+                    </div>
                 </div>
             </div>
 
-            <!-- Banner Dinâmico de Alerta -->
-            <div id="om-alert-banner" style="margin-top: 16px;"></div>
+            <!-- 3. BANNER DINÂMICO DE ALERTA -->
+            <div id="om-alert-banner"></div>
         </div>
 
         <!-- ════════════════════════════════════════
-             MÓDULO 2: CONSEQUÊNCIAS (Dados + Gráfico)
+             MÓDULO 2: CONSEQUÊNCIAS (4 GRÁFICOS INDEPENDENTES DE ALTA FIDELIDADE)
              ════════════════════════════════════════ -->
-        <section id="consequencias" class="quote-wrapper anim-fade-up">
-            <h2 class="content-section-title">Consequências</h2>
+        <section id="consequencias" class="quote-wrapper impact-section-premium anim-fade-up">
+            <div class="impact-section-header">
+                <div class="impact-badge-tag">
+                    <span class="impact-badge-dot"></span>
+                    <span>IMPACTO GLOBAL & HISTÓRICO DAS ENCHENTES</span>
+                </div>
+                <h2 class="content-section-title impact-title">Consequências Reais</h2>
+                <p class="impact-section-subtitle">
+                    Inundações representam uma das maiores ameaças socioeconômicas do planeta. Análise de dados globais e projeções de risco.
+                </p>
+            </div>
 
-            <div class="dashboard-card impact-dashboard">
-                <!-- Contadores Animados -->
-                <div class="impact-counters">
-                    <div class="impact-counter-item">
-                        <div class="impact-counter-value">
-                            <span class="count-up text-cyan"
-                                  data-target="3.2"
-                                  data-suffix="B+"
-                                  data-decimals="1">3.2B+</span>
+            <!-- Grid 2x2 com 4 Gráficos Independentes -->
+            <div class="consequences-charts-grid">
+                <!-- Card 1: Vidas Perdidas no Ano (Gauge / Rosca Radial) -->
+                <div class="consequence-card card-risk-red">
+                    <div class="consequence-card-glow glow-red"></div>
+                    <div class="consequence-card-header">
+                        <div class="consequence-icon-wrap icon-red">🚨</div>
+                        <div class="consequence-header-text">
+                            <span class="consequence-category">ALERTA ANUAL • 2025</span>
+                            <h3 class="consequence-card-title">Vidas Perdidas</h3>
                         </div>
-                        <div class="impact-counter-label">Pessoas Afetadas</div>
-                        <div class="impact-counter-sub">em análises históricas mundiais</div>
                     </div>
-                    <div class="impact-counter-item">
-                        <div class="impact-counter-value">
-                            <span class="count-up" style="color: #EF4444;"
-                                  data-target="4200"
-                                  data-suffix="+"
-                                  data-decimals="0">4200+</span>
+                    <div class="consequence-stat-row">
+                        <div class="consequence-stat-val text-red">
+                            <span class="count-up" data-target="4200" data-suffix="+" data-decimals="0">0</span>
                         </div>
-                        <div class="impact-counter-label">Mortes em 2025</div>
-                        <div class="impact-counter-sub">associadas a inundações</div>
+                        <div class="consequence-stat-desc">vítimas fatais diretas registradas globalmente</div>
                     </div>
-                    <div class="impact-counter-item">
-                        <div class="impact-counter-value">
-                            <span class="count-up" style="color: #FBBF24;"
-                                  data-target="28"
-                                  data-prefix="$"
-                                  data-suffix="B+"
-                                  data-decimals="0">$28B+</span>
-                        </div>
-                        <div class="impact-counter-label">Prejuízos Financeiros</div>
-                        <div class="impact-counter-sub">somente em 2025</div>
+                    <div class="consequence-chart-container">
+                        <canvas id="chart-fatalities-year"></canvas>
                     </div>
-                    <div class="impact-counter-item">
-                        <div class="impact-counter-value">
-                            <span class="count-up" style="color: #A78BFA;"
-                                  data-target="218"
-                                  data-suffix="mil"
-                                  data-decimals="0">218mil</span>
-                        </div>
-                        <div class="impact-counter-label">Vidas Perdidas</div>
-                        <div class="impact-counter-sub">histórico de longo prazo</div>
+                    <div class="consequence-card-footer">
+                        <span class="footer-badge-alert">⚠️ +18% acima da média</span>
+                        <span class="footer-info-text">Catástrofes hidroclimáticas</span>
                     </div>
                 </div>
 
-                <!-- Gráfico Donut + Texto -->
-                <div class="impact-chart-row">
-                    <div class="impact-donut-wrapper">
-                        <canvas id="impact-donut"></canvas>
-                    </div>
-                    <div class="impact-text-col">
-                        <p class="impact-highlight-text">
-                            <strong>As enchentes causam impactos a dezenas de milhões de pessoas e provocam milhares de mortes anualmente em todo o mundo.</strong>
-                        </p>
-                        <p style="color: var(--text-muted); font-size: 15px; line-height: 1.75; margin-top: 12px;">
-                            Somente em 2025, ocorreram cerca de <strong style="color:#fff">4.200 mortes associadas a inundações</strong>, além de mais de <strong style="color:#fff">US$ 28 bilhões em prejuízos financeiros</strong>. Em análises históricas, as inundações afetaram mais de <strong style="color:#fff">3,2 bilhões de pessoas</strong> e tiraram a vida de <strong style="color:#fff">218 mil cidadãos</strong> mundialmente.
-                        </p>
-                        <div class="impact-cta-chip">
-                            <span class="ai-badge-pulse" style="background: #EF4444;"></span>
-                            A IA do FloodGuard atua para mudar este cenário.
+                <!-- Card 2: Prejuízo Financeiro (Gráfico de Barras Comparativo) -->
+                <div class="consequence-card card-risk-amber">
+                    <div class="consequence-card-glow glow-amber"></div>
+                    <div class="consequence-card-header">
+                        <div class="consequence-icon-wrap icon-amber">💰</div>
+                        <div class="consequence-header-text">
+                            <span class="consequence-category">PREJUÍZOS • 2025</span>
+                            <h3 class="consequence-card-title">Perdas Econômicas</h3>
                         </div>
+                    </div>
+                    <div class="consequence-stat-row">
+                        <div class="consequence-stat-val text-amber">
+                            <span class="count-up" data-target="28" data-prefix="$" data-suffix="B+" data-decimals="0">$0</span>
+                        </div>
+                        <div class="consequence-stat-desc">em destruição de infraestrutura e patrimônio</div>
+                    </div>
+                    <div class="consequence-chart-container">
+                        <canvas id="chart-economic-losses"></canvas>
+                    </div>
+                    <div class="consequence-card-footer">
+                        <span class="footer-badge-warning">📉 US$ 28.4 Bilhões</span>
+                        <span class="footer-info-text">Seguros & Perdas Públicas</span>
+                    </div>
+                </div>
+
+                <!-- Card 3: População Afetada Historicamente (Área / Progresso) -->
+                <div class="consequence-card card-risk-cyan">
+                    <div class="consequence-card-glow glow-cyan"></div>
+                    <div class="consequence-card-header">
+                        <div class="consequence-icon-wrap icon-cyan">👥</div>
+                        <div class="consequence-header-text">
+                            <span class="consequence-category">ESCALA HISTÓRICA</span>
+                            <h3 class="consequence-card-title">População Afetada</h3>
+                        </div>
+                    </div>
+                    <div class="consequence-stat-row">
+                        <div class="consequence-stat-val text-cyan">
+                            <span class="count-up" data-target="3.2" data-suffix="B+" data-decimals="1">0</span>
+                        </div>
+                        <div class="consequence-stat-desc">de cidadãos desalojados ou impactados</div>
+                    </div>
+                    <div class="consequence-chart-container">
+                        <canvas id="chart-affected-people"></canvas>
+                    </div>
+                    <div class="consequence-card-footer">
+                        <span class="footer-badge-cyan">🌐 41% da população global</span>
+                        <span class="footer-info-text">Histórico cumulativo</span>
+                    </div>
+                </div>
+
+                <!-- Card 4: Fatalidades Históricas Acumuladas (Linha de Tendência) -->
+                <div class="consequence-card card-risk-purple">
+                    <div class="consequence-card-glow glow-purple"></div>
+                    <div class="consequence-card-header">
+                        <div class="consequence-icon-wrap icon-purple">📈</div>
+                        <div class="consequence-header-text">
+                            <span class="consequence-category">SÉRIE TEMPORAL</span>
+                            <h3 class="consequence-card-title">Fatalidades Acumuladas</h3>
+                        </div>
+                    </div>
+                    <div class="consequence-stat-row">
+                        <div class="consequence-stat-val text-purple">
+                            <span class="count-up" data-target="218" data-suffix=" mil" data-decimals="0">0</span>
+                        </div>
+                        <div class="consequence-stat-desc">óbitos históricos documentados em eventos extremos</div>
+                    </div>
+                    <div class="consequence-chart-container">
+                        <canvas id="chart-historical-fatalities"></canvas>
+                    </div>
+                    <div class="consequence-card-footer">
+                        <span class="footer-badge-purple">🛑 218.000 Vidas</span>
+                        <span class="footer-info-text">A prevenção com IA salva vidas</span>
                     </div>
                 </div>
             </div>
         </section>
 
         <!-- ════════════════════════════════════════
-             MÓDULO 3: NOSSA MISSÃO (3 Cards Interativos)
+             MÓDULO 3: NOSSA MISSÃO (Cards Interativos & Copywriting de Alto Impacto)
              ════════════════════════════════════════ -->
-        <section id="nossa-missao" class="quote-wrapper mission-section anim-fade-up">
-            <h2 class="content-section-title">Nossa Missão</h2>
-            <p class="how-section-intro">Nossa missão é usar a tecnologia para proteger pessoas e cuidar da nossa cidade.</p>
+        <section id="nossa-missao" class="quote-wrapper mission-section-compact anim-fade-up">
+            <div class="mission-header-center">
+                <div class="mission-badge-pill">
+                    <span class="mission-badge-dot"></span>
+                    <span>COMPROMISSO FLOODGUARD 2026</span>
+                </div>
+                <h2 class="content-section-title mission-title-main">Nossa Missão</h2>
+                <p class="mission-highlight-phrase">
+                    Usar Inteligência Artificial para proteger pessoas, salvar vidas e transformar cidades em espaços resilientes.
+                </p>
+            </div>
 
             <div class="mission-pillars-grid">
-                <!-- Pilar 1 -->
-                <div class="mission-pillar-card">
-                    <div class="mission-pillar-icon" style="background: linear-gradient(135deg, #0369a1, #38BDF8);">🛡️</div>
-                    <h3 class="mission-pillar-title">Segurança Pessoal</h3>
-                    <p class="mission-pillar-desc">Queremos que ninguém mais perca a vida ou seja pego de surpresa durante uma tempestade. Alertas precisos chegam antes do perigo.</p>
-                    <div class="mission-pillar-tag">Proteção Individual</div>
+                <!-- Pilar 1: Prevenção Proativa -->
+                <div class="mission-pillar-card pilar-cyan" title="Prevenção Proativa">
+                    <div class="mission-card-glow glow-cyan"></div>
+                    <div class="mission-pillar-icon-box icon-pilar-cyan">
+                        <span class="pillar-emoji">🛡️</span>
+                    </div>
+                    <div class="mission-pillar-meta">PILAR 01 • SEGURANÇA</div>
+                    <h3 class="mission-pillar-title">Prevenção Proativa</h3>
+                    <p class="mission-pillar-desc">Antecipar alagamentos para proteger vidas antes que o perigo aconteça.</p>
+                    <div class="mission-pillar-footer">
+                        <span class="mission-tag-compact">⚡ Alerta Antecipado</span>
+                        <span class="mission-action-indicator">→</span>
+                    </div>
                 </div>
 
-                <!-- Pilar 2 -->
-                <div class="mission-pillar-card">
-                    <div class="mission-pillar-icon" style="background: linear-gradient(135deg, #065F46, #34D399);">🏠</div>
-                    <h3 class="mission-pillar-title">Proteção de Patrimônio</h3>
-                    <p class="mission-pillar-desc">Estamos aqui para proteger seu carro, sua casa e seu negócio com 45 minutos de antecedência antes de qualquer alagamento.</p>
-                    <div class="mission-pillar-tag">Patrimônio Seguro</div>
+                <!-- Pilar 2: Preservação de Patrimônio -->
+                <div class="mission-pillar-card pilar-emerald" title="Preservação de Patrimônio">
+                    <div class="mission-card-glow glow-emerald"></div>
+                    <div class="mission-pillar-icon-box icon-pilar-emerald">
+                        <span class="pillar-emoji">🚗</span>
+                    </div>
+                    <div class="mission-pillar-meta">PILAR 02 • PATRIMÔNIO</div>
+                    <h3 class="mission-pillar-title">Preservação de Patrimônio</h3>
+                    <p class="mission-pillar-desc">Garantir que ninguém perca seu veículo, sua casa ou sua tranquilidade nas tempestades.</p>
+                    <div class="mission-pillar-footer">
+                        <span class="mission-tag-compact">🏠 Proteção Urbana</span>
+                        <span class="mission-action-indicator">→</span>
+                    </div>
                 </div>
 
-                <!-- Pilar 3 -->
-                <div class="mission-pillar-card">
-                    <div class="mission-pillar-icon" style="background: linear-gradient(135deg, #6d28d9, #A78BFA);">🌆</div>
-                    <h3 class="mission-pillar-title">Tranquilidade Urbana</h3>
-                    <p class="mission-pillar-desc">Ajudamos você e sua família a chegarem sempre bem ao destino, tornando o trânsito de São Paulo mais seguro e previsível.</p>
-                    <div class="mission-pillar-tag">Mobilidade Urbana</div>
+                <!-- Pilar 3: Rotas Seguras -->
+                <div class="mission-pillar-card pilar-purple" title="Rotas Seguras">
+                    <div class="mission-card-glow glow-purple"></div>
+                    <div class="mission-pillar-icon-box icon-pilar-purple">
+                        <span class="pillar-emoji">🚦</span>
+                    </div>
+                    <div class="mission-pillar-meta">PILAR 03 • MOBILIDADE</div>
+                    <h3 class="mission-pillar-title">Rotas Seguras</h3>
+                    <p class="mission-pillar-desc">Tornar o deslocamento na cidade mais inteligente e seguro em dias de chuva forte.</p>
+                    <div class="mission-pillar-footer">
+                        <span class="mission-tag-compact">🗺️ Navegação em Risco</span>
+                        <span class="mission-action-indicator">→</span>
+                    </div>
                 </div>
             </div>
         </section>
