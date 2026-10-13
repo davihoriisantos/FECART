@@ -5,13 +5,13 @@
 
 // ─── BASE DE DADOS LOCAL DE PONTOS DE INTERESSE ───────────────────────────────
 const SP_POI = [
-    { id: "fecap_campus",     nome: "FECAP — Campus Liberdade",      bairro: "Liberdade",            lat: -23.5574, lon: -46.6367, icon: "🎓", sev: null,       hist: "Baixo",    rio: 450, alt: 735 },
-    { id: "fecap_001",        nome: "Baixada do Glicério",            bairro: "Glicério / Liberdade", lat: -23.5592, lon: -46.6288, icon: "🚨", sev: "critico",  hist: "Crítico",  rio: 60,  alt: 719 },
-    { id: "fecap_002",        nome: "Viaduto do Chá / Anhangabaú",   bairro: "Centro Histórico",     lat: -23.5475, lon: -46.6378, icon: "🌊", sev: "critico",  hist: "Crítico",  rio: 150, alt: 721 },
-    { id: "fecap_003",        nome: "Av. do Estado (Trecho Radial)", bairro: "Sé / Liberdade",       lat: -23.5528, lon: -46.6268, icon: "⚠️", sev: "alto",     hist: "Alto",     rio: 80,  alt: 723 },
-    { id: "fecap_004",        nome: "Rua Conselheiro Furtado",       bairro: "Liberdade",            lat: -23.5558, lon: -46.6315, icon: "⚠️", sev: "alto",     hist: "Alto",     rio: 200, alt: 726 },
-    { id: "fecap_005",        nome: "Praça da Sé",                   bairro: "Centro / Sé",          lat: -23.5505, lon: -46.6333, icon: "🟡", sev: "moderado", hist: "Moderado", rio: 300, alt: 730 },
-    { id: "fecap_006",        nome: "Av. Liberdade (Frente FECAP)",  bairro: "Liberdade",            lat: -23.5574, lon: -46.6367, icon: "🛡️", sev: "baixo",    hist: "Baixo",    rio: 450, alt: 735 },
+    { id: "sp_liberdade",     nome: "Praça da Liberdade",            bairro: "Liberdade",            lat: -23.5552, lon: -46.6358, icon: "📍", sev: null,       hist: "Baixo",    rio: 450, alt: 735 },
+    { id: "sp_001",           nome: "Baixada do Glicério",            bairro: "Glicério / Liberdade", lat: -23.5592, lon: -46.6288, icon: "🚨", sev: "critico",  hist: "Crítico",  rio: 60,  alt: 719 },
+    { id: "sp_002",           nome: "Viaduto do Chá / Anhangabaú",   bairro: "Centro Histórico",     lat: -23.5475, lon: -46.6378, icon: "🌊", sev: "critico",  hist: "Crítico",  rio: 150, alt: 721 },
+    { id: "sp_003",           nome: "Av. do Estado (Trecho Radial)", bairro: "Sé / Liberdade",       lat: -23.5528, lon: -46.6268, icon: "⚠️", sev: "alto",     hist: "Alto",     rio: 80,  alt: 723 },
+    { id: "sp_004",           nome: "Rua Conselheiro Furtado",       bairro: "Liberdade",            lat: -23.5558, lon: -46.6315, icon: "⚠️", sev: "alto",     hist: "Alto",     rio: 200, alt: 726 },
+    { id: "sp_005",           nome: "Praça da Sé",                   bairro: "Centro / Sé",          lat: -23.5505, lon: -46.6333, icon: "🟡", sev: "moderado", hist: "Moderado", rio: 300, alt: 730 },
+    { id: "sp_006",           nome: "Av. da Liberdade",              bairro: "Liberdade",            lat: -23.5574, lon: -46.6367, icon: "🛡️", sev: "baixo",    hist: "Baixo",    rio: 450, alt: 735 },
     { id: "sp_mooca",         nome: "Mooca",                         bairro: "Mooca",                lat: -23.5590, lon: -46.5950, icon: "📍", sev: "critico",  hist: "Crítico",  rio: 70,  alt: 720 },
     { id: "sp_margtietê",     nome: "Marginal Tietê",                bairro: "Bom Retiro",           lat: -23.5180, lon: -46.6340, icon: "📍", sev: "critico",  hist: "Crítico",  rio: 30,  alt: 715 },
     { id: "sp_margpinheiros", nome: "Marginal Pinheiros",            bairro: "Pinheiros",            lat: -23.5610, lon: -46.7020, icon: "📍", sev: "critico",  hist: "Crítico",  rio: 40,  alt: 716 },
@@ -281,14 +281,14 @@ async function calcularRiscoTrajeto() {
     _processRoute(origem, destino, false);
 }
 
-// ─── DEMO FECAP → ANHANGABAÚ ──────────────────────────────────────────────────
-function testarRotaFECAP() {
+// ─── ROTA DEMONSTRATIVA: LIBERDADE → ANHANGABAÚ ──────────────────────────────
+function testarRotaDemonstracao() {
     switchNavTab('rota');
-    document.getElementById('nav-origem').value  = 'FECAP — Campus Liberdade';
+    document.getElementById('nav-origem').value  = 'Praça da Liberdade';
     document.getElementById('nav-destino').value = 'Viaduto do Chá / Anhangabaú';
 
     _processRoute(
-        { lat: -23.5574, lon: -46.6367, nome: 'FECAP — Campus Liberdade' },
+        { lat: -23.5552, lon: -46.6358, nome: 'Praça da Liberdade' },
         { lat: -23.5475, lon: -46.6378, nome: 'Viaduto do Chá / Anhangabaú' },
         true  // isDemo → raio ampliado para mostrar pontos de risco
     );

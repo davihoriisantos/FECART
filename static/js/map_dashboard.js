@@ -104,8 +104,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Força o Leaflet a recalcular as dimensões reais do container
     setTimeout(() => {
-        if (map) map.invalidateSize();
-    }, 200);
+        if (map) map.invalidateSize(true);
+    }, 300);
+    setTimeout(() => {
+        if (map) map.invalidateSize(true);
+    }, 800);
 
     // Redimensionamento dinâmico do Leaflet ao alterar tamanho de tela ou girar celular
     window.addEventListener('resize', () => {
@@ -2409,7 +2412,6 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
     }
 
     // Insight da IA: Síntese dos 5 Pilares (incluindo Telemetria Fluvial)
-    const elInsight = document.getElementById('ai-insight-text');
     const riverFactorTxt = riverInfo.distance < 500 ? "×1.8 (crítico)" : (riverInfo.distance <= 1200 ? "×1.3" : "neutro");
     const chronicTxt = chronicInfo.hasRecordsWithinRadius
         ? `🚨 <strong>Defesa Civil:</strong> Ponto Crítico a ${chronicInfo.dist}m (${chronicInfo.zoneName}).`
@@ -2427,14 +2429,16 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
         telemetriaTxt = ` ${emojiRio} <strong>Telemetria ${rt.estacao.rio}:</strong> ${rt.percentual_ocupacao}% da calha (${rt.label}) ${fonteTag} — Multiplicador ${multi}.`;
     }
 
-    if (risk >= 75) {
-        elInsight.innerHTML = `<strong>🚨 ALERTA MÁXIMO DA IA (${risk}%):</strong> Precipitação +${analysis.forecastRainTotal.toFixed(1)}mm • Relevo ${alt}m (${altInfo.factorTxt}) • Calha a ${riverInfo.distance}m (${riverFactorTxt}).${telemetriaTxt} ${chronicTxt}`;
+    if (analysis.securityOverride && analysis.securityOverride.active) {
+        if (elInsight) elInsight.innerHTML = `<strong>${escapeHtml(analysis.securityOverride.title)}:</strong> ${analysis.securityOverride.message}${telemetriaTxt} ${chronicTxt}`;
+    } else if (risk >= 75) {
+        if (elInsight) elInsight.innerHTML = `<strong>🚨 ALERTA MÁXIMO DA IA (${risk}%):</strong> Precipitação +${analysis.forecastRainTotal.toFixed(1)}mm • Relevo ${alt}m (${altInfo.factorTxt}) • Calha a ${riverInfo.distance}m (${riverFactorTxt}).${telemetriaTxt} ${chronicTxt}`;
     } else if (risk >= 50) {
-        elInsight.innerHTML = `<strong>⚠️ ATENÇÃO ELEVADA (${risk}%):</strong> Chuva +${analysis.forecastRainTotal.toFixed(1)}mm • Topografia ${alt}m (${altInfo.tipo}) • ${riverInfo.distance}m de corpo hídrico.${telemetriaTxt} ${chronicTxt}`;
+        if (elInsight) elInsight.innerHTML = `<strong>⚠️ ATENÇÃO ELEVADA (${risk}%):</strong> Chuva +${analysis.forecastRainTotal.toFixed(1)}mm • Topografia ${alt}m (${altInfo.tipo}) • ${riverInfo.distance}m de corpo hídrico.${telemetriaTxt} ${chronicTxt}`;
     } else if (analysis.currentRain === 0 && risk <= 20) {
-        elInsight.innerHTML = `<strong>🟢 CONDIÇÃO SEGURA (${risk}%):</strong> Sem chuva no momento (0.0 mm/h). Condição segura e estável para a região • Relevo ${alt}m (${altInfo.tipo}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt}`;
+        if (elInsight) elInsight.innerHTML = `<strong>🟢 CONDIÇÃO SEGURA (${risk}%):</strong> Sem chuva no momento (0.0 mm/h). Condição segura e estável para a região • Relevo ${alt}m (${altInfo.tipo}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt}`;
     } else {
-        elInsight.innerHTML = `<strong>🔍 ANÁLISE PREDITIVA (${risk}%):</strong> Relevo ${alt}m (${altInfo.tipo}, ${altInfo.factorTxt}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt} ${chronicTxt}`;
+        if (elInsight) elInsight.innerHTML = `<strong>🔍 ANÁLISE PREDITIVA (${risk}%):</strong> Relevo ${alt}m (${altInfo.tipo}, ${altInfo.factorTxt}) • Calha a ${riverInfo.distance < 1000 ? riverInfo.distance + 'm' : (riverInfo.distance/1000).toFixed(1)+'km'}.${telemetriaTxt} ${chronicTxt}`;
     }
 }
 
