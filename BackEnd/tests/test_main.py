@@ -9,6 +9,10 @@ os.environ["ENVIRONMENT"] = "development"
 os.environ["DATABASE_URL"] = (
     f"sqlite:///{(Path(tempfile.gettempdir()) / 'floodguard_test.db').as_posix()}"
 )
+import sys
+repo_dir = str(Path(__file__).resolve().parent.parent.parent)
+if repo_dir not in sys.path:
+    sys.path.insert(0, repo_dir)
 
 from fastapi.testclient import TestClient
 
@@ -82,3 +86,15 @@ def test_known_river_point_is_inside_shapely_buffer():
 
     assert distance == 0.0
     assert river_name in RIVER_POLYLINES
+
+
+def test_weather_nowcast_returns_200():
+    response = client.get("/api/dashboard/nowcast?lat=-23.5505&lon=-46.6333")
+    assert response.status_code == 200
+    data = response.json()
+    assert "temperature" in data
+    assert "condition" in data
+    assert "humidity" in data
+    assert "wind_kph" in data
+    assert "rain_mm_h" in data
+    assert "is_thunderstorm" in data

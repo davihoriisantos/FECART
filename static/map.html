@@ -1842,12 +1842,39 @@
                     </div>
                 </div>
 
+                <!-- Cards de Tempo Real (API de Nowcasting: Temperatura, Condição, Umidade, Vento, Chuva Agora) -->
+                <div class="nowcast-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+                    <div class="kpi-card" style="padding: 10px 10px; text-align: center;">
+                        <div class="kpi-label" style="font-size: 10px;">🌡️ Temp. Atual</div>
+                        <div id="nowcast-temp" class="kpi-val" style="font-size: 16px; color: #FFFFFF;">-- °C</div>
+                        <div id="nowcast-condition" class="kpi-sub" style="font-size: 10px; color: #38BDF8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</div>
+                    </div>
+
+                    <div class="kpi-card" style="padding: 10px 10px; text-align: center;">
+                        <div class="kpi-label" style="font-size: 10px;">💧 Chuva Agora</div>
+                        <div id="nowcast-rain" class="kpi-val" style="font-size: 16px; color: #38BDF8;">0.0 mm/h</div>
+                        <div id="nowcast-rain-badge" class="kpi-sub" style="font-size: 10px; color: #6EE7B7;">Sem Chuva</div>
+                    </div>
+
+                    <div class="kpi-card" style="padding: 10px 10px; text-align: center;">
+                        <div class="kpi-label" style="font-size: 10px;">💧 Umidade</div>
+                        <div id="nowcast-humidity" class="kpi-val" style="font-size: 16px; color: #06B6D4;">--%</div>
+                        <div id="nowcast-feels" class="kpi-sub" style="font-size: 10px; color: #94A3B8;">Sensação: --</div>
+                    </div>
+
+                    <div class="kpi-card" style="padding: 10px 10px; text-align: center;">
+                        <div class="kpi-label" style="font-size: 10px;">🌬️ Vento</div>
+                        <div id="nowcast-wind" class="kpi-val" style="font-size: 16px; color: #10B981;">-- km/h</div>
+                        <div id="nowcast-source" class="kpi-sub" style="font-size: 10px; color: #38BDF8;">Tempo Real</div>
+                    </div>
+                </div>
+
                 <!-- Grid de Mini KPIs: 4 Pilares Geográficos e Meteorológicos -->
                 <div class="kpi-grid">
                     <div class="kpi-card">
-                        <div class="kpi-label">💧 Chuva Prevista Hoje</div>
+                        <div class="kpi-label">💧 Projeção de Chuva Hoje</div>
                         <div id="kpi-rain-current" class="kpi-val" style="color: #38BDF8;">0.0 mm</div>
-                        <div id="kpi-rain-forecast-sub" class="kpi-sub">Chance máxima hoje: 0%</div>
+                        <div id="kpi-rain-forecast-sub" class="kpi-sub">Previsão 24h: 0%</div>
                     </div>
 
                     <div class="kpi-card">
@@ -1872,9 +1899,9 @@
                 <!-- Box Gráfico de Tendência (24h + 3h) -->
                 <div class="chart-container-box">
                     <div class="chart-header">
-                        <div class="chart-title">📈 Curva de Risco Preditivo (24h + 3h)</div>
+                        <div class="chart-title" id="chart-main-title">📈 Projeção 24h (Fusão Tempo Real + Open-Meteo)</div>
                         <span id="chart-status-badge" style="font-size: 10px; font-weight: 700; color: #10B981; background: rgba(16,185,129,0.15); padding: 2px 8px; border-radius: 6px;">
-                            Em Tempo Real
+                            Sincronizado
                         </span>
                     </div>
 
@@ -2047,10 +2074,10 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/static/js/supabaseClient.js?v=20260929-v2"></script>
-    <script src="/static/js/api.js?v=20260929-v2"></script>
+    <script src="/static/js/api.js?v=20261009-hybrid-v3"></script>
     <script src="/static/js/historico_buscas.js?v=20260929-v2"></script>
     <script src="/static/js/historico_defesa_civil.js?v=20260923-fix"></script>
-    <script src="/static/js/map_dashboard.js?v=20261001-visual-prototype"></script>
+    <script src="/static/js/map_dashboard.js?v=20261009-hybrid-v3"></script>
         <!-- ─── MODAL SIMPLES: SALVAR LOCAL (CASA / TRABALHO) ─── -->
     <div id="simple-place-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="simple-place-title" onclick="closeSimplePlaceModal(event)">
         <div class="auth-modal-card" style="max-width: 400px; padding: 22px; border-radius: 16px; text-align: left; background: #0F172A; border: 1px solid rgba(56,189,248,0.28); box-shadow: 0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">

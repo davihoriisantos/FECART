@@ -6,7 +6,7 @@ from ..database import get_db
 from ..models.sensor import Sensor
 from ..models.alert import Alert
 from ..models.zone import RiskZone
-from ..services.prediction_service import fetch_open_meteo_forecast
+from ..services.prediction_service import fetch_open_meteo_forecast, fetch_nowcast_weather
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -68,3 +68,8 @@ def get_risk_summary(db: Session = Depends(get_db)):
 def get_live_weather(lat: float = -23.5505, lon: float = -46.6333):
     """Retorna clima real processado pelo serviço preditivo compartilhado."""
     return fetch_open_meteo_forecast(lat, lon)
+
+@router.get("/nowcast")
+def get_nowcast_weather(lat: float = -23.5505, lon: float = -46.6333):
+    """Retorna clima em tempo real (Nowcasting) para cards de temperatura, condição, umidade, vento e chuva agora."""
+    return fetch_nowcast_weather(lat, lon)

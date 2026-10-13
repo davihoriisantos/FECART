@@ -105,6 +105,138 @@ def fetch_open_meteo_forecast(lat: float, lon: float) -> dict:
     return payload
 
 
+_nowcast_cache: dict[str, dict] = {}
+
+WMO_INFO = {
+    0: ("Céu Limpo", "☀️"),
+    1: ("Principalmente Limpo", "🌤️"),
+    2: ("Parcialmente Nublado", "⛅"),
+    3: ("Nublado", "☁️"),
+    45: ("Nevoeiro", "🌫️"),
+    48: ("Nevoeiro com Geada", "🌫️"),
+    51: ("Garoa Leve", "🌦️"),
+    53: ("Garoa Moderada", "🌦️"),
+    55: ("Garoa Densa", "🌧️"),
+    61: ("Chuva Fraca", "🌦️"),
+    63: ("Chuva Moderada", "🌧️"),
+    65: ("Chuva Forte", "🌧️"),
+    80: ("Pancadas de Chuva Leves", "🌦️"),
+    81: ("Pancadas de Chuva", "🌧️"),
+    82: ("Pancadas Violentas", "⛈️"),
+    95: ("Tempestade com Raios", "⛈️"),
+    96: ("Tempestade com Granizo", "⛈️"),
+    99: ("Tempestade Severa", "⛈️"),
+}
+
+
+def fetch_nowcast_weather(lat: float, lon: float) -> dict:
+    """
+    Busca clima em tempo real (Nowcasting / O 'Agora').
+    Prioriza WeatherAPI / OpenWeatherMap se configuradas, com fallback
+    robusto para Open-Meteo Current.
+    """
+    coord_key = f"{round(lat, 3)}_{round(lon, 3)}"
+    now = time.time()
+    cached = _nowcast_cache.get(coord_key)
+    if cached and now < cached["expires_at"]:
+        return cached["data"]
+
+    # 1. Tentar WeatherAPI se chave configurada
+    if settings.WEATHERAPI_KEY:
+        try:
+            url = f"https://api.weatherapi.com/v1/current.json?key={settings.WEATHERAPI_KEY}&q={lat},{lon}&lang=pt"
+            res = requests.get(url, timeout=5, verify=settings.VERIFY_SSL)
+            if res.status_code == 200:
+                data = res.json()
+                curr = data.get("current", {})
+                cond = curr.get("condition", {})
+                code = int(cond.get("code") or 0)
+                text = cond.get("text", "Estável")
+                is_storm = code in (1087, 1273, 1276, 1279, 1282) or any(
+                    w in text.lower() for w in ("tempestade", "trovoada", "raio", "thunder")
+                )
+                payload = {
+                    "source": "weatherapi",
+                    "lat": lat,
+                    "lon": lon,
+                    "temperature": round(float(curr.get("temp_c") or 20.0), 1),
+                    "feels_like": round(float(curr.get("feelslike_c") or curr.get("temp_c") or 20.0), 1),
+                    "condition": text,
+                    "condition_icon": "⛈️" if is_storm else ("🌧️" if float(curr.get("precip_mm") or 0) > 0 else "⛅"),
+                    "humidity": int(curr.get("humidity") or 65),
+                    "wind_kph": round(float(curr.get("wind_kph") or 10.0), 1),
+                    "rain_mm_h": round(float(curr.get("precip_mm") or 0.0), 1),
+                    "is_thunderstorm": is_storm,
+                    "weather_code": code,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _nowcast_cache[coord_key] = {"data": payload, "expires_at": now + 60}
+                return payload
+        except Exception:
+            pass
+
+    # 2. Tentar OpenWeatherMap se chave configurada
+    if settings.OPENWEATHER_API_KEY:
+        try:
+            url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={settings.OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
+            res = requests.get(url, timeout=5, verify=settings.VERIFY_SSL)
+            if res.status_code == 200:
+                data = res.json()
+                main = data.get("main", {})
+                wind = data.get("wind", {})
+                w_list = data.get("weather", [{}])
+                w0 = w_list[0] if w_list else {}
+                code = int(w0.get("id") or 800)
+                is_storm = w0.get("main") == "Thunderstorm" or (200 <= code <= 232)
+                rain_dict = data.get("rain", {})
+                rain_val = float(rain_dict.get("1h") or rain_dict.get("3h") or 0.0)
+                payload = {
+                    "source": "openweathermap",
+                    "lat": lat,
+                    "lon": lon,
+                    "temperature": round(float(main.get("temp") or 20.0), 1),
+                    "feels_like": round(float(main.get("feels_like") or main.get("temp") or 20.0), 1),
+                    "condition": w0.get("description", "Estável").capitalize(),
+                    "condition_icon": "⛈️" if is_storm else ("🌧️" if rain_val > 0 else "⛅"),
+                    "humidity": int(main.get("humidity") or 65),
+                    "wind_kph": round(float(wind.get("speed") or 3.0) * 3.6, 1),
+                    "rain_mm_h": round(rain_val, 1),
+                    "is_thunderstorm": is_storm,
+                    "weather_code": code,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _nowcast_cache[coord_key] = {"data": payload, "expires_at": now + 60}
+                return payload
+        except Exception:
+            pass
+
+    # 3. Fallback: Open-Meteo Current de alta resolução
+    forecast_data = fetch_open_meteo_forecast(lat, lon)
+    curr = forecast_data.get("current", {})
+    rain_val = float(curr.get("precipitation") or curr.get("rain") or 0.0)
+    w_code = int(curr.get("weather_code") or 1)
+    cond_text, cond_icon = WMO_INFO.get(w_code, ("Estável", "🌤️"))
+    is_storm = w_code in (82, 95, 96, 99)
+
+    payload = {
+        "source": "open-meteo-nowcast",
+        "lat": lat,
+        "lon": lon,
+        "temperature": round(float(curr.get("temperature_2m") or 20.0), 1),
+        "feels_like": round(float(curr.get("apparent_temperature") or curr.get("temperature_2m") or 20.0), 1),
+        "condition": cond_text,
+        "condition_icon": cond_icon,
+        "humidity": int(curr.get("relative_humidity_2m") or 65),
+        "wind_kph": round(float(curr.get("wind_speed_10m") or 10.0), 1),
+        "rain_mm_h": round(rain_val, 1),
+        "is_thunderstorm": is_storm,
+        "weather_code": w_code,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _nowcast_cache[coord_key] = {"data": payload, "expires_at": now + 60}
+    return payload
+
+
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
     return max(minimum, min(maximum, float(value)))
 

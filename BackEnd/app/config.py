@@ -4,6 +4,10 @@ import os
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://fvfkrhmyqdymqywwlkon.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_iF_NuRm9aCAV2C-aCWOqBQ_G44M3Gdg")
 
+# ─── Weather Nowcast APIs (Current Weather) ───────────────────────────────────
+WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY", "")
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+
 # ─── JWT / Auth ───────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "floodguard-development-secret-key-2026")
 
@@ -29,6 +33,8 @@ class Settings:
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
     SUPABASE_URL: str | None = SUPABASE_URL
     SUPABASE_KEY: str | None = SUPABASE_KEY
+    WEATHERAPI_KEY: str = WEATHERAPI_KEY
+    OPENWEATHER_API_KEY: str = OPENWEATHER_API_KEY
     VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "false").lower() in ("true", "1", "yes")
 
 

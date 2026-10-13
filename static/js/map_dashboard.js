@@ -1683,8 +1683,18 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
     // 5. Atualizar Marcador e Zona Dinâmica no Mapa
     updateMapMarker(lat, lon, nome, analysis, realAlt, lat, lon, isUserLocation);
 
-    // 6. Atualizar Gráfico Chart.js
-    renderTrendChart(analysis.labels, analysis.historyRisks, analysis.forecastRisks, analysis.maxForecastRisk);
+    // 6. Atualizar Gráfico Chart.js (Projeção 24h com Fusão Tempo Real + Open-Meteo)
+    renderTrendChart(
+        analysis.labels,
+        analysis.historyRisks,
+        analysis.forecastRisks,
+        analysis.maxForecastRisk,
+        {
+            labels: analysis.projection24hLabels,
+            rain: analysis.projection24hRain,
+            risk: analysis.projection24hRisk
+        }
+    );
 
     // 7. Salvar busca/consulta no histórico permanente do banco de dados
     if (typeof salvarBuscaHistorico === 'function' && nome && !nome.includes('Localizando') && !nome.includes('Carregando')) {
@@ -1698,58 +1708,82 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
     }
 }
 
-// ─── BUSCA DE CLIMA NA OPEN-METEO (API REAL EM TEMPO REAL) ───────────────────
+// ─── BUSCA DE CLIMA NA ARQUITETURA HÍBRIDA (NOWCASTING + FORECASTING) ───────────────────
 async function fetchWeatherData(lat, lon) {
-    const key = `w_${lat.toFixed(3)}_${lon.toFixed(3)}`;
+    const key = `w_hy_${lat.toFixed(3)}_${lon.toFixed(3)}`;
     const now = Date.now();
     if (geocodeCache[key] && geocodeCache[key].expiresAt && now < geocodeCache[key].expiresAt) {
         return geocodeCache[key].data;
     }
 
-    // API Open-Meteo Oficial: coordenadas exatas, precipitação em tempo real (current) e histórico horário (hourly)
-    const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers&hourly=precipitation,precipitation_probability,soil_moisture_0_to_1cm&daily=precipitation_sum,precipitation_probability_max&past_days=1&forecast_days=1&timezone=America%2FSao_Paulo`;
-    const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
-
-    let data = null;
-
-    // 1. Chamada direta à API da Open-Meteo
-    try {
-        const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
-        if (res.ok) {
-            data = await res.json();
-        }
-    } catch (e) {
-        console.warn("[FloodGuard] Chamada direta Open-Meteo falhou, tentando proxy interno...", e.message);
-    }
-
-    // 2. Fallback resiliente via backend interno
-    if (!data || !data.hourly) {
+    let hybrid = null;
+    if (typeof API !== 'undefined' && typeof API.fetchHybridWeather === 'function') {
         try {
-            const proxyRes = await fetch(proxyUrl);
-            if (proxyRes.ok) {
-                data = await proxyRes.json();
-            }
+            hybrid = await API.fetchHybridWeather(lat, lon);
         } catch (e) {
-            console.warn("[FloodGuard] Proxy meteorológico indisponível:", e.message);
+            console.warn("[FloodGuard] API.fetchHybridWeather falhou, usando fallback...", e.message);
         }
     }
 
-    if (data && data.hourly) {
-        geocodeCache[key] = { data, expiresAt: Date.now() + 120000 };
-        return data;
+    let nowcast = hybrid?.nowcast;
+    let forecast = hybrid?.forecast;
+    let riskOverride = hybrid?.riskOverride;
+
+    // Fallback se a previsão da Open-Meteo não veio
+    if (!forecast || !forecast.hourly) {
+        const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers,weather_code&hourly=precipitation,rain,showers,precipitation_probability,soil_moisture_0_to_1cm&daily=precipitation_sum,precipitation_probability_max&past_days=1&forecast_days=2&timezone=America%2FSao_Paulo`;
+        const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
+        try {
+            const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
+            if (res.ok) forecast = await res.json();
+        } catch (_) {}
+        if (!forecast || !forecast.hourly) {
+            try {
+                const proxyRes = await fetch(proxyUrl);
+                if (proxyRes.ok) forecast = await proxyRes.json();
+            } catch (_) {}
+        }
+    }
+
+    if (!nowcast) {
+        const curr = forecast?.current || {};
+        const rainNow = Number(curr.precipitation ?? curr.rain ?? 0);
+        const wCode = Number(curr.weather_code ?? 1);
+        nowcast = {
+            temperature: Math.round(curr.temperature_2m ?? 20),
+            feelsLike: Math.round(curr.apparent_temperature ?? curr.temperature_2m ?? 20),
+            humidity: Math.round(curr.relative_humidity_2m ?? 65),
+            wind: Math.round(curr.wind_speed_10m ?? 10),
+            rainNow: rainNow,
+            isThunderstorm: [82, 95, 96, 99].includes(wCode),
+            condition: 'Estável',
+            conditionIcon: '🌤️',
+            weatherCode: wCode,
+            source: 'fallback'
+        };
+    }
+
+    if (forecast && forecast.hourly) {
+        const unified = {
+            ...forecast,
+            nowcast: nowcast,
+            riskOverride: riskOverride,
+            current_rain_mm_h: nowcast.rainNow
+        };
+        geocodeCache[key] = { data: unified, expiresAt: Date.now() + 60000 };
+        return unified;
     }
 
     return null;
 }
 
-// ─── PROCESSADOR DO MOTOR PREDITIVO DE RISCO (4 PILARES) ─────────────────────
+// ─── PROCESSADOR DO MOTOR PREDITIVO DE RISCO (4 PILARES + MODELO HÍBRIDO) ─────
 function processRiskAnalysis(data, altitude, lat, lon) {
     if (!data || !data.hourly) {
         return getFallbackAnalysis();
     }
 
     const times = data.hourly.time || [];
-    // Prioriza precipitação total (chuva contínua + pancadas + garoa)
     const rains = data.hourly.precipitation || data.hourly.rain || [];
     const probs = data.hourly.precipitation_probability || [];
     const soilMoistures = data.hourly.soil_moisture_0_to_1cm || [];
@@ -1766,21 +1800,35 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         const localHourStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}`;
         currentIdx = times.findIndex(t => t.startsWith(localHourStr));
     }
-    if (currentIdx === -1) currentIdx = Math.max(0, times.length - 8);
+    if (currentIdx === -1) currentIdx = Math.max(0, times.length - 24);
 
-    // Chuva atual ainda alimenta o motor de risco, mas o card exibe a previsão diária.
+    // 1. TEMPO REAL: Chuva atual alimentada EXCLUSIVAMENTE pela API de Tempo Real (Nowcast)
     let currentRain = 0.0;
-    if (typeof data.current_rain_mm_h === 'number') {
+    if (data.nowcast && typeof data.nowcast.rainNow === 'number') {
+        currentRain = data.nowcast.rainNow;
+    } else if (typeof data.current_rain_mm_h === 'number') {
         currentRain = data.current_rain_mm_h;
     } else if (data.current && typeof data.current.precipitation === 'number') {
         currentRain = Number(data.current.precipitation);
-    } else if (data.current && typeof data.current.rain === 'number') {
-        currentRain = Number(data.current.rain) + Number(data.current.showers || 0);
     } else if (currentIdx >= 0 && rains[currentIdx] !== null) {
         currentRain = Number(rains[currentIdx]) || 0;
     }
 
-    // Acumulado 24h (#kpi-rain-acc24): Soma real das últimas 24 horas de chuva para o ponto selecionado
+    // Suporte aos cenários de demonstração FECART
+    if (simulatedScenario === 'tempestade') {
+        currentRain = 45.0;
+    } else if (simulatedScenario === 'moderada') {
+        currentRain = 8.0;
+    }
+
+    // 3. A FUSÃO (Sincronização no Gráfico):
+    // Substitui o valor do índice da 'hora atual' (Hora 0) no array da Open-Meteo
+    // pelo valor real de precipitação trazido pela API de Tempo Real.
+    if (currentIdx >= 0 && currentIdx < rains.length) {
+        rains[currentIdx] = currentRain;
+    }
+
+    // Acumulado 24h: Soma das últimas 24 horas incluindo o valor fundido da hora atual
     let acc24h = 0.0;
     if (typeof data.accumulated_24h_mm === 'number') {
         acc24h = data.accumulated_24h_mm;
@@ -1793,7 +1841,7 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         }
     }
 
-    // Total e maior probabilidade do dia civil atual (fuso América/São Paulo)
+    // Total e probabilidade do dia civil
     const daily = data.daily || {};
     const spTodayStr = (data.current && data.current.time)
         ? data.current.time.slice(0, 10)
@@ -1801,7 +1849,6 @@ function processRiskAnalysis(data, altitude, lat, lon) {
 
     let dailyIndex = Array.isArray(daily.time) ? daily.time.indexOf(spTodayStr) : -1;
     if (dailyIndex === -1 && Array.isArray(daily.time) && daily.time.length > 0) {
-        // Pega o último elemento (hoje/previsão), NUNCA o índice 0 (ontem)!
         dailyIndex = daily.time.length - 1;
     }
 
@@ -1815,11 +1862,15 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         ? clamp(Number(daily.precipitation_probability_max[dailyIndex]) || 0, 0, 100)
         : 0;
 
-    // Série das últimas 24h
+    // ─── CONSTRUÇÃO DA SÉRIE TEMPORAL E PROJEÇÃO 24H ───
     const labels = [];
     const historyRisks = [];
     const forecastRisks = [];
+    const projection24hLabels = [];
+    const projection24hRain = [];
+    const projection24hRisk = [];
 
+    // Histórico das últimas 24h
     for (let i = 23; i >= 0; i--) {
         const idx = currentIdx - i;
         const d = new Date(times[idx]);
@@ -1830,8 +1881,8 @@ function processRiskAnalysis(data, altitude, lat, lon) {
             if (idx - k >= 0 && rains[idx - k] !== null) localAcc += rains[idx - k];
         }
 
-        const rainVal = (idx >= 0 && rains[idx] !== null) ? rains[idx] : 0;
-        const probVal = (idx >= 0 && probs[idx] !== null) ? probs[idx] : 0;
+        const rainVal = (idx >= 0 && rains[idx] !== null) ? Number(rains[idx]) : 0;
+        const probVal = (idx >= 0 && probs[idx] !== null) ? Number(probs[idx]) : 0;
         const soilMoisture = (idx >= 0 && soilMoistures[idx] !== null) ? soilMoistures[idx] : null;
 
         const risk = calculateRiskFormula(rainVal, localAcc, probVal, altitude, lat, lon, soilMoisture);
@@ -1840,10 +1891,10 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         forecastRisks.push(null);
     }
 
-    const currentRisk = historyRisks[historyRisks.length - 1];
-    forecastRisks[forecastRisks.length - 1] = currentRisk; // Ponto de conexão
+    let currentRisk = historyRisks[historyRisks.length - 1];
+    forecastRisks[forecastRisks.length - 1] = currentRisk;
 
-    // Projeção futura (+1h, +2h, +3h)
+    // Projeção futura (+1h, +2h, +3h): Previsão horária
     let forecastRainTotal = 0;
     let maxForecastRain = 0;
     const fRisks = [];
@@ -1853,13 +1904,12 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         const d = new Date(times[idx]);
         const horaStr = isNaN(d.getTime()) ? `+${f}h` : `+${f}h (${d.getHours().toString().padStart(2, '0')}h)`;
 
-        let rainVal = (idx < rains.length && rains[idx] !== null) ? rains[idx] : 0;
-        let probVal = (idx < probs.length && probs[idx] !== null) ? probs[idx] : 0;
+        let rainVal = (idx < rains.length && rains[idx] !== null) ? Number(rains[idx]) : 0;
+        let probVal = (idx < probs.length && probs[idx] !== null) ? Number(probs[idx]) : 0;
         const soilMoisture = (idx < soilMoistures.length && soilMoistures[idx] !== null)
             ? soilMoistures[idx]
             : (soilMoistures[currentIdx] ?? null);
 
-        // Se houver cenário simulado para a FECART
         if (simulatedScenario === 'tempestade') {
             rainVal = f === 1 ? 18.0 : (f === 2 ? 38.0 : 20.0);
             probVal = 98;
@@ -1878,7 +1928,76 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         fRisks.push(risk);
     }
 
+    // ── Projeção 24h Completa (Fusão: Hora 0 = Tempo Real, Horas +1 a +24 = Open-Meteo) ──
+    for (let h = 0; h < 24; h++) {
+        const idx = currentIdx + h;
+        const d = new Date(times[idx]);
+        const label = h === 0 ? 'Agora' : (isNaN(d.getTime()) ? `+${h}h` : `${d.getHours().toString().padStart(2, '0')}h`);
+        let rainVal = (idx < rains.length && rains[idx] !== null) ? Number(rains[idx]) : 0;
+        let probVal = (idx < probs.length && probs[idx] !== null) ? Number(probs[idx]) : 0;
+        
+        if (h === 0) {
+            rainVal = currentRain; // FUSÃO no índice 0
+        } else if (simulatedScenario === 'tempestade' && h <= 3) {
+            rainVal = h === 1 ? 18.0 : (h === 2 ? 38.0 : 20.0);
+        }
+
+        projection24hLabels.push(label);
+        projection24hRain.push(Number(rainVal.toFixed(1)));
+        projection24hRisk.push(calculateRiskFormula(rainVal, acc24h + rainVal, probVal, altitude, lat, lon));
+    }
+
     const maxForecastRisk = Math.max(...fRisks);
+
+    // ─── 4. NOVA REGRA DO DIAGNÓSTICO DE RISCO (OVERRIDE DE SEGURANÇA) ───
+    const isStorm = Boolean(
+        data.nowcast?.isThunderstorm ||
+        (data.nowcast?.weatherCode && [82, 95, 96, 99].includes(data.nowcast.weatherCode))
+    );
+    const triggerImmediate = currentRain > 5.0 || isStorm || (simulatedScenario === 'tempestade');
+
+    // Pico previsto nas próximas 3 horas (+1h, +2h, +3h)
+    const peakForecastNext3h = Math.max(
+        Number(rains[currentIdx + 1] || 0),
+        Number(rains[currentIdx + 2] || 0),
+        Number(rains[currentIdx + 3] || 0)
+    );
+    const triggerFuture = (!triggerImmediate) && (currentRain <= 0.1) && (peakForecastNext3h > 10.0 || simulatedScenario === 'moderada');
+
+    let securityOverride = null;
+    if (triggerImmediate) {
+        // Gatilho Imediato (Prioridade 1):
+        // Se a API de Tempo Real reportar precipitação > 5mm/h, ou código de tempestade (Thunderstorm),
+        // o painel DEVE ficar Vermelho/Alto Risco, independentemente do que a previsão diga.
+        const overrideScore = Math.max(82, Math.min(98, Math.round(76 + currentRain * 1.5)));
+        currentRisk = overrideScore;
+        securityOverride = {
+            active: true,
+            priority: 1,
+            level: 'critical',
+            color: '#EF4444',
+            badge: 'CRÍTICO',
+            label: '🚨 Alerta Crítico (Tempo Real)',
+            score: overrideScore,
+            message: `🚨 <strong>GATILHO IMEDIATO DE SEGURANÇA (PRIORIDADE 1):</strong> API de Tempo Real reporta ${isStorm ? 'Tempestade com Raios (Thunderstorm)' : 'precipitação intensa de ' + currentRain.toFixed(1) + ' mm/h'}. Painel elevado para <strong>Vermelho / Alto Risco (${overrideScore}%)</strong>, independentemente da previsão horária.`
+        };
+    } else if (triggerFuture) {
+        // Gatilho Futuro (Prioridade 2):
+        // Se agora não chove, mas a Open-Meteo prevê pico > 10mm nas próximas 3 horas,
+        // o painel fica Amarelo/Alerta Antecipado.
+        const overrideScore = Math.max(50, Math.min(68, Math.round(42 + peakForecastNext3h * 1.2)));
+        currentRisk = overrideScore;
+        securityOverride = {
+            active: true,
+            priority: 2,
+            level: 'warning',
+            color: '#F59E0B',
+            badge: 'ALERTA ANTECIPADO',
+            label: '⚠️ Atenção — Alerta Antecipado (+3h)',
+            score: overrideScore,
+            message: `⚠️ <strong>GATILHO FUTURO DE SEGURANÇA (PRIORIDADE 2):</strong> Sem chuva no momento (0.0 mm/h), porém projeção da Open-Meteo indica pico de tempestade de ${peakForecastNext3h.toFixed(1)} mm nas próximas 3 horas. Painel em <strong>Amarelo / Alerta Antecipado (${overrideScore}%)</strong>.`
+        };
+    }
 
     return {
         currentRain,
@@ -1891,7 +2010,22 @@ function processRiskAnalysis(data, altitude, lat, lon) {
         maxForecastRisk,
         labels,
         historyRisks,
-        forecastRisks
+        forecastRisks,
+        projection24hLabels,
+        projection24hRain,
+        projection24hRisk,
+        nowcast: data.nowcast || {
+            temperature: 20,
+            feelsLike: 20,
+            condition: 'Estável',
+            conditionIcon: '🌤️',
+            humidity: 65,
+            wind: 10,
+            rainNow: currentRain,
+            isThunderstorm: isStorm,
+            source: 'tempo-real'
+        },
+        securityOverride
     };
 }
 
@@ -2030,14 +2164,42 @@ function calculateRiskFormula(rainMm, acc24h, prob, alt, lat, lon, soilMoisture 
     return Math.max(0, Math.min(100, Math.round(Risco_Multifatorial)));
 }
 
-// ─── ATUALIZAR UI COM DADOS CALCULADOS E 4 PILARES ───────────────────────────
+// ─── ATUALIZAR UI COM DADOS CALCULADOS E 4 PILARES (ARQUITETURA HÍBRIDA) ─────
 function updateUIWithAnalysis(analysis, alt, lat, lon) {
     const risk = analysis.currentRisk;
-    const color = getRiskColor(risk);
-    const label = getRiskLabel(risk);
+    let color = getRiskColor(risk);
+    let label = getRiskLabel(risk);
     const altInfo = getAltitudeClassification(alt);
     const riverInfo = getMinDistanceToRivers(lat, lon);
     const chronicInfo = checkChronicFloodZone(lat, lon);
+
+    // ─── ALVO NO UI: CARDS ALIMENTADOS EXCLUSIVAMENTE PELA API DE TEMPO REAL ───
+    if (analysis.nowcast) {
+        const nw = analysis.nowcast;
+        const elNowTemp = document.getElementById('nowcast-temp');
+        const elNowCond = document.getElementById('nowcast-condition');
+        const elNowRain = document.getElementById('nowcast-rain');
+        const elNowRainBadge = document.getElementById('nowcast-rain-badge');
+        const elNowHum = document.getElementById('nowcast-humidity');
+        const elNowFeels = document.getElementById('nowcast-feels');
+        const elNowWind = document.getElementById('nowcast-wind');
+        const elNowSource = document.getElementById('nowcast-source');
+
+        if (elNowTemp) elNowTemp.textContent = `${nw.temperature}°C`;
+        if (elNowCond) elNowCond.textContent = `${nw.conditionIcon || ''} ${nw.condition}`;
+        if (elNowRain) {
+            elNowRain.textContent = `${nw.rainNow.toFixed(1)} mm/h`;
+            elNowRain.style.color = nw.rainNow > 5 ? '#EF4444' : (nw.rainNow >= 2.5 ? '#F59E0B' : (nw.rainNow > 0 ? '#38BDF8' : '#10B981'));
+        }
+        if (elNowRainBadge) {
+            elNowRainBadge.textContent = nw.isThunderstorm ? '⛈️ Tempestade' : (nw.rainNow > 5 ? 'Chuva Forte' : (nw.rainNow > 0 ? 'Chovendo' : 'Sem Chuva'));
+            elNowRainBadge.style.color = (nw.rainNow > 5 || nw.isThunderstorm) ? '#EF4444' : (nw.rainNow > 0 ? '#38BDF8' : '#6EE7B7');
+        }
+        if (elNowHum) elNowHum.textContent = `${nw.humidity}%`;
+        if (elNowFeels) elNowFeels.textContent = `Sensação: ${nw.feelsLike}°C`;
+        if (elNowWind) elNowWind.textContent = `${nw.wind} km/h`;
+        if (elNowSource) elNowSource.textContent = nw.source === 'weatherapi' ? 'WeatherAPI' : (nw.source === 'openweathermap' ? 'OpenWeather' : 'Tempo Real');
+    }
 
     // Hero Badge & Porcentagem
     const elPercent = document.getElementById('hero-risk-percent');
@@ -2045,19 +2207,43 @@ function updateUIWithAnalysis(analysis, alt, lat, lon) {
     const elLabel = document.getElementById('hero-risk-label');
     const elBar = document.getElementById('hero-risk-bar');
     const elRec = document.getElementById('hero-recommendation');
+    const elInsight = document.getElementById('ai-insight-text');
 
-    elPercent.textContent = `${risk}%`;
-    elPercent.style.color = color;
+    // ─── 4. NOVA REGRA DO DIAGNÓSTICO DE RISCO (OVERRIDE DE SEGURANÇA) ───
+    if (analysis.securityOverride && analysis.securityOverride.active) {
+        const ovr = analysis.securityOverride;
+        color = ovr.color;
+        label = ovr.badge;
 
-    elBadge.textContent = label;
-    elBadge.style.background = `${color}22`;
-    elBadge.style.color = color;
-    elBadge.style.borderColor = `${color}66`;
+        elPercent.textContent = `${ovr.score}%`;
+        elPercent.style.color = ovr.color;
 
-    elLabel.textContent = risk >= 75 ? "🚨 Alerta Crítico" : (risk >= 50 ? "⚠️ Atenção Alta" : (risk >= 30 ? "🟡 Atenção Moderada" : "🟢 Condição Segura"));
+        elBadge.textContent = ovr.badge;
+        elBadge.style.background = `${ovr.color}22`;
+        elBadge.style.color = ovr.color;
+        elBadge.style.borderColor = `${ovr.color}66`;
 
-    elBar.style.width = `${Math.max(8, risk)}%`;
-    elBar.style.background = color;
+        elLabel.textContent = ovr.label;
+
+        elBar.style.width = `${Math.max(8, ovr.score)}%`;
+        elBar.style.background = ovr.color;
+
+        elRec.innerHTML = ovr.message;
+        if (elInsight) elInsight.innerHTML = ovr.message;
+    } else {
+        elPercent.textContent = `${risk}%`;
+        elPercent.style.color = color;
+
+        elBadge.textContent = label;
+        elBadge.style.background = `${color}22`;
+        elBadge.style.color = color;
+        elBadge.style.borderColor = `${color}66`;
+
+        elLabel.textContent = risk >= 75 ? "🚨 Alerta Crítico" : (risk >= 50 ? "⚠️ Atenção Alta" : (risk >= 30 ? "🟡 Atenção Moderada" : "🟢 Condição Segura"));
+
+        elBar.style.width = `${Math.max(8, risk)}%`;
+        elBar.style.background = color;
+    }
 
     // ─── CARD DE TELEMETRIA HÍDRICA ───────────────────────────────────────────
     const alertBox    = document.getElementById('river-telemetry-alert');
@@ -2341,8 +2527,8 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
     map.flyTo([lat, lon], 16, { duration: 1.5, easeLinearity: 0.25 });
 }
 
-// ─── RENDERIZAR GRÁFICO CHART.JS (TENDÊNCIA 24H + 3H) ─────────────────────────
-function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
+// ─── RENDERIZAR GRÁFICO CHART.JS (PROJEÇÃO 24H: FUSÃO TEMPO REAL + OPEN-METEO) ───
+function renderTrendChart(labels, historyData, forecastData, maxForecastRisk, projection24h) {
     const canvas = document.getElementById('riskTrendChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -2351,7 +2537,183 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
         riskTrendChart.destroy();
     }
 
-    const mainColor = getRiskColor(maxForecastRisk);
+    // ── Paleta de cores por nível de risco (Design System FECART) ──
+    const FORECAST_COLOR = '#A78BFA'; // Violeta/Ametista
+
+    function segColor(risk, alpha) {
+        const a = alpha !== undefined ? alpha : 1;
+        if (risk >= 70) return `rgba(239,68,68,${a})`;
+        if (risk >= 50) return `rgba(249,115,22,${a})`;
+        if (risk >= 30) return `rgba(234,179,8,${a})`;
+        return `rgba(16,185,129,${a})`;
+    }
+
+    // Se temos os dados da Projeção 24h unificados (Fusão Tempo Real + Open-Meteo):
+    if (projection24h && projection24h.labels && projection24h.rain) {
+        riskTrendChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: projection24h.labels,
+                datasets: [
+                    {
+                        type: 'line',
+                        label: 'Curva de Risco Preditivo (%)',
+                        data: projection24h.risk,
+                        borderColor: '#F59E0B',
+                        backgroundColor: 'rgba(245, 158, 11, 0.10)',
+                        borderWidth: 2.5,
+                        yAxisID: 'yRisk',
+                        tension: 0.35,
+                        pointRadius: (ctx) => (ctx.dataIndex === 0 ? 6 : 3),
+                        pointBackgroundColor: (ctx) => (ctx.dataIndex === 0 ? '#EF4444' : segColor(ctx.raw ?? 0)),
+                        pointBorderColor: '#070B12',
+                        pointBorderWidth: 1.5,
+                        segment: {
+                            borderColor: (ctx) => segColor((ctx.p0.parsed.y + ctx.p1.parsed.y) / 2)
+                        },
+                        fill: false
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Precipitação Projeção (mm/h)',
+                        data: projection24h.rain,
+                        backgroundColor: (ctx) => (ctx.dataIndex === 0 ? 'rgba(56, 189, 248, 0.88)' : 'rgba(56, 189, 248, 0.40)'),
+                        borderColor: (ctx) => (ctx.dataIndex === 0 ? '#0284C7' : '#38BDF8'),
+                        borderWidth: (ctx) => (ctx.dataIndex === 0 ? 2 : 1),
+                        borderRadius: 4,
+                        yAxisID: 'yRain'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 750, easing: 'easeInOutQuart' },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            color: '#94A3B8',
+                            boxWidth: 14,
+                            padding: 10,
+                            font: { size: 10, weight: '700', family: 'Inter, sans-serif' }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(7, 11, 18, 0.96)',
+                        titleColor: '#F8FAFC',
+                        bodyColor: '#CBD5E1',
+                        borderColor: 'rgba(56, 189, 248, 0.35)',
+                        borderWidth: 1,
+                        padding: 10,
+                        cornerRadius: 8,
+                        callbacks: {
+                            title: (items) => {
+                                const idx = items[0]?.dataIndex;
+                                return idx === 0 ? '🕐 Agora (Hora 0 — API Tempo Real sincronizada)' : `🕐 Previsão ${items[0]?.label} (Open-Meteo)`;
+                            },
+                            label: (ctx) => {
+                                if (ctx.dataset.yAxisID === 'yRisk') {
+                                    const r = ctx.raw ?? 0;
+                                    const lvl = r >= 70 ? '🔴 Crítico' : r >= 50 ? '🟠 Alto' : r >= 30 ? '🟡 Moderado' : '🟢 Baixo';
+                                    return `  🎯 Risco Preditivo: ${r}%  ${lvl}`;
+                                }
+                                return `  💧 Precipitação: ${ctx.raw} mm/h ${ctx.dataIndex === 0 ? '(Taxa Atual da API de Tempo Real)' : '(Previsão Horária Open-Meteo)'}`;
+                            },
+                            labelColor: (item) => {
+                                if (item.dataset.yAxisID === 'yRisk') {
+                                    const c = segColor(item.raw ?? 0);
+                                    return { backgroundColor: c, borderColor: c, borderWidth: 1, borderRadius: 2 };
+                                }
+                                const c = item.dataIndex === 0 ? '#0284C7' : '#38BDF8';
+                                return { backgroundColor: c, borderColor: c, borderWidth: 1, borderRadius: 2 };
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                        ticks: { color: '#64748B', font: { size: 9, family: 'Inter, sans-serif' }, maxTicksLimit: 8 }
+                    },
+                    yRain: {
+                        type: 'linear',
+                        position: 'left',
+                        min: 0,
+                        suggestedMax: 15,
+                        grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                        ticks: { color: '#38BDF8', font: { size: 9, family: 'Inter, sans-serif' }, callback: (v) => `${v}mm` }
+                    },
+                    yRisk: {
+                        type: 'linear',
+                        position: 'right',
+                        min: 0,
+                        max: 100,
+                        grid: { drawOnChartArea: false },
+                        ticks: { color: '#F59E0B', font: { size: 9, family: 'Inter, sans-serif' }, stepSize: 25, callback: (v) => `${v}%` }
+                    }
+                }
+            }
+        });
+        return;
+    }
+
+    // ── Plugin: área pintada por cor de risco sob a linha histórica ──
+    const multiColorFillPlugin = {
+        id: 'multiColorFill',
+        beforeDatasetsDraw(chart) {
+            const { ctx: c, chartArea } = chart;
+            const meta = chart.getDatasetMeta(0);
+            const data = chart.data.datasets[0].data;
+            if (!meta.data || meta.data.length < 2) return;
+            c.save();
+            c.beginPath();
+            c.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height);
+            c.clip();
+            for (let i = 0; i < meta.data.length - 1; i++) {
+                if (data[i] == null || data[i + 1] == null) continue;
+                const p0 = meta.data[i];
+                const p1 = meta.data[i + 1];
+                const avg = (data[i] + data[i + 1]) / 2;
+                c.beginPath();
+                c.moveTo(p0.x, p0.y);
+                c.lineTo(p1.x, p1.y);
+                c.lineTo(p1.x, chartArea.bottom);
+                c.lineTo(p0.x, chartArea.bottom);
+                c.closePath();
+                c.fillStyle = segColor(avg, 0.12);
+                c.fill();
+            }
+            c.restore();
+        }
+    };
+
+    // ── Plugin: área pintada levemente sob linha de previsão (violeta) ──
+    const forecastFillPlugin = {
+        id: 'forecastFill',
+        beforeDatasetsDraw(chart) {
+            const { ctx: c, chartArea } = chart;
+            const meta = chart.getDatasetMeta(1);
+            const data = chart.data.datasets[1].data;
+            if (!meta.data || meta.data.length < 2) return;
+            const valid = meta.data.filter((p, i) => data[i] != null);
+            if (valid.length < 2) return;
+            c.save();
+            c.beginPath();
+            c.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height);
+            c.clip();
+            c.beginPath();
+            c.moveTo(valid[0].x, valid[0].y);
+            for (let i = 1; i < valid.length; i++) c.lineTo(valid[i].x, valid[i].y);
+            c.lineTo(valid[valid.length - 1].x, chartArea.bottom);
+            c.lineTo(valid[0].x, chartArea.bottom);
+            c.closePath();
+            c.fillStyle = 'rgba(167,139,250,0.08)';
+            c.fill();
+            c.restore();
+        }
+    };
 
     riskTrendChart = new Chart(ctx, {
         type: 'line',
@@ -2361,60 +2723,131 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk) {
                 {
                     label: 'Histórico (24h)',
                     data: historyData,
-                    borderColor: '#38BDF8',
-                    backgroundColor: 'rgba(56, 189, 248, 0.08)',
                     borderWidth: 2.5,
-                    fill: true,
+                    fill: false,
                     tension: 0.35,
                     pointRadius: (ctx) => (ctx.dataIndex === 23 ? 5 : 0),
-                    pointBackgroundColor: '#38BDF8',
+                    pointBackgroundColor: (ctx) => segColor(ctx.raw ?? 0),
+                    pointBorderColor: '#070B12',
+                    pointBorderWidth: 2,
+                    segment: {
+                        borderColor: (ctx) => segColor((ctx.p0.parsed.y + ctx.p1.parsed.y) / 2)
+                    },
                     spanGaps: false
                 },
                 {
                     label: 'Previsão IA (+3h)',
                     data: forecastData,
-                    borderColor: '#F59E0B',
-                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    borderColor: FORECAST_COLOR,
                     borderWidth: 2.5,
-                    borderDash: [5, 5],
-                    fill: true,
+                    borderDash: [5, 4],
+                    fill: false,
                     tension: 0.35,
-                    pointRadius: 4,
-                    pointBackgroundColor: '#F59E0B',
+                    pointRadius: (ctx) => (ctx.dataIndex > 23 ? 4 : 0),
+                    pointBackgroundColor: FORECAST_COLOR,
+                    pointBorderColor: '#070B12',
+                    pointBorderWidth: 1.5,
                     spanGaps: true
                 }
             ]
         },
+        plugins: [multiColorFillPlugin, forecastFillPlugin],
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: { duration: 800, easing: 'easeInOutQuart' },
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: {
                     display: true,
-                    labels: { color: '#94A3B8', boxWidth: 12, font: { size: 10, weight: 'bold' } }
+                    position: 'top',
+                    align: 'end',
+                    labels: {
+                        generateLabels(chart) {
+                            const histData = chart.data.datasets[0].data;
+                            const lastHist = [...histData].reverse().find(v => v != null) ?? 0;
+                            const histC = segColor(lastHist);
+                            return [
+                                {
+                                    text: 'Histórico (24h)',
+                                    strokeStyle: histC,
+                                    fillStyle: histC,
+                                    lineWidth: 2.5,
+                                    fontColor: '#475569',
+                                    hidden: false,
+                                    datasetIndex: 0
+                                },
+                                {
+                                    text: 'Previsão IA (+3h)',
+                                    strokeStyle: FORECAST_COLOR,
+                                    fillStyle: FORECAST_COLOR,
+                                    lineWidth: 2.5,
+                                    fontColor: '#475569',
+                                    hidden: false,
+                                    datasetIndex: 1
+                                }
+                            ];
+                        },
+                        color: '#475569',
+                        font: { size: 10, weight: '600', family: 'Inter, sans-serif' },
+                        padding: 12,
+                        boxWidth: 20,
+                        boxHeight: 2
+                    }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                    titleColor: '#FFFFFF',
+                    enabled: true,
+                    backgroundColor: 'rgba(7,11,18,0.95)',
+                    titleColor: '#94A3B8',
                     bodyColor: '#E2E8F0',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    borderColor: 'rgba(255,255,255,0.07)',
                     borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 10,
+                    caretSize: 5,
+                    displayColors: true,
+                    boxWidth: 8,
+                    boxHeight: 8,
                     callbacks: {
-                        label: (ctx) => ctx.raw !== null ? ` Risco: ${ctx.raw}%` : ''
+                        title: (items) => `🕐 ${items[0].label}`,
+                        label: (item) => {
+                            if (item.raw == null) return '';
+                            const r = item.raw;
+                            const lvl = r >= 70 ? '🔴 Crítico' : r >= 50 ? '🟠 Alto' : r >= 30 ? '🟡 Moderado' : '🟢 Baixo';
+                            const pref = item.datasetIndex === 0 ? 'Histórico' : 'Previsão IA';
+                            return `  ${pref}: ${r}%  ${lvl}`;
+                        },
+                        labelColor: (item) => {
+                            if (item.datasetIndex === 1) {
+                                return { backgroundColor: FORECAST_COLOR, borderColor: FORECAST_COLOR, borderWidth: 1, borderRadius: 2 };
+                            }
+                            const c = segColor(item.raw ?? 0);
+                            return { backgroundColor: c, borderColor: c, borderWidth: 1, borderRadius: 2 };
+                        }
                     }
                 }
             },
             scales: {
                 x: {
-                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
-                    ticks: { color: '#64748B', font: { size: 9 }, maxTicksLimit: 7 }
+                    grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+                    border: { display: false },
+                    ticks: { color: '#334155', font: { size: 9, family: 'Inter, sans-serif' }, maxTicksLimit: 7, padding: 4 }
                 },
                 y: {
                     min: 0,
                     max: 100,
-                    grid: { color: 'rgba(255, 255, 255, 0.06)' },
-                    ticks: { color: '#64748B', font: { size: 9 }, stepSize: 25, callback: (v) => `${v}%` }
+                    grid: {
+                        color: (ctx) => {
+                            const v = ctx.tick.value;
+                            if (v === 75) return 'rgba(239,68,68,0.14)';
+                            if (v === 50) return 'rgba(249,115,22,0.12)';
+                            if (v === 25) return 'rgba(234,179,8,0.10)';
+                            return 'rgba(255,255,255,0.04)';
+                        },
+                        drawTicks: false
+                    },
+                    border: { display: false },
+                    ticks: { color: '#334155', font: { size: 9, family: 'Inter, sans-serif' }, stepSize: 25, padding: 6, callback: (v) => `${v}%` }
                 }
             }
         }
