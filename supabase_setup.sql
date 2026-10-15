@@ -174,4 +174,3 @@ create trigger profiles_set_updated_at
 
 
 -- ─── FIM DO SCRIPT ───────────────────────────────────────────────────────────
---TESTE
