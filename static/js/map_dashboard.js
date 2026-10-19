@@ -1072,17 +1072,45 @@ document.addEventListener('keydown', event => {
     }
 });
 
-// ─── CONSULTA DE ALTITUDE EM TEMPO REAL (OPENTOPODATA / OPEN-ELEVATION) ────────
+// ─── CONSULTA DE ALTITUDE OTIMIZADA (CACHE + PROXIMIDADE LOCAL + TIMEOUT RÁPIDO) ────────
 const elevationCache = {};
 
 async function getElevation(lat, lon) {
     const key = `${lat.toFixed(4)}_${lon.toFixed(4)}`;
     if (elevationCache[key] !== undefined) return elevationCache[key];
 
-    // 1. Tenta OpenTopoData API (Dataset ASTER 30m)
+    // 0. Se já estiver a menos de 400m de algum bairro/ponto catalogado de SP, usa altitude imediata (0ms)
+    for (const n of SP_NEIGHBORHOODS) {
+        if (n.alt) {
+            const d = Math.hypot(n.lat - lat, n.lon - lon);
+            if (d < 0.0035) { // ~380m
+                elevationCache[key] = n.alt;
+                return n.alt;
+            }
+        }
+    }
+
+    // 1. Tenta Open-Meteo elevation rápido (normalmente responde em <200ms)
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const timeoutId = setTimeout(() => controller.abort(), 1200);
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.elevation !== undefined && data.elevation !== null) {
+                const elev = Math.round(data.elevation);
+                elevationCache[key] = elev;
+                return elev;
+            }
+        }
+    } catch (_) {}
+
+    // 2. Fallback OpenTopoData ASTER 30m com timeout curto (1.5s)
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500);
         const url = `https://api.opentopodata.org/v1/aster30m?locations=${lat},${lon}`;
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -1095,46 +1123,22 @@ async function getElevation(lat, lon) {
                 return elev;
             }
         }
-    } catch (e) {
-        console.warn("OpenTopoData indisponível ou timeout, tentando fallback...", e);
-    }
-
-    // 2. Fallback: Open-Elevation API
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const url = `https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lon}`;
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-            const data = await res.json();
-            if (data.results && data.results.length > 0 && data.results[0].elevation !== null && data.results[0].elevation !== undefined) {
-                const elev = Math.round(data.results[0].elevation);
-                elevationCache[key] = elev;
-                return elev;
-            }
-        }
-    } catch (e) {
-        console.warn("Open-Elevation indisponível ou timeout, tentando Open-Meteo elevation...", e);
-    }
-
-    // 3. Fallback: Open-Meteo elevation
-    try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
-        const res = await fetch(url);
-        if (res.ok) {
-            const data = await res.json();
-            if (data.elevation !== undefined && data.elevation !== null) {
-                const elev = Math.round(data.elevation);
-                elevationCache[key] = elev;
-                return elev;
-            }
-        }
     } catch (_) {}
 
-    // Fallback padrão se todas falharem (média do planalto SP)
-    return 745;
+    // 3. Fallback imediato baseado no ponto mais próximo de SP_NEIGHBORHOODS
+    let closestAlt = 745;
+    let minDist = 999999;
+    for (const n of SP_NEIGHBORHOODS) {
+        if (n.alt) {
+            const d = Math.hypot(n.lat - lat, n.lon - lon);
+            if (d < minDist) {
+                minDist = d;
+                closestAlt = n.alt;
+            }
+        }
+    }
+    elevationCache[key] = closestAlt;
+    return closestAlt;
 }
 
 // ─── CALHAS HIDROGRÁFICAS PRINCIPAIS DE SÃO PAULO ────────────────────────────
@@ -1653,27 +1657,29 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
         if (clearBtn) clearBtn.style.display = 'block';
     }
 
-    // 2. Buscar Dados Climáticos da Open-Meteo para a coordenada
-    const weatherData = await fetchWeatherData(lat, lon);
+    // 2. Buscar Dados Climáticos e Telemetria de Rios em PARALELO (Promise.all)
+    const riverUrl = `/api/rivers/nearest?lat=${lat}&lon=${lon}&radius_m=800`;
+    const [weatherData, riverRes] = await Promise.all([
+        fetchWeatherData(lat, lon),
+        fetch(riverUrl, { signal: AbortSignal.timeout(2500) }).catch(err => {
+            console.warn('[FloodGuard] Telemetria de rio indisponível:', err.message);
+            return null;
+        })
+    ]);
 
-    // 2.5 Buscar Telemetria de Rios (URL relativa — funciona local e em produção)
-    try {
-        const riverUrl = `/api/rivers/nearest?lat=${lat}&lon=${lon}&radius_m=800`;
-        const res = await fetch(riverUrl, { signal: AbortSignal.timeout(4000) });
-        if (res.ok) {
-            currentRiverTelemetry = await res.json();
+    if (riverRes && riverRes.ok) {
+        try {
+            currentRiverTelemetry = await riverRes.json();
             console.debug('[FloodGuard] Telemetria de Rio:', 
                 currentRiverTelemetry.estacao?.rio,
                 '|', currentRiverTelemetry.nivel,
                 '|', currentRiverTelemetry.percentual_ocupacao + '%',
                 '| Fonte:', currentRiverTelemetry.estacao?.fonte_dados || 'mock'
             );
-        } else {
-            console.warn('[FloodGuard] River API retornou:', res.status);
+        } catch (_) {
             currentRiverTelemetry = null;
         }
-    } catch (e) {
-        console.warn('[FloodGuard] Telemetria de rio indisponível:', e.message);
+    } else {
         currentRiverTelemetry = null;
     }
 
@@ -1713,7 +1719,8 @@ async function analyzePoint(lat, lon, nome, bairro = "São Paulo - SP", alt = nu
 
 // ─── BUSCA DE CLIMA NA ARQUITETURA HÍBRIDA (NOWCASTING + FORECASTING) ───────────────────
 async function fetchWeatherData(lat, lon) {
-    const key = `w_hy_${lat.toFixed(3)}_${lon.toFixed(3)}`;
+    // Agrupa coordenadas muito próximas (~1.1 km) para reaproveitar cache e evitar requisições repetitivas
+    const key = `w_hy_${lat.toFixed(2)}_${lon.toFixed(2)}`;
     const now = Date.now();
     if (geocodeCache[key] && geocodeCache[key].expiresAt && now < geocodeCache[key].expiresAt) {
         return geocodeCache[key].data;
@@ -1737,12 +1744,12 @@ async function fetchWeatherData(lat, lon) {
         const directUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation,rain,showers,weather_code&hourly=precipitation,rain,showers,precipitation_probability,soil_moisture_0_to_1cm&daily=precipitation_sum,precipitation_probability_max&past_days=1&forecast_days=2&timezone=America%2FSao_Paulo`;
         const proxyUrl = `/api/dashboard/weather?lat=${lat}&lon=${lon}`;
         try {
-            const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
+            const res = await fetch(directUrl, { signal: AbortSignal.timeout(3000) });
             if (res.ok) forecast = await res.json();
         } catch (_) {}
         if (!forecast || !forecast.hourly) {
             try {
-                const proxyRes = await fetch(proxyUrl);
+                const proxyRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(2500) });
                 if (proxyRes.ok) forecast = await proxyRes.json();
             } catch (_) {}
         }
@@ -1773,7 +1780,8 @@ async function fetchWeatherData(lat, lon) {
             riskOverride: riskOverride,
             current_rain_mm_h: nowcast.rainNow
         };
-        geocodeCache[key] = { data: unified, expiresAt: Date.now() + 60000 };
+        // Cache válido por 3 minutos (180.000 ms) para navegação fluida e instantânea
+        geocodeCache[key] = { data: unified, expiresAt: Date.now() + 180000 };
         return unified;
     }
 
@@ -2527,8 +2535,8 @@ function updateMapMarker(lat, lon, nome, analysis, alt, latParam, lonParam, isUs
 
     activeMarker = L.marker([lat, lon], { icon }).addTo(map).bindPopup(popupContent);
 
-    // Movimento suave do mapa para o ponto
-    map.flyTo([lat, lon], 16, { duration: 1.5, easeLinearity: 0.25 });
+    // Movimento suave e ágil do mapa para o ponto
+    map.flyTo([lat, lon], 16, { duration: 0.6, easeLinearity: 0.4 });
 }
 
 // ─── RENDERIZAR GRÁFICO CHART.JS (PROJEÇÃO 24H: FUSÃO TEMPO REAL + OPEN-METEO) ───
@@ -2592,7 +2600,7 @@ function renderTrendChart(labels, historyData, forecastData, maxForecastRisk, pr
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                animation: { duration: 750, easing: 'easeInOutQuart' },
+                animation: { duration: 300, easing: 'easeOutQuart' },
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: {
@@ -3496,11 +3504,16 @@ async function reverseGeocode(lat, lon) {
     const key = `geo_${lat.toFixed(4)}_${lon.toFixed(4)}`;
     if (geocodeCache[key]) return geocodeCache[key];
 
-    // Se estiver extremamente próximo (< 40 metros) de um marco de referência conhecido
+    // Se estiver a menos de 250m de um ponto de referência conhecido em SP (resposta instantânea 0ms)
     for (const n of SP_NEIGHBORHOODS) {
         const d = Math.hypot(n.lat - lat, n.lon - lon);
-        if (d < 0.0004) {
-            const res = { nome: n.nome, bairro: n.bairro, alt: n.alt };
+        if (d < 0.0022) { // ~240m
+            const res = { 
+                nome: n.nome, 
+                bairro: `${n.bairro} • São Paulo`, 
+                alt: n.alt,
+                display_name: `${n.nome}, ${n.bairro} • São Paulo`
+            };
             geocodeCache[key] = res;
             return res;
         }
@@ -3508,7 +3521,7 @@ async function reverseGeocode(lat, lon) {
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 1800);
         const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`;
         const res = await fetch(url, { 
             headers: { 'Accept-Language': 'pt-BR, pt' },

@@ -59,11 +59,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from fastapi.middleware.gzip import GZipMiddleware
+
 app = FastAPI(
     title="FloodGuard AI API",
     description="API de previsão de enchentes",
     lifespan=lifespan,
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.add_middleware(
     CORSMiddleware,
